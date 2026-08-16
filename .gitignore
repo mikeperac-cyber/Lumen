@@ -1,0 +1,10 @@
+# Freebuff agent runtime
+.freebuff/
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs / temp
+*.log
