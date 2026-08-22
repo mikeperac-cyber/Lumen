@@ -928,7 +928,7 @@ const NAV = {
   brief: ['sparkles', 'Brief'], dashboard: ['dashboard', 'Dashboard'], students: ['graduation-cap', 'Students'], review: ['calendar', 'Weekly review'], tasks: ['check-square', 'Tasks'], projects: ['folder', 'Projects'], schedule: ['calendar-plus', 'Schedule'], tags: ['tag', 'Tags'], goals: ['target', 'Goals'],
   habits: ['flame', 'Habits'], achievements: ['trophy', 'Achievements'], notes: ['file-text', 'Notes'], voice: ['mic', 'Voice'], activity: ['activity', 'Activity'], perf: ['zap', 'Performance'],  analytics: ['bar-chart', 'Analytics'], finance: ['dollar-sign', 'Finance'], settings: ['settings', 'Settings']
 };
-const MAIN_VIEWS = new Set(['brief', 'dashboard', 'students', 'tasks', 'habits', 'more']);
+const MAIN_VIEWS = new Set(['brief', 'dashboard', 'students', 'tasks', 'projects', 'schedule', 'habits', 'notes', 'voice', 'finance', 'more']);
 
 /* ---------- Seed data ---------- */
 function d(offset) { return isoDate(shiftDays(offset)); }
@@ -1216,10 +1216,6 @@ function perfStats() {
 
 function renderView() {
   const view = currentView();
-  if (view === 'perf') { $('#view-title').textContent = 'Performance'; $('#view-sub').textContent = 'Render times & slow view alerts'; $$('.nav-item[data-view]').forEach(b => b.classList.toggle('active', b.dataset.view === 'perf' || (b.dataset.view === 'more' && !MAIN_VIEWS.has(view)))); hideQuickMenu(); updateNavBadges(); renderPerf(); viewRoot().scrollTop = 0; return; }
-  if (view === 'analytics') { $('#view-title').textContent = 'Habit Analytics'; $('#view-sub').textContent = 'Day-of-week patterns & cross-habit insights'; $$('.nav-item[data-view]').forEach(b => b.classList.toggle('active', b.dataset.view === 'analytics' || (b.dataset.view === 'more' && !MAIN_VIEWS.has(view)))); hideQuickMenu(); updateNavBadges(); renderAnalytics(); viewRoot().scrollTop = 0; return; }
-  if (view === 'finance') { $('#view-title').textContent = 'Finance'; $('#view-sub').textContent = 'Income, expenses & cash flow'; $$('.nav-item[data-view]').forEach(b => b.classList.toggle('active', b.dataset.view === 'finance' || (b.dataset.view === 'more' && !MAIN_VIEWS.has(view)))); hideQuickMenu(); updateNavBadges(); renderFinance(); viewRoot().scrollTop = 0; return; }
-  if (view === 'students') { $('#view-title').textContent = 'Students'; $('#view-sub').textContent = 'Teaching roster, lesson dossiers & student progress'; $$('.nav-item[data-view]').forEach(b => b.classList.toggle('active', b.dataset.view === 'students' || (b.dataset.view === 'more' && !MAIN_VIEWS.has(view)))); hideQuickMenu(); updateNavBadges(); renderStudents(); viewRoot().scrollTop = 0; return; }
   if (Date.now() - _lastAchEval > 5000) { _lastAchEval = Date.now(); evaluateAchievements(); }
   const [title, sub] = TITLES[view] || ['Dashboard', 'Welcome back'];
   $('#view-title').textContent = title;
@@ -1228,11 +1224,15 @@ function renderView() {
     const bv = b.dataset.view;
     b.classList.toggle('active', bv === view || (bv === 'more' && !MAIN_VIEWS.has(view)));
   });
+  $$('.more-item[data-view]').forEach(b => {
+    b.classList.toggle('active', b.dataset.view === view);
+  });
   hideQuickMenu();
+  $('#more-menu')?.classList.add('hidden');
   updateNavBadges();
   const root = viewRoot();
   const _t0 = performance.now();
-  const RENDERERS = { brief: renderBrief, dashboard: renderDashboard, students: renderStudents, review: renderReview, tasks: renderTasks, projects: renderProjects, tags: renderTags, schedule: renderSchedule, goals: renderGoals, habits: renderHabits, achievements: renderAchievements, notes: renderNotes, voice: renderVoice, activity: renderActivity, settings: renderSettings, analytics: renderAnalytics, finance: renderFinance };
+  const RENDERERS = { brief: renderBrief, dashboard: renderDashboard, students: renderStudents, review: renderReview, tasks: renderTasks, projects: renderProjects, tags: renderTags, schedule: renderSchedule, goals: renderGoals, habits: renderHabits, achievements: renderAchievements, notes: renderNotes, voice: renderVoice, activity: renderActivity, settings: renderSettings, analytics: renderAnalytics, finance: renderFinance, perf: renderPerf };
   (RENDERERS[view] || renderDashboard)();
   perfRecord(view, performance.now() - _t0);
   root.scrollTop = 0;
