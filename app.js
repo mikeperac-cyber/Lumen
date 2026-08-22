@@ -459,15 +459,34 @@ function parseNaturalLanguageTask(rawText) {
     return '';
   });
 
-  // Extract Project / Goal: @name
-  text = text.replace(/@([\w-]+)/g, (_, name) => {
+  // Extract Student: @StudentName or matching existing student name
+  let student = '';
+  const studentsList = getStudentsList();
+  text = text.replace(/@([\w-]+)/g, (match, name) => {
     const q = name.toLowerCase();
+    const matchedStudent = studentsList.find(s => s.name && s.name.toLowerCase().replace(/\s+/g, '') === q);
+    if (matchedStudent) {
+      student = matchedStudent.name;
+      return '';
+    }
     const prj = (state.projects || []).find(p => p.name && p.name.toLowerCase().includes(q));
-    if (prj) projectId = prj.id;
+    if (prj) { projectId = prj.id; return ''; }
     const gl = (state.goals || []).find(g => g.title && g.title.toLowerCase().includes(q));
-    if (gl) goalId = gl.id;
-    return '';
+    if (gl) { goalId = gl.id; return ''; }
+    return match;
   });
+
+  if (!student && studentsList.length) {
+    for (const s of studentsList) {
+      if (s.name && s.name.length >= 3) {
+        const re = new RegExp(`\\b(?:with|for|student:)?\\s*${s.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+        if (re.test(text)) {
+          student = s.name;
+          break;
+        }
+      }
+    }
+  }
 
   // Extract Time: at 3pm, at 3:30pm, at 14:00, at 9am
   text = text.replace(/\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/gi, (_, h, m, ampm) => {
@@ -542,9 +561,10 @@ function parseNaturalLanguageTask(rawText) {
     startTime,
     priority,
     tags,
-    category: category || 'personal',
+    category: category || (student ? 'work' : 'personal'),
     goalId,
     projectId,
+    student: student || undefined,
     status: due === todayISO() ? 'today' : status
   };
 }
@@ -2027,6 +2047,37 @@ function projectsDashboardHTML() {
   </div>`;
 }
 
+function teachingDashboardHTML() {
+  const students = getStudentsList();
+  const activeHw = (state.assignments || []).filter(a => a.status === 'assigned' || a.status === 'submitted');
+  const plannedLessons = (state.lessonPlans || []).filter(p => p.status === 'planned');
+  return `<div class="card">
+    <h3 class="card-title"><span>🎓 Teaching Command Hub</span><a class="link-btn" href="#students">All students →</a></h3>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(70px,1fr));gap:8px;margin-bottom:12px">
+      <div style="background:var(--surface2);padding:8px 6px;border-radius:8px;text-align:center">
+        <div style="font-size:17px;font-weight:700;color:var(--accent)">${students.length}</div>
+        <div class="muted" style="font-size:10.5px">Students</div>
+      </div>
+      <div style="background:var(--surface2);padding:8px 6px;border-radius:8px;text-align:center">
+        <div style="font-size:17px;font-weight:700;color:#34d399">${(state.attendance || []).length}</div>
+        <div class="muted" style="font-size:10.5px">Sessions</div>
+      </div>
+      <div style="background:var(--surface2);padding:8px 6px;border-radius:8px;text-align:center">
+        <div style="font-size:17px;font-weight:700;color:#518DBF">${activeHw.length}</div>
+        <div class="muted" style="font-size:10.5px">Active HW</div>
+      </div>
+      <div style="background:var(--surface2);padding:8px 6px;border-radius:8px;text-align:center">
+        <div style="font-size:17px;font-weight:700;color:#f59e0b">${plannedLessons.length}</div>
+        <div class="muted" style="font-size:10.5px">Plans</div>
+      </div>
+    </div>
+    <div style="display:flex;gap:6px">
+      <button class="btn btn-sm btn-accent" style="flex:1" id="dash-mark-att">📅 Attendance</button>
+      <button class="btn btn-sm btn-ghost" style="flex:1" id="dash-assign-hw">📋 Assign HW</button>
+    </div>
+  </div>`;
+}
+
 function langColor(lang) {
   const map = {
     'JavaScript': '#f0db4f', 'TypeScript': '#3178c6', 'Python': '#3776ab', 'Rust': '#dea584',
@@ -2340,6 +2391,7 @@ function renderDashboard() {
       </div>
       <div class="dash-stack">
         <div class="card">${pomodoroHTML()}</div>
+        ${teachingDashboardHTML()}
         <div class="card">
           <h3 class="card-title"><span>📝 Recent notes</span><a class="link-btn" href="#notes">All notes →</a></h3>
           ${recentNotes}
@@ -2381,6 +2433,9 @@ function renderDashboard() {
     toggleHabitDate(h, todayISO());
     renderDashboard();
   }));
+  // teaching dashboard buttons
+  $('#dash-mark-att')?.addEventListener('click', () => { location.hash = '#students'; openAttendanceModal(null); });
+  $('#dash-assign-hw')?.addEventListener('click', () => { location.hash = '#students'; openAssignmentModal(null); });
   // open note
   $$('[data-open-note]').forEach(el => el.addEventListener('click', () => {
     selectedNoteId = el.dataset.openNote;
@@ -2835,6 +2890,17 @@ function renderReview() {
       state.goals.forEach(g => {
         md += `- **${g.title}**: ${goalProgress(g)}% complete\n`;
       });
+
+      const weeklyAtt = (state.attendance || []).filter(a => a.date >= curCtx.start && a.date <= curCtx.end);
+      const weeklyHwGraded = (state.assignments || []).filter(a => (a.status === 'reviewed' || a.status === 'completed') && a.updatedAt >= new Date(curCtx.start).getTime() && a.updatedAt <= new Date(curCtx.end + 'T23:59:59').getTime());
+      const weeklyInc = (state.income || []).filter(e => e.date >= curCtx.start && e.date <= curCtx.end);
+      const weeklyUsd = weeklyInc.filter(e => (e.currency || 'USD') === 'USD').reduce((s, e) => s + (e.amount || 0), 0);
+      const weeklyTry = weeklyInc.filter(e => e.currency === 'TRY').reduce((s, e) => s + (e.amount || 0), 0);
+
+      md += `\n## 🎓 Teaching & Student Progress\n`;
+      md += `- **Sessions Taught**: ${weeklyAtt.length} sessions\n`;
+      md += `- **Tutoring Revenue**: $${weeklyUsd.toLocaleString()} / ₺${weeklyTry.toLocaleString()}\n`;
+      md += `- **Homework Graded**: ${weeklyHwGraded.length} assignments\n`;
       
       const blob = new Blob([md], { type: 'text/markdown' });
       const a = document.createElement('a');
@@ -3408,6 +3474,13 @@ function bindTaskCards(scope) {
     card.addEventListener('dragend', () => { taskDragging = false; card.classList.remove('dragging'); });
     card.addEventListener('click', e => {
       if (e.target.closest('[data-complete]') || e.target.closest('[data-task-pomo]')) return;
+      if (e.target.closest('.task-student-chip')) {
+        e.stopPropagation();
+        const sName = e.target.closest('.task-student-chip').dataset.openStudent;
+        const std = getStudentsList().find(x => x.name === sName);
+        if (std) openStudentDossier(std.id || std.name);
+        return;
+      }
       if (e.target.closest('.tc-time')) {
         e.stopPropagation();
         openTimeBreakdownModal(card.dataset.id);
@@ -3928,7 +4001,7 @@ function taskCardHTML(t) {
     </div>
     <div class="tc-meta">
       <span class="badge ${p.cls}">${p.label}</span>
-      ${t.student ? `<span class="badge" style="background:rgba(81,141,191,.15);color:#518DBF;border:1px solid rgba(81,141,191,.3);padding:1px 6px;border-radius:10px;font-size:11px">🎓 ${esc(t.student)}</span>` : ''}
+      ${t.student ? `<span class="badge task-student-chip" data-open-student="${esc(t.student)}" style="cursor:pointer;background:rgba(81,141,191,.15);color:#518DBF;border:1px solid rgba(81,141,191,.3);padding:1px 6px;border-radius:10px;font-size:11px" title="🎓 View ${esc(t.student)} dossier">🎓 ${esc(t.student)}</span>` : ''}
       ${catBadge}
       ${goal ? `<span class="goal-chip" style="background:${goal.color}">${esc(goal.title)}</span>` : ''}
       ${t.krId && goal ? `<span class="tag kr-tag">→ ${esc((goal.keyResults.find(k => k.id === t.krId) || {}).title || 'KR')}</span>` : ''}
@@ -5645,6 +5718,7 @@ function noteItemHTML(n) {
     ${n.content ? `<div class="ni-snippet">${esc(n.content.replace(/[#*`>_-]/g, '').slice(0, 90))}</div>` : ''}
     <div class="ni-meta">
       <span class="ni-date">${fmtWhen(n.updatedAt)}</span>
+      ${n.student ? `<span class="badge" style="background:rgba(81,141,191,.15);color:#518DBF;border:1px solid rgba(81,141,191,.3);padding:0 5px;border-radius:8px;font-size:10px">🎓 ${esc(n.student)}</span>` : ''}
       ${(n.tags || []).slice(0, 3).map(t => tagSpan(t)).join('')}
       <button class="btn-icon pin-btn ${n.pinned ? 'on' : ''}" data-pin="${n.id}" title="${n.pinned ? 'Unpin' : 'Pin'}">${ic('pin', 13)}</button>
     </div>
@@ -6594,7 +6668,7 @@ function handleData(d, c) {
 function applyMerge(inc, incomingRev) {
   const key = arr => JSON.stringify([...(arr || [])].sort((a, b) => (a.id < b.id ? -1 : 1)));
   const keyAch = a => JSON.stringify(Object.entries(a || {}).sort((x, y) => (x[0] < y[0] ? -1 : 1)));
-  const before = key(state.tasks) + key(state.goals) + key(state.habits) + key(state.notes) + key(state.recordings) + key(state.projects) + key(state.krHistory) + JSON.stringify(state.tagColors || {}) + keyAch(state.achievements);
+  const before = key(state.tasks) + key(state.goals) + key(state.habits) + key(state.notes) + key(state.recordings) + key(state.projects) + key(state.krHistory) + key(state.income) + key(state.expenses) + key(state.students) + key(state.attendance) + key(state.assignments) + key(state.lessonPlans) + JSON.stringify(state.tagColors || {}) + keyAch(state.achievements);
   const mergeOne = (local, incoming, tombKey) => {
     const tomb = new Set(syncMeta.tombstones[tombKey] || []);
     ((inc.deleted && inc.deleted[tombKey]) || []).forEach(id => tomb.add(id));
@@ -6619,14 +6693,14 @@ function applyMerge(inc, incomingRev) {
   state.expenses = mergeOne(state.expenses, inc.expenses, 'expenses');
   state.expectedIncome = mergeOne(state.expectedIncome, inc.expectedIncome, 'expectedIncome');
   state.expectedExpenses = mergeOne(state.expectedExpenses, inc.expectedExpenses, 'expectedExpenses');
-  // Merge income types and students (union of both)
+  state.students = mergeOne(state.students, inc.students, 'students');
+  state.attendance = mergeOne(state.attendance, inc.attendance, 'attendance');
+  state.assignments = mergeOne(state.assignments, inc.assignments, 'assignments');
+  state.lessonPlans = mergeOne(state.lessonPlans, inc.lessonPlans, 'lessonPlans');
+  // Merge income types (union of both)
   if (Array.isArray(inc.incomeTypes)) {
     const set = new Set([...(state.incomeTypes || []), ...inc.incomeTypes]);
     state.incomeTypes = [...set];
-  }
-  if (Array.isArray(inc.students)) {
-    const set = new Set([...(state.students || []), ...inc.students]);
-    state.students = [...set];
   }
   // Merge tagColors (newer timestamp wins per tag)
   if (inc.tagColors) {
@@ -6640,7 +6714,7 @@ function applyMerge(inc, incomingRev) {
     const iu = (inc.achievements[k] || {}).unlockedAt || 0;
     if (!state.achievements[k] || iu > ((state.achievements[k] || {}).unlockedAt || 0)) state.achievements[k] = inc.achievements[k];
   });
-  const changed = before !== key(state.tasks) + key(state.goals) + key(state.habits) + key(state.notes) + key(state.recordings) + key(state.projects) + key(state.krHistory) + JSON.stringify(state.tagColors || {}) + keyAch(state.achievements);
+  const changed = before !== key(state.tasks) + key(state.goals) + key(state.habits) + key(state.notes) + key(state.recordings) + key(state.projects) + key(state.krHistory) + key(state.income) + key(state.expenses) + key(state.students) + key(state.attendance) + key(state.assignments) + key(state.lessonPlans) + JSON.stringify(state.tagColors || {}) + keyAch(state.achievements);
   saveSyncMeta();
   if (changed) {
     syncMeta.rev = Math.max(syncMeta.rev || 0, incomingRev) + 1;
@@ -6664,7 +6738,7 @@ function pushState() {
         projects: state.projects, krHistory: state.krHistory, tagColors: state.tagColors,
         achievements: state.achievements, income: state.income, expenses: state.expenses,
         expectedIncome: state.expectedIncome, expectedExpenses: state.expectedExpenses, incomeTypes: state.incomeTypes,
-        students: state.students,
+        students: state.students, attendance: state.attendance, assignments: state.assignments, lessonPlans: state.lessonPlans,
         deleted: syncMeta.tombstones
       }
     });
@@ -7816,6 +7890,16 @@ function openFinanceModal(kind = 'income') {
 
   $('#fin-add-type')?.addEventListener('click', () => { closeModal(); openIncomeTypeModal(); });
   $('#fin-add-student-inline')?.addEventListener('click', () => { closeModal(); openStudentEditModal(null); });
+  $('#fin-student')?.addEventListener('change', e => {
+    const sName = e.target.value;
+    if (!sName) return;
+    const std = studentList.find(x => x.name === sName);
+    if (std) {
+      if (std.currency && $('#fin-curr')) $('#fin-curr').value = std.currency;
+      if (std.rate && $('#fin-amt') && !$('#fin-amt').value) $('#fin-amt').value = std.rate;
+      if ($('#fin-desc') && !$('#fin-desc').value) $('#fin-desc').value = `Lesson fee: ${std.name}`;
+    }
+  });
   $('#fin-save').addEventListener('click', () => {
     const amount = parseFloat($('#fin-amt').value);
     if (!amount || amount <= 0) { toast('Enter a valid amount', 'error'); return; }
@@ -8671,6 +8755,12 @@ function openAssignmentModal(assignment, presetStudent) {
           </div>
           <div class="field"><label class="field-label">Tags</label><input id="as-tags" type="text" value="${esc((a.tags || []).join(', '))}" placeholder="Writing, Speaking, Grammar"></div>
         </div>
+        <div class="field" style="margin-top:10px">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+            <input id="as-create-task" type="checkbox" ${!isEdit ? 'checked' : ''}>
+            <span>✅ Create linked review task on Tasks board</span>
+          </label>
+        </div>
       </div>
       <div class="modal-foot">
         <div style="flex:1"></div>
@@ -8688,15 +8778,17 @@ function openAssignmentModal(assignment, presetStudent) {
     const description = $('#as-desc').value.trim();
     const scoreType = $('#as-scoretype').value;
     const tags = $('#as-tags').value.split(',').map(x => x.trim()).filter(Boolean);
+    const createTask = $('#as-create-task')?.checked;
 
     captureUndo('Save assignment');
     if (!Array.isArray(state.assignments)) state.assignments = [];
 
+    const assignId = isEdit ? assignment.id : uid();
     if (isEdit) {
       Object.assign(assignment, { studentName, title, assignedDate, dueDate, description, scoreType, tags, updatedAt: Date.now() });
     } else {
       state.assignments.unshift({
-        id: uid(),
+        id: assignId,
         studentName,
         title,
         assignedDate,
@@ -8710,6 +8802,27 @@ function openAssignmentModal(assignment, presetStudent) {
         createdAt: Date.now(),
         updatedAt: Date.now()
       });
+
+      if (createTask) {
+        if (!Array.isArray(state.tasks)) state.tasks = [];
+        state.tasks.unshift({
+          id: uid(),
+          title: `Grade HW: ${title}`,
+          desc: `Homework for ${studentName}. Due: ${dueDate || 'Flexible'}.${description ? '\n' + description : ''}`,
+          status: 'today',
+          priority: 'med',
+          due: dueDate || todayISO(),
+          tags: ['Homework', studentName],
+          student: studentName,
+          assignmentId: assignId,
+          subtasks: [
+            { text: 'Check student submission', done: false, id: uid() },
+            { text: 'Grade & provide feedback', done: false, id: uid() }
+          ],
+          createdAt: Date.now(),
+          updatedAt: Date.now()
+        });
+      }
     }
 
     save();
@@ -8758,10 +8871,22 @@ function openAssignmentGradingModal(assignment) {
     </div>`);
 
   $('#gr-save-btn').addEventListener('click', () => {
-    assignment.status = $('#gr-status').value;
+    const newStatus = $('#gr-status').value;
+    assignment.status = newStatus;
     assignment.score = $('#gr-score').value.trim();
     assignment.feedback = $('#gr-feedback').value.trim();
     assignment.updatedAt = Date.now();
+
+    if (newStatus === 'completed' || newStatus === 'reviewed') {
+      const linkedTask = (state.tasks || []).find(t => t.assignmentId === assignment.id || (t.student === assignment.studentName && t.title.includes(assignment.title)));
+      if (linkedTask && linkedTask.status !== 'done') {
+        linkedTask.status = 'done';
+        linkedTask.completedAt = todayISO();
+        linkedTask.updatedAt = Date.now();
+        (linkedTask.subtasks || []).forEach(s => s.done = true);
+      }
+    }
+
     save();
     closeModal();
     if (currentView() === 'students') renderStudents();
@@ -9205,6 +9330,26 @@ function openStudentDossier(studentId) {
             </div>
             <div style="font-size:13px;line-height:1.4;color:var(--text)">${renderMd((n.content || '').slice(0, 240) + ((n.content || '').length > 240 ? '…' : ''))}</div>
           </div>`).join('')}</div>` : '<div class="muted" style="padding:20px;text-align:center">No notes found for this student.</div>'}`;
+    } else if (activeTab === 'plans') {
+      content = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <div><b>Lesson Plans for ${esc(s.name)}</b> (${studentPlans.length} plans)</div>
+          <button class="btn btn-sm btn-accent" id="dossier-plan-add">+ Create Lesson Plan</button>
+        </div>
+        ${studentPlans.length ? `
+          <div style="display:flex;flex-direction:column;gap:10px">${studentPlans.map(p => `
+            <div class="lesson-stage-block" style="padding:12px;background:var(--surface)">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                <b>📖 ${esc(p.title)}</b>
+                <span class="badge" style="text-transform:capitalize">${p.status || 'planned'}</span>
+              </div>
+              <div class="muted" style="font-size:12px;margin-bottom:6px">📅 ${p.date || 'Flexible'} · ⏱️ ${p.duration || 60} mins · Level: ${esc(p.level || 'General')}</div>
+              ${p.objective ? `<div style="font-size:12.5px;margin-bottom:6px">🎯 <b>Objective:</b> ${esc(p.objective)}</div>` : ''}
+              ${p.mainActivity ? `<div style="font-size:12px;color:var(--text);margin-bottom:6px"><b>Activity:</b> ${esc(p.mainActivity.slice(0, 100))}${p.mainActivity.length > 100 ? '…' : ''}</div>` : ''}
+              <div style="display:flex;gap:6px;margin-top:8px">
+                <button class="btn btn-sm btn-accent dossier-plan-deliver" data-id="${p.id}">${p.status === 'delivered' ? '✅ Re-deliver' : '🚀 Deliver Lesson'}</button>
+              </div>
+            </div>`).join('')}</div>` : '<div class="muted" style="padding:20px;text-align:center">No lesson plans created specifically for this student.</div>'}`;
     }
 
     const container = $('#student-dossier-content');
@@ -9220,6 +9365,8 @@ function openStudentDossier(studentId) {
     $('#dossier-assign-hw')?.addEventListener('click', () => { closeModal(); openAssignmentModal(null, s.name); });
     $('#dossier-assign-add')?.addEventListener('click', () => { closeModal(); openAssignmentModal(null, s.name); });
     $('#dossier-new-plan')?.addEventListener('click', () => { closeModal(); openLessonPlanModal(null, s.name); });
+    $('#dossier-plan-add')?.addEventListener('click', () => { closeModal(); openLessonPlanModal(null, s.name); });
+    $$('.dossier-plan-deliver').forEach(b => b.addEventListener('click', () => { closeModal(); deliverLessonPlan(b.dataset.id); }));
     $('#dossier-log-income')?.addEventListener('click', () => {
       closeModal();
       openFinanceModal('income');
@@ -9265,6 +9412,7 @@ function openStudentDossier(studentId) {
           <button class="student-tab-btn active" data-tab="overview">📋 Overview</button>
           <button class="student-tab-btn" data-tab="attendance">📅 Attendance (${studentAttendance.length})</button>
           <button class="student-tab-btn" data-tab="assignments">📋 Homework (${studentAssignments.length})</button>
+          <button class="student-tab-btn" data-tab="plans">📖 Plans (${studentPlans.length})</button>
           <button class="student-tab-btn" data-tab="financials">💰 Payments (${inc.length})</button>
           <button class="student-tab-btn" data-tab="tasks">✅ Tasks (${studentTasks.length})</button>
           <button class="student-tab-btn" data-tab="notes">📝 Notes (${studentNotes.length})</button>
@@ -9372,7 +9520,17 @@ function openStudentEditModal(student) {
     if (!Array.isArray(state.students)) state.students = [];
 
     if (isEdit) {
+      const oldName = student.name;
       Object.assign(student, { name, level, status, rate, currency, email, phone, goals, notes, tags, updatedAt: Date.now() });
+      if (oldName && oldName !== name) {
+        (state.income || []).forEach(e => { if (e.student === oldName) e.student = name; });
+        (state.expectedIncome || []).forEach(e => { if (e.student === oldName) e.student = name; });
+        (state.tasks || []).forEach(t => { if (t.student === oldName) t.student = name; });
+        (state.notes || []).forEach(n => { if (n.student === oldName) n.student = name; });
+        (state.attendance || []).forEach(a => { if (a.studentName === oldName) a.studentName = name; });
+        (state.assignments || []).forEach(a => { if (a.studentName === oldName) a.studentName = name; });
+        (state.lessonPlans || []).forEach(p => { if (p.studentName === oldName) p.studentName = name; });
+      }
       logActivity('student.edit', name, 'student');
     } else {
       const newStd = { id: uid(), name, level, status, rate, currency, email, phone, goals, notes, tags, createdAt: Date.now(), updatedAt: Date.now() };
@@ -9712,6 +9870,7 @@ function renderSchedule() {
       ${timeLabel ? `<div class="sched-task-time">🕐 ${timeLabel}</div>` : ''}
       <div class="sched-task-title">${esc(t.title)}</div>
       <div class="sched-task-meta">
+        ${t.student ? `<span class="badge" style="background:rgba(81,141,191,.15);color:#518DBF;font-size:10px;padding:0 4px">🎓 ${esc(t.student)}</span>` : ''}
         ${cat ? `<span class="sched-cat" style="background:${cat.color}22;color:${cat.color}">${catEmoji}</span>` : ''}
         ${subProg ? `<span class="sched-sub">✓${subProg}</span>` : ''}
         ${overdue ? '<span class="sched-overdue">⚠</span>' : ''}
@@ -9748,7 +9907,7 @@ function renderSchedule() {
         const cat = CATEGORIES.find(c => c.id === t.category);
         const catStyle = cat ? ` style="border-left:3px solid ${cat.color};background:${cat.color}10"` : '';
         return `<div class="sched-unsched-item ${cat ? 'cat-' + cat.id : 'cat-none'}" data-id="${t.id}" draggable="true"${catStyle}>
-          <span class="sched-unsched-title">${esc(t.title)}</span>
+          <span class="sched-unsched-title">${t.student ? `<span class="badge" style="background:rgba(81,141,191,.15);color:#518DBF;font-size:10px;padding:0 4px;margin-right:4px">🎓 ${esc(t.student)}</span>` : ''}${esc(t.title)}</span>
           ${cat ? `<span class="sched-cat" style="background:${cat.color}22;color:${cat.color}">${cat.label.split(' ')[0]}</span>` : ''}
           <button class="btn btn-sm btn-ghost sched-assign" data-assign="${t.id}" title="Quick assign">📅</button>
         </div>`;
@@ -10476,8 +10635,8 @@ function renderSettings() {
   }
 
   $('#set-clear').addEventListener('click', async () => {
-    if (confirm('Delete ALL data — tasks, goals, habits, notes, recordings?')) {
-      state = { tasks: [], goals: [], habits: [], notes: [], recordings: [], krHistory: [], projects: [], achievements: {}, settings: Object.assign({}, state.settings), seeded: true };
+    if (confirm('Delete ALL data — tasks, goals, habits, notes, students, attendance, lesson plans, recordings?')) {
+      state = { tasks: [], goals: [], habits: [], notes: [], recordings: [], krHistory: [], tagColors: {}, projects: [], activityLog: [], settings: Object.assign({}, state.settings), incomeTypes: ['ESL','IELTS','Tutoring','Exam Prep'], students: [], income: [], expenses: [], expectedIncome: [], expectedExpenses: [], attendance: [], assignments: [], lessonPlans: [] };
       save();
       try { await blobClear(); } catch (_) {}
       renderView(); toast('All data cleared');
