@@ -5712,16 +5712,21 @@ function downloadShareCard() {
 /* ============ Notes ============ */
 let selectedNoteId = null;
 let notePreview = false;
-/* Notes list instance (uniform 76px items). */
+/* Notes list instance. */
 const notesListVirt = createListVirt({
   containerSel: '.note-items', rangeSel: '#note-range',
-  itemSel: '.note-item', estimate: 76, threshold: 24,
+  itemSel: '.note-item', estimate: 80, threshold: 24,
   emptyHTML: '<div class="empty-state"><div class="es-icon">🔍</div>No notes match.</div>',
   bindItems: scope => bindNoteList(scope)
 });
 function noteItemHTML(n) {
+  const titleText = esc(n.title) || (n.audioId ? 'Voice memo' : 'Untitled');
   return `<div class="note-item ${n.id === selectedNoteId ? 'active' : ''}" data-note="${n.id}">
-    <div class="ni-title">${n.pinned ? ic('pin', 13) : ''}${n.audioId ? '🎙️ ' : ''}${esc(n.title) || 'Untitled'}</div>
+    <div class="ni-title">
+      ${n.pinned ? ic('pin', 13) : ''}
+      ${n.audioId ? '<span class="ni-voice-icon">🎙️</span>' : ''}
+      <span class="ni-title-text">${titleText}</span>
+    </div>
     ${n.content ? `<div class="ni-snippet">${esc(n.content.replace(/[#*`>_-]/g, '').slice(0, 90))}</div>` : ''}
     <div class="ni-meta">
       <span class="ni-date">${fmtWhen(n.updatedAt)}</span>
@@ -6235,8 +6240,11 @@ function renderVoice() {
 function recToNote(id) {
   const r = state.recordings.find(x => x.id === id);
   if (!r) return;
+  const txt = (r.transcript || '').trim();
+  const firstLine = (txt.split(/[.!?\n]/)[0] || '').trim();
+  const title = (firstLine ? firstLine.slice(0, 50) : r.name);
   const n = {
-    id: uid(), title: r.name, content: r.transcript || 'Voice memo — no transcription available for this one.',
+    id: uid(), title, content: txt || 'Voice memo — no transcription available for this one.',
     tags: [...new Set([...(r.tags || []), 'voice'])], pinned: false, createdAt: Date.now(), updatedAt: Date.now(), audioId: r.id
   };
   state.notes.unshift(n);
