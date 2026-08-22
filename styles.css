@@ -160,6 +160,66 @@ html[data-theme="dracula"] {
   --shadow: 0 8px 26px rgba(0, 0, 0, .45);
 }
 
+html[data-theme="terracotta"] {
+  --bg: #121318;
+  --bg2: #181b22;
+  --surface: #1f232d;
+  --surface2: #272c39;
+  --surface3: #323848;
+  --border: #3e4558;
+  --text: #f5ede8;
+  --text-strong: #FF6363;
+  --muted: #9da7be;
+  --accent: #FF6363;
+  --accent2: #B33101;
+  --grad: linear-gradient(135deg, #FF6363, #B33101);
+  --green: #34d399;
+  --red: #FF6363;
+  --amber: #f59e0b;
+  --pink: #518DBF;
+  --shadow: 0 8px 28px rgba(179, 49, 1, .25);
+}
+
+html[data-theme="cerulean"] {
+  --bg: #0d131a;
+  --bg2: #121a24;
+  --surface: #182230;
+  --surface2: #1f2d3f;
+  --surface3: #283a52;
+  --border: #354c6b;
+  --text: #ecf4fa;
+  --text-strong: #518DBF;
+  --muted: #8fa8c4;
+  --accent: #518DBF;
+  --accent2: #FF6363;
+  --grad: linear-gradient(135deg, #518DBF, #FF6363);
+  --green: #34d399;
+  --red: #FF6363;
+  --amber: #f59e0b;
+  --pink: #B33101;
+  --shadow: 0 8px 28px rgba(81, 141, 191, .25);
+}
+
+html[data-theme="coral-dawn"] {
+  --bg: #fcf7f4;
+  --bg2: #f5ece6;
+  --surface: #ffffff;
+  --surface2: #fdf4ee;
+  --surface3: #fae7dc;
+  --border: #e8d6cb;
+  --text: #2e2320;
+  --text-strong: #B33101;
+  --muted: rgba(46, 35, 32, .65);
+  --accent: #B33101;
+  --accent2: #FF6363;
+  --grad: linear-gradient(135deg, #B33101, #FF6363);
+  --green: #1f9d61;
+  --red: #FF6363;
+  --amber: #d97706;
+  --pink: #518DBF;
+  --shadow: 0 8px 24px rgba(179, 49, 1, .12);
+}
+
 /* ---- Custom Accent Color Overrides ---- */
 html[data-accent="blue"] { --accent: #3b82f6; --accent2: #2563eb; --grad: linear-gradient(135deg, #3b82f6, #2563eb); }
 html[data-accent="emerald"] { --accent: #10b981; --accent2: #059669; --grad: linear-gradient(135deg, #10b981, #059669); }
@@ -168,6 +228,9 @@ html[data-accent="rose"] { --accent: #f43f5e; --accent2: #e11d48; --grad: linear
 html[data-accent="cyan"] { --accent: #06b6d4; --accent2: #0891b2; --grad: linear-gradient(135deg, #06b6d4, #0891b2); }
 html[data-accent="purple"] { --accent: #a855f7; --accent2: #9333ea; --grad: linear-gradient(135deg, #a855f7, #9333ea); }
 html[data-accent="orange"] { --accent: #f97316; --accent2: #ea580c; --grad: linear-gradient(135deg, #f97316, #ea580c); }
+html[data-accent="terracotta"] { --accent: #B33101; --accent2: #872500; --grad: linear-gradient(135deg, #B33101, #872500); }
+html[data-accent="coral"] { --accent: #FF6363; --accent2: #e04a4a; --grad: linear-gradient(135deg, #FF6363, #e04a4a); }
+html[data-accent="cerulean"] { --accent: #518DBF; --accent2: #3a74a3; --grad: linear-gradient(135deg, #518DBF, #3a74a3); }
 
 /* ---- Custom Typography Overrides ---- */
 html[data-font="mono"] body, html[data-font="mono"] input, html[data-font="mono"] button, html[data-font="mono"] select, html[data-font="mono"] textarea {

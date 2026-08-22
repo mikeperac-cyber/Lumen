@@ -384,22 +384,22 @@ test.describe('Lumen behavioral — task CRUD + undo + backup round-trip', () =>
     await page.waitForLoadState('domcontentloaded');
     await page.waitForTimeout(600);
 
-    // Switch theme to cyberpunk
-    const cyberpunkCard = page.locator('.theme-card[data-theme-id="cyberpunk"]');
-    await cyberpunkCard.click();
+    // Switch theme to terracotta
+    const terracottaCard = page.locator('.theme-card[data-theme-id="terracotta"]');
+    await terracottaCard.click();
     await page.waitForTimeout(400);
 
-    // Verify html dataset theme is cyberpunk
+    // Verify html dataset theme is terracotta
     let htmlTheme = await page.evaluate(() => document.documentElement.dataset.theme);
-    expect(htmlTheme).toBe('cyberpunk');
+    expect(htmlTheme).toBe('terracotta');
 
-    // Switch accent color to emerald
-    const emeraldAccent = page.locator('.accent-dot-btn[data-accent-id="emerald"]');
-    await emeraldAccent.click();
+    // Switch accent color to cerulean
+    const ceruleanAccent = page.locator('.accent-dot-btn[data-accent-id="cerulean"]');
+    await ceruleanAccent.click();
     await page.waitForTimeout(400);
 
     let htmlAccent = await page.evaluate(() => document.documentElement.dataset.accent);
-    expect(htmlAccent).toBe('emerald');
+    expect(htmlAccent).toBe('cerulean');
 
     // Reload page and verify settings persisted in localStorage
     await page.reload();
@@ -407,8 +407,8 @@ test.describe('Lumen behavioral — task CRUD + undo + backup round-trip', () =>
 
     htmlTheme = await page.evaluate(() => document.documentElement.dataset.theme);
     htmlAccent = await page.evaluate(() => document.documentElement.dataset.accent);
-    expect(htmlTheme).toBe('cyberpunk');
-    expect(htmlAccent).toBe('emerald');
+    expect(htmlTheme).toBe('terracotta');
+    expect(htmlAccent).toBe('cerulean');
 
     expect(errors).toEqual([]);
   });

@@ -1238,6 +1238,9 @@ function bindTopbar() {
 /* ---------- Theme & UI Engine ---------- */
 const THEME_PALETTES = [
   { id: 'dark', name: 'Midnight Obsidian', bg: '#0e1013', surface: '#161a21', accent: '#7c6cf6', dark: true },
+  { id: 'terracotta', name: 'Terracotta Flame', bg: '#121318', surface: '#1f232d', accent: '#FF6363', dark: true },
+  { id: 'cerulean', name: 'Atlantic Cerulean', bg: '#0d131a', surface: '#182230', accent: '#518DBF', dark: true },
+  { id: 'coral-dawn', name: 'Coral Dawn', bg: '#fcf7f4', surface: '#ffffff', accent: '#B33101', dark: false },
   { id: 'light', name: 'Minimal Light', bg: '#f4f5f9', surface: '#ffffff', accent: '#605DFF', dark: false },
   { id: 'cyberpunk', name: 'Cyberpunk Neon', bg: '#090a15', surface: '#141730', accent: '#00f0ff', dark: true },
   { id: 'nord', name: 'Nord Frost', bg: '#242933', surface: '#3b4252', accent: '#88c0d0', dark: true },
@@ -1248,6 +1251,9 @@ const THEME_PALETTES = [
 ];
 
 const ACCENT_COLORS = [
+  { id: 'terracotta', label: 'Terracotta', hex: '#B33101' },
+  { id: 'coral', label: 'Coral Flame', hex: '#FF6363' },
+  { id: 'cerulean', label: 'Cerulean', hex: '#518DBF' },
   { id: 'violet', label: 'Violet', hex: '#7c6cf6' },
   { id: 'blue', label: 'Blue', hex: '#3b82f6' },
   { id: 'emerald', label: 'Emerald', hex: '#10b981' },
