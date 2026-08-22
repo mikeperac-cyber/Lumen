@@ -2098,6 +2098,7 @@ function langColor(lang) {
 }
 
 function openProjectModal(project, projId) {
+  if (document.querySelector('#project-modal')) document.querySelector('#project-modal').remove();
   const isNew = project == null;
   const p = project || { id: uid(), name: '', desc: '', lang: '', link: '', status: 'building', milestones: [], notes: '', linkedTasks: [] };
   if (!p.id) p.id = uid();
