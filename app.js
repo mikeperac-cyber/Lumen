@@ -606,7 +606,7 @@ async function callGemini(prompt, systemInstruction = '') {
 
 /* ---------- State & persistence ---------- */
 const KEY = 'lumen.state.v1';
-let state = { tasks: [], goals: [], habits: [], notes: [], recordings: [], krHistory: [], tagColors: {}, projects: [], activityLog: [], settings: {}, incomeTypes: ['ESL','IELTS','Tutoring','Exam Prep'], students: [], income: [], expenses: [], expectedIncome: [], expectedExpenses: [], attendance: [], assignments: [], lessonPlans: [] };
+let state = { tasks: [], goals: [], habits: [], notes: [], recordings: [], krHistory: [], tagColors: {}, projects: [], activityLog: [], settings: {}, incomeTypes: ['ESL','IELTS','Tutoring','Exam Prep'], expenseCategories: ['Rent','Utilities','Food','Transport','Supplies','Software','Marketing','Education','Healthcare','Other'], students: [], income: [], expenses: [], expectedIncome: [], expectedExpenses: [], attendance: [], assignments: [], lessonPlans: [] };
 function getTagColor(name) {
   return (state.tagColors || {})[name.toLowerCase()] || null;
 }
@@ -676,6 +676,7 @@ function normalizeState(parsed) {
   if (!Array.isArray(state.templates)) state.templates = [];
   // Finance & Student defaults
   if (!Array.isArray(state.incomeTypes)) state.incomeTypes = ['ESL','IELTS','Tutoring','Exam Prep'];
+  if (!Array.isArray(state.expenseCategories)) state.expenseCategories = ['Rent','Utilities','Food','Transport','Supplies','Software','Marketing','Education','Healthcare','Other'];
   if (!Array.isArray(state.income)) state.income = [];
   if (!Array.isArray(state.expenses)) state.expenses = [];
   if (!Array.isArray(state.expectedIncome)) state.expectedIncome = [];
@@ -1861,7 +1862,7 @@ function renderProjects() {
     ${sectionHTML('Building', '🔨', building, 'Nothing in progress — click + to add', 'building')}
     ${sectionHTML('Built', '✅', built, 'No finished projects yet', 'built')}
     ${sectionHTML('Want to Build', '💡', planned, 'No ideas yet — start dreaming!', 'planned')}
-    ${!projects.length ? '<div class="empty-state"><div class="es-icon">🚀</div>No projects yet. Click Add project to get started!</div>' : ''}
+    ${!projects.length ? `<div class="empty-state"><div class="es-icon">🚀</div>No projects yet. Click Add project to get started!<br><br><button class="btn btn-accent" id="proj-add-btn-empty">${ic('plus', 14)} Add project</button></div>` : ''}
   `;
 
   viewRoot().innerHTML = `
@@ -1887,8 +1888,7 @@ function renderProjects() {
   $('#proj-view-roadmap')?.addEventListener('click', () => { projViewMode = 'roadmap'; renderProjects(); });
 
   // Bind events
-  const projAddBtn = $('#proj-add-btn');
-  if (projAddBtn) projAddBtn.addEventListener('click', () => openProjectModal(null));
+  $$('#proj-add-btn, #proj-add-btn-empty').forEach(b => b.addEventListener('click', () => openProjectModal(null)));
   $$('[data-proj-edit]').forEach(b => b.addEventListener('click', e => {
     e.stopPropagation();
     const proj = (state.projects || []).find(x => x.id === b.dataset.projEdit);
@@ -2098,7 +2098,6 @@ function langColor(lang) {
 }
 
 function openProjectModal(project, projId) {
-  if (document.querySelector('#project-modal')) document.querySelector('#project-modal').remove();
   const isNew = project == null;
   const p = project || { id: uid(), name: '', desc: '', lang: '', link: '', status: 'building', milestones: [], notes: '', linkedTasks: [] };
   if (!p.id) p.id = uid();
@@ -2123,11 +2122,11 @@ function openProjectModal(project, projId) {
   const linkedIds = new Set(p.linkedTasks || []);
   const taskCheckHTML = allTasks.slice(0, 20).map(t => `<label class="proj-task-link"><input type="checkbox" class="proj-tl-check" value="${t.id}" ${linkedIds.has(t.id) ? 'checked' : ''}> ${esc(t.title)}</label>`).join('') || '<div class="muted" style="font-size:12px">No active tasks to link.</div>';
 
-  const html = `<div class="modal" id="project-modal">
-    <div class="modal-content" style="max-width:500px;max-height:85vh;overflow-y:auto">
+  openModal(`
+    <div class="modal" id="project-modal" style="max-width:540px">
       <div class="modal-head">
-        <h2>${isNew ? 'New project' : 'Edit project'}</h2>
-        <button class="modal-close" id="proj-close">✕</button>
+        <h3>${isNew ? 'New project' : 'Edit project'}</h3>
+        <button class="btn-icon" onclick="closeModal()">${ic('x', 16)}</button>
       </div>
       <div class="modal-body">
         <div class="field"><label class="field-label">Project name *</label><input class="input" id="proj-name" value="${esc(p.name)}" placeholder="e.g. Lumen"></div>
@@ -2138,7 +2137,7 @@ function openProjectModal(project, projId) {
         </div>
         <div class="field"><label class="field-label">Status</label><div class="radio-group" id="proj-status">${statuses.map(s => `<label class="radio-chip ${s.val === p.status ? 'on' : ''}"><input type="radio" name="proj-st" value="${s.val}" ${s.val === p.status ? 'checked' : ''} hidden>${s.icon} ${s.label.replace(/^[^ ]+ /, '')}</label>`).join('')}</div></div>
         <div class="field"><label class="field-label">📝 Notes</label><textarea class="input" id="proj-notes" rows="2" placeholder="Quick notes about this project…">${esc(p.notes || '')}</textarea></div>
-        <div class="field"><label class="field-label">🏁 Milestones</label><div id="proj-milestones">${milestonesHTML}</div><button class="btn btn-ghost btn-sm" id="proj-add-ms">${ic('plus', 13)} Add milestone</button></div>
+        <div class="field"><label class="field-label">🏁 Milestones</label><div id="proj-milestones">${milestonesHTML}</div><button class="btn btn-ghost btn-sm" id="proj-add-ms" style="margin-top:6px">${ic('plus', 13)} Add milestone</button></div>
         <div class="field"><label class="field-label">📋 Link tasks</label><div class="proj-task-list">${taskCheckHTML}</div></div>
         <div class="field"><label class="field-label">📁 Folder tracking</label><div class="proj-folder-section">
           ${p.fileTracker && p.fileTracker.folderName ? `<div class="ft-linked"><span class="ft-folder">📁 ${esc(p.fileTracker.folderName)}</span><span class="ft-count">${(p.fileTracker.lastSnapshot || []).length} files</span><button class="btn btn-xs btn-ghost" id="proj-rescan" title="Re-scan for changes">🔄 Rescan</button><button class="btn btn-xs btn-ghost btn-danger" id="proj-unlink" title="Remove folder link">✕</button></div>` : ''}
@@ -2149,17 +2148,11 @@ function openProjectModal(project, projId) {
       <div class="modal-foot">
         ${!isNew ? '<button class="btn btn-danger" id="proj-delete">Delete</button>' : ''}
         <div style="flex:1"></div>
-        <button class="btn btn-ghost" id="proj-cancel">Cancel</button>
-        <button class="btn" id="proj-save">${isNew ? 'Add project' : 'Save'}</button>
+        <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-accent" id="proj-save">${isNew ? 'Add project' : 'Save'}</button>
       </div>
-    </div>
-  </div>`;
-  document.body.insertAdjacentHTML('beforeend', html);
-  const modal = $('#project-modal');
-  const close = () => modal.remove();
-  $('#proj-close').addEventListener('click', close);
-  $('#proj-cancel').addEventListener('click', close);
-  modal.addEventListener('click', e => { if (e.target === modal) close(); });
+    </div>`);
+
   // radio chips
   $$('#proj-status .radio-chip').forEach(chip => chip.addEventListener('click', () => {
     $$('#proj-status .radio-chip').forEach(c => c.classList.remove('on'));
@@ -2193,12 +2186,13 @@ function openProjectModal(project, projId) {
     // Collect linked tasks
     const linked = [];
     $$('.proj-tl-check:checked').forEach(cb => linked.push(cb.value));
+    const stVal = ($('#project-modal input[name="proj-st"]:checked') || {}).value || 'building';
     const data = {
       name,
       desc: $('#proj-desc').value.trim(),
       lang: $('#proj-lang').value,
       link: $('#proj-link').value.trim(),
-      status: (modal.querySelector('input[name="proj-st"]:checked') || {}).value || 'building',
+      status: stVal,
       notes: $('#proj-notes').value.trim(),
       milestones: p.milestones,
       linkedTasks: linked,
@@ -2211,12 +2205,12 @@ function openProjectModal(project, projId) {
       state.projects.push(data);
       toast('🚀 Project added!');
     } else {
-      // Find by id
       const pi = state.projects.findIndex(x => x.id === p.id);
       if (pi >= 0) Object.assign(state.projects[pi], data);
       toast('✅ Project updated');
     }
-    save(); close(); renderDashboard();
+    save(); closeModal();
+    if (currentView() === 'projects') renderProjects(); else renderDashboard();
   });
   // delete
   const delBtn = $('#proj-delete');
@@ -2224,7 +2218,9 @@ function openProjectModal(project, projId) {
     if (!confirm('Delete this project?')) return;
     const pi = state.projects.findIndex(x => x.id === p.id);
     if (pi >= 0) state.projects.splice(pi, 1);
-    save(); close(); renderProjects(); toast('Project deleted');
+    save(); closeModal();
+    if (currentView() === 'projects') renderProjects(); else renderDashboard();
+    toast('Project deleted');
   });
   // Folder link
   const folderBtn = $('#proj-link-folder');
@@ -2243,7 +2239,6 @@ function openProjectModal(project, projId) {
     p.fileTracker = null;
     openProjectModal(p, projId);
   });
-  $('#proj-name').focus();
 }
 
 /* ============ Dashboard ============ */
@@ -4785,8 +4780,7 @@ function renderGoals() {
   if (gtag) gtag.addEventListener('change', e => { goalFilterTag = e.target.value; renderGoals(); });
   const gchip = $('#goal-tag-chip');
   if (gchip) gchip.addEventListener('click', () => { goalFilterTag = ''; renderGoals(); });
-  const btn = $('#goal-new') || $('#goal-new-empty');
-  if (btn) btn.addEventListener('click', () => openGoalModal());
+  $$('#goal-new, #goal-new-empty').forEach(b => b.addEventListener('click', () => openGoalModal()));
 }
 
 function openGoalModal(goal) {
@@ -5184,8 +5178,7 @@ function renderHabits() {
     });
   }
   $$('#habit-q-clear, #habit-q-clear-empty').forEach(cq => cq.addEventListener('click', () => { habitFilterQ = ''; renderHabits(); }));
-  const btn = $('#habit-new') || $('#habit-new-empty');
-  if (btn) btn.addEventListener('click', () => openHabitModal());
+  $$('#habit-new, #habit-new-empty').forEach(b => b.addEventListener('click', () => openHabitModal()));
 }
 
 function openHabitModal() {
@@ -5775,8 +5768,7 @@ function renderNotes() {
   notesListVirt.sync();
 
   $('#note-q').addEventListener('input', e => { noteFilterQ = e.target.value; renderNotes(); });
-  const nbtn = $('#note-new') || $('#note-new-empty');
-  if (nbtn) nbtn.addEventListener('click', () => { newNote(); renderNotes(); });
+  $$('#note-new, #note-new-empty').forEach(b => b.addEventListener('click', () => { newNote(); renderNotes(); }));
   if (note) bindNoteEditor(note);
 }
 let noteFilterQ = '';
@@ -6710,6 +6702,11 @@ function applyMerge(inc, incomingRev) {
     const set = new Set([...(state.incomeTypes || []), ...inc.incomeTypes]);
     state.incomeTypes = [...set];
   }
+  // Merge expense categories (union of both)
+  if (Array.isArray(inc.expenseCategories)) {
+    const set = new Set([...(state.expenseCategories || []), ...inc.expenseCategories]);
+    state.expenseCategories = [...set];
+  }
   // Merge tagColors (newer timestamp wins per tag)
   if (inc.tagColors) {
     if (!state.tagColors) state.tagColors = {};
@@ -6745,7 +6742,7 @@ function pushState() {
         tasks: state.tasks, goals: state.goals, habits: state.habits, notes: state.notes, recordings: state.recordings,
         projects: state.projects, krHistory: state.krHistory, tagColors: state.tagColors,
         achievements: state.achievements, income: state.income, expenses: state.expenses,
-        expectedIncome: state.expectedIncome, expectedExpenses: state.expectedExpenses, incomeTypes: state.incomeTypes,
+        expectedIncome: state.expectedIncome, expectedExpenses: state.expectedExpenses, incomeTypes: state.incomeTypes, expenseCategories: state.expenseCategories,
         students: state.students, attendance: state.attendance, assignments: state.assignments, lessonPlans: state.lessonPlans,
         deleted: syncMeta.tombstones
       }
@@ -6778,7 +6775,7 @@ function enqueueSyncSnapshot() {
       tasks: state.tasks, goals: state.goals, habits: state.habits,
       notes: state.notes, recordings: state.recordings,
       achievements: state.achievements, income: state.income, expenses: state.expenses,
-      expectedIncome: state.expectedIncome, expectedExpenses: state.expectedExpenses, incomeTypes: state.incomeTypes,
+      expectedIncome: state.expectedIncome, expectedExpenses: state.expectedExpenses, incomeTypes: state.incomeTypes, expenseCategories: state.expenseCategories,
       students: state.students,
       deleted: syncMeta.tombstones
     }
@@ -7757,6 +7754,7 @@ function renderFinance() {
             <span style="font-weight:600;min-width:60px;text-align:right">${fmtM(amt, activeCurr)}</span>
           </div>`;
         }).join('') : '<div class="muted" style="padding:8px 0;font-size:12px">No expenses logged this month.</div>'}
+        <button class="btn btn-sm btn-ghost" id="fin-manage-exp-cats" style="margin-top:8px">⚙️ Manage expense categories</button>
       </div>
 
       <!-- Daily expenses line graph -->
@@ -7830,6 +7828,7 @@ function renderFinance() {
   $('#fin-add-exp-exp')?.addEventListener('click', () => openFinanceModal('expectedExpense'));
   $('#fin-manage-students')?.addEventListener('click', openStudentManageModal);
   $('#fin-manage-types')?.addEventListener('click', openIncomeTypeModal);
+  $('#fin-manage-exp-cats')?.addEventListener('click', openExpenseCategoryModal);
   $$('.fin-tx-del').forEach(b => b.addEventListener('click', e => {
     e.stopPropagation();
     const id = b.dataset.delTx;
@@ -7852,9 +7851,9 @@ function openFinanceModal(kind = 'income') {
   const title = isExpected
     ? (isIncome ? 'Log expected income' : 'Log expected expense')
     : (isIncome ? 'Log income' : 'Log expense');
-  const typeOpts = (state.incomeTypes || ['ESL','IELTS','Software']).map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('');
-  const expCats = ['Rent','Utilities','Food','Transport','Supplies','Software','Marketing','Education','Healthcare','Other'];
-  const catOpts = isIncome ? typeOpts : expCats.map(c => `<option value="${c}">${c}</option>`).join('');
+  const typeOpts = (state.incomeTypes || ['ESL','IELTS','Tutoring','Exam Prep']).map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('');
+  const expCats = state.expenseCategories || ['Rent','Utilities','Food','Transport','Supplies','Software','Marketing','Education','Healthcare','Other'];
+  const catOpts = isIncome ? typeOpts : expCats.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
   const studentList = getStudentsList();
   const studentOpts = studentList.map(s => `<option value="${esc(s.name)}">${esc(s.name)}</option>`).join('');
   const today = todayISO();
@@ -7876,7 +7875,7 @@ function openFinanceModal(kind = 'income') {
         <div class="field-row">
           <div class="field"><label class="field-label">${isIncome ? 'Income type' : 'Category'}</label>
             <select id="fin-cat">${catOpts}</select>
-            ${isIncome ? '<button class="btn btn-sm btn-ghost" id="fin-add-type" style="margin-top:4px">+ Add type</button>' : ''}
+            <button class="btn btn-sm btn-ghost" id="fin-add-type" style="margin-top:4px">${isIncome ? '+ Add income type' : '+ Add expense category'}</button>
           </div>
           <div class="field"><label class="field-label">Date</label><input id="fin-date" type="date" value="${today}"></div>
         </div>
@@ -7896,7 +7895,11 @@ function openFinanceModal(kind = 'income') {
       </div>
     </div>`);
 
-  $('#fin-add-type')?.addEventListener('click', () => { closeModal(); openIncomeTypeModal(); });
+  $('#fin-add-type')?.addEventListener('click', () => {
+    closeModal();
+    if (isIncome) openIncomeTypeModal();
+    else openExpenseCategoryModal();
+  });
   $('#fin-add-student-inline')?.addEventListener('click', () => { closeModal(); openStudentEditModal(null); });
   $('#fin-student')?.addEventListener('change', e => {
     const sName = e.target.value;
@@ -9603,6 +9606,46 @@ function openIncomeTypeModal() {
   }));
 }
 
+function openExpenseCategoryModal() {
+  if (!Array.isArray(state.expenseCategories)) {
+    state.expenseCategories = ['Rent','Utilities','Food','Transport','Supplies','Software','Marketing','Education','Healthcare','Other'];
+  }
+  const cats = state.expenseCategories;
+  openModal(`
+    <div class="modal">
+      <div class="modal-head"><h3>Expense categories</h3><button class="btn-icon" onclick="closeModal()">${ic('x', 16)}</button></div>
+      <div class="modal-body">
+        <div id="type-list">${cats.map((c, i) => `<div class="fin-type-row" data-type-idx="${i}">
+          <span class="fin-type-name">${esc(c)}</span>
+          <button class="btn-icon fin-cat-del" data-del-cat="${i}" title="Remove">${ic('trash', 14)}</button>
+        </div>`).join('')}</div>
+        <div class="field" style="margin-top:12px"><label class="field-label">Add new category</label>
+          <div style="display:flex;gap:8px">
+            <input id="new-cat" type="text" placeholder="e.g. Subscriptions, Travel, Insurance…" style="flex:1">
+            <button class="btn btn-accent btn-sm" id="add-cat-btn">${ic('plus',14)} Add</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-foot"><div style="flex:1"></div><button class="btn btn-accent" onclick="closeModal();if(currentView()==='finance')renderFinance()">Done</button></div>
+    </div>`);
+  $('#add-cat-btn').addEventListener('click', () => {
+    const v = $('#new-cat').value.trim();
+    if (!v) return;
+    if (state.expenseCategories.includes(v)) { toast('Category already exists', 'error'); return; }
+    captureUndo('Add expense category');
+    state.expenseCategories.push(v);
+    save(); closeModal(); openExpenseCategoryModal();
+    toast('Category added');
+  });
+  $$('.fin-cat-del').forEach(b => b.addEventListener('click', () => {
+    const idx = parseInt(b.dataset.delCat, 10);
+    captureUndo('Remove expense category');
+    state.expenseCategories.splice(idx, 1);
+    save(); closeModal(); openExpenseCategoryModal();
+    toast('Category removed');
+  }));
+}
+
 /* ============ Offline indicator ============ */
 function updateOnlineStatus() {
   let badge = $('#offline-badge');
@@ -10644,7 +10687,7 @@ function renderSettings() {
 
   $('#set-clear').addEventListener('click', async () => {
     if (confirm('Delete ALL data — tasks, goals, habits, notes, students, attendance, lesson plans, recordings?')) {
-      state = { tasks: [], goals: [], habits: [], notes: [], recordings: [], krHistory: [], tagColors: {}, projects: [], activityLog: [], settings: Object.assign({}, state.settings), incomeTypes: ['ESL','IELTS','Tutoring','Exam Prep'], students: [], income: [], expenses: [], expectedIncome: [], expectedExpenses: [], attendance: [], assignments: [], lessonPlans: [] };
+      state = { tasks: [], goals: [], habits: [], notes: [], recordings: [], krHistory: [], tagColors: {}, projects: [], activityLog: [], settings: Object.assign({}, state.settings), incomeTypes: ['ESL','IELTS','Tutoring','Exam Prep'], expenseCategories: ['Rent','Utilities','Food','Transport','Supplies','Software','Marketing','Education','Healthcare','Other'], students: [], income: [], expenses: [], expectedIncome: [], expectedExpenses: [], attendance: [], assignments: [], lessonPlans: [] };
       save();
       try { await blobClear(); } catch (_) {}
       renderView(); toast('All data cleared');
