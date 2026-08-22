@@ -679,6 +679,11 @@ function normalizeState(parsed) {
   if (!Array.isArray(state.expectedIncome)) state.expectedIncome = [];
   if (!Array.isArray(state.expectedExpenses)) state.expectedExpenses = [];
   if (!Array.isArray(state.students)) state.students = [];
+  const DEMO_STUDENT_NAMES = new Set(['Alex Johnson', 'Emma Watson', 'Maria Garcia']);
+  state.students = state.students.filter(s => {
+    const name = typeof s === 'string' ? s : s?.name;
+    return name && !DEMO_STUDENT_NAMES.has(name);
+  });
   if (!Array.isArray(state.attendance)) state.attendance = [];
   if (!Array.isArray(state.assignments)) state.assignments = [];
   if (!Array.isArray(state.lessonPlans)) state.lessonPlans = [];
@@ -7569,11 +7574,11 @@ function renderFinance() {
   const currentRunwayMonths = totalNet > 0 && avgMonthlyBurn > 0 ? (totalNet / avgMonthlyBurn).toFixed(1) : '0.0';
 
   // Student filter options
-  const studentList = state.students || ['Alex Johnson', 'Emma Watson', 'Burak Demir', 'Maria Garcia'];
+  const studentList = getStudentsList();
   const studentFilterOpts = [
     `<option value="ALL" ${_finStudentFilter === 'ALL' ? 'selected' : ''}>All Students</option>`,
     `<option value="__NONE__" ${_finStudentFilter === '__NONE__' ? 'selected' : ''}>General / No Student</option>`,
-    ...studentList.map(s => `<option value="${esc(s)}" ${_finStudentFilter === s ? 'selected' : ''}>🎓 ${esc(s)}</option>`)
+    ...studentList.map(s => `<option value="${esc(s.name)}" ${_finStudentFilter === s.name ? 'selected' : ''}>🎓 ${esc(s.name)}</option>`)
   ].join('');
 
   root.innerHTML = `
@@ -9437,7 +9442,7 @@ function openStudentDossier(studentId) {
 
 function openStudentEditModal(student) {
   const isEdit = !!student;
-  const s = student || { name: '', level: 'ESL B2 (Upper-Intermediate)', rate: 35, currency: 'USD', status: 'active', email: '', phone: '', goals: '', notes: '', tags: ['ESL'] };
+  const s = student || { name: '', level: '', rate: '', currency: 'USD', status: 'active', email: '', phone: '', goals: '', notes: '', tags: [] };
 
   openModal(`
     <div class="modal">
@@ -9448,7 +9453,7 @@ function openStudentEditModal(student) {
       <div class="modal-body">
         <div class="field">
           <label class="field-label">Student / Client Full Name *</label>
-          <input id="se-name" type="text" value="${esc(s.name || '')}" placeholder="e.g. Caner Yilmaz, Emma Watson…" autofocus>
+          <input id="se-name" type="text" value="${esc(s.name || '')}" placeholder="e.g. Student Full Name…" autofocus>
         </div>
         <div class="field-row">
           <div class="field" style="flex:1">
