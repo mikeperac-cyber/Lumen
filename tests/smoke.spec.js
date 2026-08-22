@@ -17,6 +17,7 @@ const VIEWS = [
   'activity',
   'analytics',
   'finance',
+  'students',
   'settings',
   'perf',
 ];

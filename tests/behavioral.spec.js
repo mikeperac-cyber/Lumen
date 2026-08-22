@@ -481,4 +481,73 @@ test.describe('Lumen behavioral — task CRUD + undo + backup round-trip', () =>
 
     expect(errors).toEqual([]);
   });
+
+  test('Students folder allows customizable student entry, dossiers, and cross-section connection', async ({ page }) => {
+    const errors = [];
+    page.on('pageerror', (err) => errors.push(err.message));
+
+    await page.goto('/#students');
+    await page.waitForLoadState('domcontentloaded');
+    await page.waitForTimeout(600);
+
+    // Verify Students view header and stats
+    await expect(page.locator('#view-title')).toContainText('Students');
+    await expect(page.locator('.students-stats')).toBeVisible();
+
+    // Click "+ New Student"
+    await page.locator('#std-new-btn').click();
+    await page.waitForTimeout(400);
+
+    // Fill in student details
+    await page.locator('#se-name').fill('Caner Yilmaz');
+    await page.locator('#se-level').fill('IELTS Academic 8.0 Goal');
+    await page.locator('#se-rate').fill('1500');
+    await page.locator('#se-curr').selectOption('TRY');
+    await page.locator('#se-goals').fill('Target band 8.0 on IELTS speaking & writing');
+    await page.locator('#se-save').click();
+    await page.waitForTimeout(500);
+
+    // Verify student card is rendered with name and custom details
+    const studentCard = page.locator('.student-card', { hasText: 'Caner Yilmaz' });
+    await expect(studentCard).toBeVisible();
+    await expect(studentCard).toContainText('IELTS Academic 8.0 Goal');
+    await expect(studentCard).toContainText('₺1,500/hr');
+
+    // Click "Dossier"
+    await studentCard.locator('.std-open-dossier').click();
+    await page.waitForTimeout(400);
+
+    const dossierModal = page.locator('#modal-root .student-dossier-modal');
+    await expect(dossierModal).toBeVisible();
+    await expect(dossierModal).toContainText('Caner Yilmaz');
+
+    // Switch to Payments tab
+    await dossierModal.locator('.student-tab-btn[data-tab="financials"]').click();
+    await page.waitForTimeout(300);
+
+    // Switch to Tasks tab
+    await dossierModal.locator('.student-tab-btn[data-tab="tasks"]').click();
+    await page.waitForTimeout(300);
+
+    // Close dossier
+    await dossierModal.locator('button', { hasText: 'Done' }).click();
+    await page.waitForTimeout(300);
+
+    // Assign a task to Caner Yilmaz from #tasks
+    await page.goto('/#tasks');
+    await page.waitForTimeout(500);
+    await page.locator('#task-new').click();
+    await page.waitForTimeout(400);
+    await page.locator('#f-title').fill('Prepare IELTS Mock Exam for Caner');
+    await page.locator('#f-student').selectOption('Caner Yilmaz');
+    await page.locator('#f-save').click();
+    await page.waitForTimeout(500);
+
+    // Verify task card shows Student badge
+    const taskCard = page.locator('.task-card', { hasText: 'Prepare IELTS Mock Exam for Caner' });
+    await expect(taskCard).toBeVisible();
+    await expect(taskCard).toContainText('Caner Yilmaz');
+
+    expect(errors).toEqual([]);
+  });
 });

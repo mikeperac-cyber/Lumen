@@ -22,7 +22,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%E2%9C%A6%3C/text%3E%3C/svg%3E">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
-<link rel="stylesheet" href="styles.css?v=88">
+<link rel="stylesheet" href="styles.css?v=90">
 </head>
 <body>
 <div class="app">
@@ -33,12 +33,15 @@
     </div>
     <nav class="nav">
       <button class="nav-item" data-view="brief" id="nav-brief"></button>
+      <button class="nav-item" data-view="dashboard" id="nav-dashboard"></button>
+      <button class="nav-item" data-view="students" id="nav-students"></button>
       <button class="nav-item" data-view="tasks" id="nav-tasks"></button>
       <button class="nav-item" data-view="habits" id="nav-habits"></button>
       <button class="nav-item" data-view="more" id="nav-more"><span class="nav-icon">☰</span><span>More</span></button>
     </nav>
     <div class="more-menu hidden" id="more-menu">
       <button class="more-item" data-view="dashboard">📊 Dashboard</button>
+      <button class="more-item" data-view="students">🎓 Students</button>
       <button class="more-item" data-view="review">📅 Weekly review</button>
       <button class="more-item" data-view="projects">📁 Projects</button>
       <button class="more-item" data-view="schedule">📅 Schedule</button>
@@ -78,6 +81,7 @@
             <div class="quick-menu-section">Create</div>
             <div class="quick-menu-grid">
               <button class="quick-item" data-action="task">➕ Task</button>
+              <button class="quick-item" data-action="student">🎓 Student</button>
               <button class="quick-item" data-action="project">📁 Project</button>
               <button class="quick-item" data-action="goal">🎯 Goal</button>
               <button class="quick-item" data-action="habit">🔥 Habit</button>
@@ -89,6 +93,7 @@
             <div class="quick-menu-section">Go to</div>
             <div class="quick-menu-grid">
               <button class="quick-item" data-action="go-brief">✦ Brief</button>
+              <button class="quick-item" data-action="go-students">🎓 Students</button>
               <button class="quick-item" data-action="go-dashboard">📊 Dashboard</button>
               <button class="quick-item" data-action="go-schedule">📅 Schedule</button>
               <button class="quick-item" data-action="go-projects">📁 Projects</button>
@@ -149,7 +154,7 @@
 </div>
 
 <script src="peerjs.min.js"></script>
-<script src="app.js?v=88"></script>
+<script src="app.js?v=90"></script>
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function () {
