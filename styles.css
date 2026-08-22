@@ -290,7 +290,7 @@ html[data-density="compact"] .stat-card { padding: 10px 12px; }
   display: flex;
   flex-direction: column;
   gap: 6px;
-  transition: all .15s ease;
+  transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease;
   background: var(--surface2);
 }
 .theme-card:hover {
@@ -1852,7 +1852,7 @@ html.focus-mode .topbar { justify-content: center; }
 .vd-heat-label { font-size: 11px; font-weight: 600; color: var(--muted); min-width: 120px; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .vd-heat-cells { display: flex; gap: 3px; }
 .vd-heat-hdr { font-size: 9px; color: var(--muted); width: 18px; text-align: center; }
-.vd-heat-cell { width: 18px; height: 18px; border-radius: 3px; background: var(--surface2); border: 1px solid var(--border); transition: all .15s; }
+.vd-heat-cell { width: 18px; height: 18px; border-radius: 3px; background: var(--surface2); border: 1px solid var(--border); transition: background .12s, border-color .12s; }
 .vd-heat-cell.on { background: var(--accent); border-color: var(--accent); }
 .vd-heat-cell.today { border-color: var(--accent); border-width: 2px; }
 

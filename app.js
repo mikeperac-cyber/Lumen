@@ -1303,17 +1303,11 @@ function bindTopbar() {
 
 /* ---------- Theme & UI Engine ---------- */
 const THEME_PALETTES = [
-  { id: 'dark', name: 'Midnight Obsidian', bg: '#0e1013', surface: '#161a21', accent: '#7c6cf6', dark: true },
-  { id: 'terracotta', name: 'Terracotta Flame', bg: '#121318', surface: '#1f232d', accent: '#FF6363', dark: true },
-  { id: 'cerulean', name: 'Atlantic Cerulean', bg: '#0d131a', surface: '#182230', accent: '#518DBF', dark: true },
-  { id: 'coral-dawn', name: 'Coral Dawn', bg: '#fcf7f4', surface: '#ffffff', accent: '#B33101', dark: false },
-  { id: 'light', name: 'Minimal Light', bg: '#f4f5f9', surface: '#ffffff', accent: '#605DFF', dark: false },
-  { id: 'cyberpunk', name: 'Cyberpunk Neon', bg: '#090a15', surface: '#141730', accent: '#00f0ff', dark: true },
+  { id: 'dracula', name: 'Dracula Matrix', bg: '#1e1f29', surface: '#282a36', accent: '#bd93f9', dark: true },
   { id: 'nord', name: 'Nord Frost', bg: '#242933', surface: '#3b4252', accent: '#88c0d0', dark: true },
+  { id: 'cerulean', name: 'Atlantic Cerulean', bg: '#0d131a', surface: '#182230', accent: '#518DBF', dark: true },
   { id: 'sepia', name: 'Warm Sepia', bg: '#fbf0d9', surface: '#fff8eb', accent: '#b8621b', dark: false },
-  { id: 'forest', name: 'Emerald Forest', bg: '#0d1a14', surface: '#172e24', accent: '#10b981', dark: true },
-  { id: 'sunset', name: 'Sakura Sunset', bg: '#18111e', surface: '#2b1d37', accent: '#ec4899', dark: true },
-  { id: 'dracula', name: 'Dracula Matrix', bg: '#1e1f29', surface: '#282a36', accent: '#bd93f9', dark: true }
+  { id: 'coral-dawn', name: 'Coral Dawn', bg: '#fcf7f4', surface: '#ffffff', accent: '#B33101', dark: false }
 ];
 
 const ACCENT_COLORS = [
@@ -1332,7 +1326,12 @@ const ACCENT_COLORS = [
 
 function applyTheme() {
   if (!state.settings) state.settings = {};
-  const t = state.settings.theme || 'dark';
+  let t = state.settings.theme || 'dracula';
+  const valid = new Set(['dracula', 'nord', 'cerulean', 'sepia', 'coral-dawn']);
+  if (!valid.has(t)) {
+    t = (t === 'light' || t === 'sepia') ? 'sepia' : (t === 'coral-dawn' ? 'coral-dawn' : 'dracula');
+    state.settings.theme = t;
+  }
   document.documentElement.dataset.theme = t;
   document.documentElement.dataset.accent = state.settings.accent || 'violet';
   document.documentElement.dataset.density = state.settings.density || 'comfortable';
@@ -1340,7 +1339,7 @@ function applyTheme() {
   document.documentElement.dataset.font = state.settings.font || 'sans';
 
   const btn = $('#theme-toggle');
-  const isLight = t === 'light' || t === 'sepia';
+  const isLight = t === 'sepia' || t === 'coral-dawn';
   if (btn) btn.innerHTML = isLight ? `${ic('moon', 17)} <span>Dark mode</span>` : `${ic('sun', 17)} <span>Light mode</span>`;
 }
 
@@ -10414,14 +10413,20 @@ function renderSettings() {
   }
 
   $$('[data-theme-id]').forEach(b => b.addEventListener('click', () => {
-    state.settings.theme = b.dataset.themeId;
-    save(); applyTheme(); renderSettings();
-    toast(`Theme changed to ${THEME_PALETTES.find(p=>p.id===b.dataset.themeId)?.name || b.dataset.themeId}`);
+    const tid = b.dataset.themeId;
+    state.settings.theme = tid;
+    save();
+    applyTheme();
+    $$('.theme-card').forEach(tc => tc.classList.toggle('active', tc.dataset.themeId === tid));
+    toast(`Theme: ${THEME_PALETTES.find(p=>p.id===tid)?.name || tid}`);
   }));
   $$('[data-accent-id]').forEach(b => b.addEventListener('click', () => {
-    state.settings.accent = b.dataset.accentId;
-    save(); applyTheme(); renderSettings();
-    toast(`Accent set to ${b.dataset.accentId}`);
+    const aid = b.dataset.accentId;
+    state.settings.accent = aid;
+    save();
+    applyTheme();
+    $$('.accent-dot-btn').forEach(ab => ab.classList.toggle('active', ab.dataset.accentId === aid));
+    toast(`Accent set to ${aid}`);
   }));
   $('#set-density')?.addEventListener('change', e => {
     state.settings.density = e.target.value;
@@ -10438,11 +10443,6 @@ function renderSettings() {
     save(); applyTheme();
     toast(e.target.checked ? 'Glassmorphism enabled' : 'Glassmorphism disabled');
   });
-
-  $$('[data-theme]').forEach(b => b.addEventListener('click', () => {
-    state.settings.theme = b.dataset.theme;
-    save(); applyTheme(); renderSettings();
-  }));
   const installBtn = $('#install-btn');
   if (installBtn) installBtn.addEventListener('click', async () => {
     if (!deferredPrompt || typeof deferredPrompt.prompt !== 'function') return;
@@ -11175,8 +11175,12 @@ function init() {
   // theme toggle in sidebar
   const themeBtn = $('#theme-toggle');
   if (themeBtn) themeBtn.addEventListener('click', () => {
-    state.settings.theme = state.settings.theme === 'light' ? 'dark' : 'light';
+    const isLight = state.settings.theme === 'sepia' || state.settings.theme === 'coral-dawn';
+    state.settings.theme = isLight ? 'dracula' : 'coral-dawn';
     save(); applyTheme();
+    if (currentView() === 'settings') {
+      $$('.theme-card').forEach(tc => tc.classList.toggle('active', tc.dataset.themeId === state.settings.theme));
+    }
   });
   // nav — render icons only for the main 4 items; 'more' is handled separately
   $$('.nav-item[data-view]').forEach(b => {

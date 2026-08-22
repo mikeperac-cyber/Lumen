@@ -384,14 +384,14 @@ test.describe('Lumen behavioral — task CRUD + undo + backup round-trip', () =>
     await page.waitForLoadState('domcontentloaded');
     await page.waitForTimeout(600);
 
-    // Switch theme to terracotta
-    const terracottaCard = page.locator('.theme-card[data-theme-id="terracotta"]');
-    await terracottaCard.click();
+    // Switch theme to nord
+    const nordCard = page.locator('.theme-card[data-theme-id="nord"]');
+    await nordCard.click();
     await page.waitForTimeout(400);
 
-    // Verify html dataset theme is terracotta
+    // Verify html dataset theme is nord
     let htmlTheme = await page.evaluate(() => document.documentElement.dataset.theme);
-    expect(htmlTheme).toBe('terracotta');
+    expect(htmlTheme).toBe('nord');
 
     // Switch accent color to cerulean
     const ceruleanAccent = page.locator('.accent-dot-btn[data-accent-id="cerulean"]');
@@ -407,7 +407,7 @@ test.describe('Lumen behavioral — task CRUD + undo + backup round-trip', () =>
 
     htmlTheme = await page.evaluate(() => document.documentElement.dataset.theme);
     htmlAccent = await page.evaluate(() => document.documentElement.dataset.accent);
-    expect(htmlTheme).toBe('terracotta');
+    expect(htmlTheme).toBe('nord');
     expect(htmlAccent).toBe('cerulean');
 
     expect(errors).toEqual([]);
