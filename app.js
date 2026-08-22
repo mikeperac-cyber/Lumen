@@ -889,11 +889,18 @@ const DAYS = [
   { id: 'thu', label: 'Thu' }, { id: 'fri', label: 'Fri' }, { id: 'sat', label: 'Sat' }, { id: 'sun', label: 'Sun' }
 ];
 const PERIODS = [
-  { id: 'p1', label: 'Period 1' }, { id: 'p2', label: 'Period 2' }, { id: 'p3', label: 'Period 3' },
-  { id: 'p4', label: 'Period 4' }, { id: 'p5', label: 'Period 5' }, { id: 'p6', label: 'Period 6' },
-  { id: 'p7', label: 'Period 7' }, { id: 'p8', label: 'Period 8' },
-  { id: 'lunch', label: 'Lunch' }, { id: 'plan', label: 'Planning' }, { id: 'mtg', label: 'Meetings' },
-  { id: 'after', label: 'After School' }
+  { id: 'p1', label: 'Period 1', time: '08:00 – 08:45', start: '08:00', end: '08:45' },
+  { id: 'p2', label: 'Period 2', time: '09:00 – 09:45', start: '09:00', end: '09:45' },
+  { id: 'p3', label: 'Period 3', time: '10:00 – 10:45', start: '10:00', end: '10:45' },
+  { id: 'p4', label: 'Period 4', time: '11:00 – 11:45', start: '11:00', end: '11:45' },
+  { id: 'lunch', label: 'Lunch', time: '12:00 – 13:00', start: '12:00', end: '13:00' },
+  { id: 'p5', label: 'Period 5', time: '13:00 – 13:45', start: '13:00', end: '13:45' },
+  { id: 'p6', label: 'Period 6', time: '14:00 – 14:45', start: '14:00', end: '14:45' },
+  { id: 'p7', label: 'Period 7', time: '15:00 – 15:45', start: '15:00', end: '15:45' },
+  { id: 'p8', label: 'Period 8', time: '16:00 – 16:45', start: '16:00', end: '16:45' },
+  { id: 'plan', label: 'Planning', time: '17:00 – 17:45', start: '17:00', end: '17:45' },
+  { id: 'mtg', label: 'Meetings', time: '18:00 – 18:45', start: '18:00', end: '18:45' },
+  { id: 'after', label: 'After School', time: '19:00 – 20:00', start: '19:00', end: '20:00' }
 ];
 const COLORS = ['#7c6cf6', '#4f8cff', '#34d399', '#ffb020', '#ff5d6c', '#f472b6', '#22d3ee', '#a3e635'];
 const EMOJIS = ['💧', '🏋️', '📚', '🧘', '🥗', '✍️', '🌅', '💪', '🎸', '🌱', '🧠', '🚶'];
@@ -9872,11 +9879,57 @@ function timeOverlaps(a, b) {
   return aStart < bEnd && bStart < aEnd;
 }
 
+let _schedViewMode = 'timetable';
+let _schedWeekOffset = 0;
+let _schedMonthOffset = 0;
+
 function renderSchedule() {
   const today = todayISO();
   const dow = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
   const todayDow = dow[new Date().getDay()];
+
+  // Calculate week dates
+  const baseDate = new Date();
+  const dayOfWeek = (baseDate.getDay() + 6) % 7; // 0 = Mon, 6 = Sun
+  const monday = new Date(baseDate);
+  monday.setDate(baseDate.getDate() - dayOfWeek + (_schedWeekOffset * 7));
+
+  const weekDays = DAYS.map((d, idx) => {
+    const dt = new Date(monday);
+    dt.setDate(monday.getDate() + idx);
+    const dateStr = dt.toISOString().split('T')[0];
+    const isToday = dateStr === today;
+    const dayNum = dt.getDate();
+    const monthShort = dt.toLocaleString('en-US', { month: 'short' });
+    return {
+      id: d.id,
+      label: d.label,
+      dateStr,
+      dayNum,
+      monthShort,
+      isToday,
+      fullLabel: `${d.label} ${dayNum}`
+    };
+  });
+
+  const startDay = weekDays[0];
+  const endDay = weekDays[6];
+  const weekDateTitle = `${startDay.monthShort} ${startDay.dayNum} – ${endDay.monthShort} ${endDay.dayNum}, ${monday.getFullYear()}`;
+
+  // Month date calculation
+  const curMonthDate = new Date();
+  curMonthDate.setDate(1);
+  curMonthDate.setMonth(curMonthDate.getMonth() + _schedMonthOffset);
+  const monthTitle = curMonthDate.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+  const curYear = curMonthDate.getFullYear();
+  const curMonth = curMonthDate.getMonth();
+  const firstDay = new Date(curYear, curMonth, 1);
+  const lastDay = new Date(curYear, curMonth + 1, 0);
+  const startDayIdx = (firstDay.getDay() + 6) % 7; // 0=Mon, 6=Sun
+  const totalDays = lastDay.getDate();
+
   const scheduledTasks = state.tasks.filter(t => (t.scheduleDay || t.schedulePeriod) && t.status !== 'done');
+  
   // Build a grid: period → day → tasks
   const grid = {};
   PERIODS.forEach(p => { grid[p.id] = {}; DAYS.forEach(d => { grid[p.id][d.id] = []; }); });
@@ -9885,11 +9938,13 @@ function renderSchedule() {
     const period = t.schedulePeriod || 'p1';
     if (grid[period] && grid[period][day]) grid[period][day].push(t);
   });
+
   const countDone = (t) => {
     const sub = t.subtasks || [];
     const done = sub.filter(s => s.done).length;
     return sub.length ? `${done}/${sub.length}` : '';
   };
+
   // Detect overlapping tasks in each cell
   const overlapIds = new Set();
   PERIODS.forEach(p => {
@@ -9905,6 +9960,7 @@ function renderSchedule() {
       }
     });
   });
+
   function schedTaskCell(t) {
     const cat = CATEGORIES.find(c => c.id === t.category);
     const overdue = t.due && t.due < today;
@@ -9912,7 +9968,6 @@ function renderSchedule() {
     const subProg = countDone(t);
     const overlap = overlapIds.has(t.id);
     const timeLabel = t.startTime ? (t.endTime ? `${t.startTime}–${t.endTime}` : t.startTime) : '';
-    // Category color-coding: left border + tinted background for at-a-glance scanning
     const catStyle = cat ? ` style="border-left:3px solid ${cat.color};background:${cat.color}14"` : '';
     const catEmoji = cat ? cat.label.split(' ')[0] : '';
     return `<div class="sched-task ${done ? 'done' : ''} ${overlap ? 'time-overlap' : ''} ${cat ? 'cat-' + cat.id : 'cat-none'}" data-id="${t.id}" draggable="true"${catStyle} title="${esc(t.title)}${t.desc ? '\n' + esc(t.desc) : ''}${overlap ? '\n⚠ Overlapping time range!' : ''}">
@@ -9927,32 +9982,110 @@ function renderSchedule() {
       </div>
     </div>`;
   }
+
   const unscheduled = state.tasks.filter(t => t.status !== 'done' && !t.scheduleDay && !t.schedulePeriod)
     .sort((a, b) => (a.startTime || 'zz') < (b.startTime || 'zz') ? -1 : (a.startTime || 'zz') > (b.startTime || 'zz') ? 1 : 0);
+
+  // Render HTML based on view mode
+  let mainScheduleContent = '';
+  if (_schedViewMode === 'month') {
+    // Month calendar grid
+    const prevMonthLastDay = new Date(curYear, curMonth, 0).getDate();
+    let monthCellsHTML = '';
+    // Previous month filler days
+    for (let i = startDayIdx - 1; i >= 0; i--) {
+      const prevDate = prevMonthLastDay - i;
+      monthCellsHTML += `<div class="cal-month-cell other-month"><div class="cal-month-top"><span class="cal-month-num">${prevDate}</span></div></div>`;
+    }
+    // Current month days
+    for (let d = 1; d <= totalDays; d++) {
+      const dStr = `${curYear}-${String(curMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const isToday = dStr === today;
+      const dayTasks = state.tasks.filter(t => t.due === dStr || (t.scheduleDay && dStr === today && t.scheduleDay === todayDow));
+      monthCellsHTML += `
+        <div class="cal-month-cell ${isToday ? 'today' : ''}" data-calendar-date="${dStr}">
+          <div class="cal-month-top">
+            <span class="cal-month-num">${d}</span>
+            ${isToday ? '<span class="sched-today-dot"></span>' : ''}
+          </div>
+          <div class="cal-month-tasks">
+            ${dayTasks.map(t => {
+              const cat = CATEGORIES.find(c => c.id === t.category);
+              const color = cat ? cat.color : 'var(--accent)';
+              const timeLabel = t.startTime ? `${t.startTime} ` : '';
+              return `<div class="sched-task ${t.status === 'done' ? 'done' : ''}" data-id="${t.id}" style="border-left:3px solid ${color};font-size:10.5px;padding:2px 4px;margin-bottom:2px">
+                <div class="sched-task-title" style="font-size:10.5px">${timeLabel}${esc(t.title)}</div>
+              </div>`;
+            }).join('')}
+          </div>
+        </div>`;
+    }
+    // Next month filler days
+    const totalCells = startDayIdx + totalDays;
+    const nextFill = (7 - (totalCells % 7)) % 7;
+    for (let n = 1; n <= nextFill; n++) {
+      monthCellsHTML += `<div class="cal-month-cell other-month"><div class="cal-month-top"><span class="cal-month-num">${n}</span></div></div>`;
+    }
+
+    mainScheduleContent = `
+      <div class="cal-month-grid">
+        ${DAYS.map(d => `<div class="cal-month-head">${d.label}</div>`).join('')}
+        ${monthCellsHTML}
+      </div>`;
+  } else {
+    // Timetable / Weekly Schedule Grid with Time Columns and Dates
+    mainScheduleContent = `
+      <div class="sched-wrap">
+        <div class="sched-grid">
+          <div class="sched-corner">Time &amp; Period</div>
+          ${weekDays.map(wd => `
+            <div class="sched-day-head ${wd.isToday ? 'today' : ''}">
+              <span class="sched-day-name">${wd.label}</span>
+              <span class="sched-day-date">${wd.monthShort} ${wd.dayNum}</span>
+              ${wd.isToday ? '<span class="sched-today-dot"></span>' : ''}
+            </div>
+          `).join('')}
+          ${PERIODS.map(p => `
+            <div class="sched-period-label">
+              <span class="sched-period-name">${p.label}</span>
+              <span class="sched-period-time">🕐 ${p.time}</span>
+            </div>
+            ${weekDays.map(wd => {
+              const tasks = grid[p.id][wd.id];
+              return `<div class="sched-cell ${wd.isToday ? 'today' : ''} ${tasks.length ? 'has-tasks' : ''}" data-day="${wd.id}" data-period="${p.id}" data-date="${wd.dateStr}">
+                ${tasks.map(schedTaskCell).join('')}
+              </div>`;
+            }).join('')}
+          `).join('')}
+        </div>
+      </div>`;
+  }
+
   viewRoot().innerHTML = `
     <div class="sched-toolbar">
-      <div class="sched-info">📋 ${scheduledTasks.length} scheduled task${scheduledTasks.length !== 1 ? 's' : ''} · ${unscheduled.length} unscheduled</div>
-      ${overlapIds.size ? `<div class="sched-overlap-banner">⚠ ${overlapIds.size} task${overlapIds.size !== 1 ? 's' : ''} with overlapping times</div>` : ''}
-      <button class="btn btn-sm btn-ai" id="sched-ai-plan" title="Auto-schedule tasks with AI timeboxing">✨ AI Day Plan</button>
-      <button class="btn btn-accent" id="sched-new">${ic('plus', 15)} New task</button>
-    </div>
-    <div class="sched-legend">${CATEGORIES.map(c => `<span class="sched-legend-item" style="border-left:3px solid ${c.color}">${c.label}</span>`).join('')}</div>
-    <div class="sched-wrap">
-      <div class="sched-grid">
-        <div class="sched-corner"></div>
-        ${DAYS.map(d => `<div class="sched-day-head ${d.id === todayDow ? 'today' : ''}">${d.label}${d.id === todayDow ? ' <span class="sched-today-dot"></span>' : ''}</div>`).join('')}
-        ${PERIODS.map(p => `<div class="sched-period-label">${p.label}</div>
-          ${DAYS.map(d => {
-            const tasks = grid[p.id][d.id];
-            const isToday = d.id === todayDow;
-            return `<div class="sched-cell ${isToday ? 'today' : ''} ${tasks.length ? 'has-tasks' : ''}" data-day="${d.id}" data-period="${p.id}">
-              ${tasks.map(schedTaskCell).join('')}
-            </div>`;
-          }).join('')}`).join('')}
+      <div class="sched-controls-left">
+        <div class="sched-view-tabs">
+          <button class="sched-view-btn ${_schedViewMode === 'timetable' ? 'active' : ''}" data-set-view="timetable">📋 Timetable</button>
+          <button class="sched-view-btn ${_schedViewMode === 'month' ? 'active' : ''}" data-set-view="month">🗓️ Month View</button>
+        </div>
+        <div class="sched-date-nav">
+          <button class="btn btn-sm btn-ghost" id="sched-nav-prev" title="Previous">◀</button>
+          <button class="btn btn-sm btn-ghost" id="sched-nav-today" title="Jump to Today">Today</button>
+          <button class="btn btn-sm btn-ghost" id="sched-nav-next" title="Next">▶</button>
+          <span class="sched-date-title">${_schedViewMode === 'month' ? monthTitle : weekDateTitle}</span>
+        </div>
+      </div>
+      <div class="sched-controls-right">
+        <div class="sched-info">📋 ${scheduledTasks.length} scheduled · ${unscheduled.length} unscheduled</div>
+        ${overlapIds.size ? `<div class="sched-overlap-banner">⚠ ${overlapIds.size} overlap${overlapIds.size !== 1 ? 's' : ''}</div>` : ''}
+        <button class="btn btn-sm btn-ai" id="sched-ai-plan" title="Auto-schedule tasks with AI timeboxing">✨ AI Day Plan</button>
+        <button class="btn btn-accent" id="sched-new">${ic('plus', 15)} New task</button>
       </div>
     </div>
+    <div class="sched-legend">${CATEGORIES.map(c => `<span class="sched-legend-item" style="border-left:3px solid ${c.color}">${c.label}</span>`).join('')}</div>
+    ${mainScheduleContent}
     ${unscheduled.length ? `<div class="sched-unscheduled">
-      <h3 class="card-title"><span>📋 Unscheduled tasks</span><span class="muted" style="font-size:12px;font-weight:400">Assign a day & period in the task editor</span></h3>
+      <h3 class="card-title"><span>📋 Unscheduled tasks</span><span class="muted" style="font-size:12px;font-weight:400">Assign a day & period or drag into a time slot</span></h3>
       <div class="sched-unsched-list">${unscheduled.map(t => {
         const cat = CATEGORIES.find(c => c.id === t.category);
         const catStyle = cat ? ` style="border-left:3px solid ${cat.color};background:${cat.color}10"` : '';
@@ -9963,7 +10096,59 @@ function renderSchedule() {
         </div>`;
       }).join('')}</div>
     </div>` : ''}`;
-  // Bind
+
+  // View switcher bindings
+  $$('[data-set-view]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _schedViewMode = btn.dataset.setView;
+      renderSchedule();
+    });
+  });
+
+  // Date nav bindings
+  $('#sched-nav-prev')?.addEventListener('click', () => {
+    if (_schedViewMode === 'month') _schedMonthOffset--;
+    else _schedWeekOffset--;
+    renderSchedule();
+  });
+  $('#sched-nav-next')?.addEventListener('click', () => {
+    if (_schedViewMode === 'month') _schedMonthOffset++;
+    else _schedWeekOffset++;
+    renderSchedule();
+  });
+  $('#sched-nav-today')?.addEventListener('click', () => {
+    _schedWeekOffset = 0;
+    _schedMonthOffset = 0;
+    renderSchedule();
+  });
+
+  // Cell click to quickly create a task for that slot/day
+  $$('.sched-cell').forEach(cell => {
+    cell.addEventListener('click', e => {
+      if (e.target.closest('.sched-task')) return;
+      const day = cell.dataset.day;
+      const period = cell.dataset.period;
+      const pObj = PERIODS.find(p => p.id === period);
+      openTaskModal({
+        scheduleDay: day,
+        schedulePeriod: period,
+        startTime: pObj ? pObj.start : '',
+        endTime: pObj ? pObj.end : '',
+        due: cell.dataset.date || todayISO()
+      });
+    });
+  });
+
+  // Month cell click
+  $$('.cal-month-cell:not(.other-month)').forEach(cell => {
+    cell.addEventListener('click', e => {
+      if (e.target.closest('.sched-task')) return;
+      const dStr = cell.dataset.calendarDate;
+      if (dStr) openTaskModal({ due: dStr });
+    });
+  });
+
+  // Bind new task
   $('#sched-new').addEventListener('click', () => openTaskModal());
   const aiPlanBtn = $('#sched-ai-plan');
   if (aiPlanBtn) {
@@ -10034,7 +10219,6 @@ Return ONLY a valid JSON array of objects with schema: [{"id": "...", "scheduleD
       el.classList.add('dragging');
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', _dragTaskId);
-      // Add a drag image for unscheduled items (they don't have a grid cell parent)
       if (el.classList.contains('sched-unsched-item')) {
         el.classList.add('drag-from-tray');
       }
@@ -10067,7 +10251,6 @@ Return ONLY a valid JSON array of objects with schema: [{"id": "...", "scheduleD
       if (!t) return;
       const newDay = cell.dataset.day, newPeriod = cell.dataset.period;
       if (!newDay || !newPeriod) return;
-      // No-op if already in this exact cell
       if (t.scheduleDay === newDay && t.schedulePeriod === newPeriod) return;
       const wasUnscheduled = !t.scheduleDay && !t.schedulePeriod;
       captureUndo('Reschedule task');
