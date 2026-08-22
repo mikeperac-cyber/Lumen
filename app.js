@@ -38,7 +38,9 @@ const ICONS = {
   'activity': '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
   'zap': '<path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/>',
   'bar-chart': '<line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/>',
-  'dollar-sign': '<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>'
+  'dollar-sign': '<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
+  'graduation-cap': '<path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12.5v4.5a6 3 0 0 0 12 0v-4.5"/>',
+  'users': '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>'
 };
 function ic(name, size = 18) {
   return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[name] || ''}</svg>`;
@@ -915,7 +917,7 @@ const TITLES = {
   students: ['Students', 'Teaching roster, lesson dossiers & student progress']
 };
 const NAV = {
-  brief: ['sparkles', 'Brief'], dashboard: ['dashboard', 'Dashboard'], students: ['users', 'Students'], review: ['calendar', 'Weekly review'], tasks: ['check-square', 'Tasks'], projects: ['folder', 'Projects'], schedule: ['calendar-plus', 'Schedule'], tags: ['tag', 'Tags'], goals: ['target', 'Goals'],
+  brief: ['sparkles', 'Brief'], dashboard: ['dashboard', 'Dashboard'], students: ['graduation-cap', 'Students'], review: ['calendar', 'Weekly review'], tasks: ['check-square', 'Tasks'], projects: ['folder', 'Projects'], schedule: ['calendar-plus', 'Schedule'], tags: ['tag', 'Tags'], goals: ['target', 'Goals'],
   habits: ['flame', 'Habits'], achievements: ['trophy', 'Achievements'], notes: ['file-text', 'Notes'], voice: ['mic', 'Voice'], activity: ['activity', 'Activity'], perf: ['zap', 'Performance'],  analytics: ['bar-chart', 'Analytics'], finance: ['dollar-sign', 'Finance'], settings: ['settings', 'Settings']
 };
 const MAIN_VIEWS = new Set(['brief', 'dashboard', 'students', 'tasks', 'habits', 'more']);
