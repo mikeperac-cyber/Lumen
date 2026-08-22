@@ -1,10 +1,10 @@
 /* Lumen service worker — offline-first app shell. */
-const VERSION = 'lumen-cache-v84';
+const VERSION = 'lumen-cache-v85';
 const SHELL = [
   './',
   './index.html',
-  './styles.css?v=84',
-  './app.js?v=84',
+  './styles.css?v=85',
+  './app.js?v=85',
   './peerjs.min.js',
   './manifest.webmanifest',
   './icon-192.png',
