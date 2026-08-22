@@ -2556,6 +2556,211 @@ html.focus-mode .topbar { justify-content: center; }
   }
 }
 
+/* ============ Student Hero Section ============ */
+.student-hero {
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+  background: linear-gradient(135deg, rgba(96,93,255,0.14) 0%, rgba(81,141,191,0.08) 50%, rgba(255,99,99,0.06) 100%);
+  border: 1px solid rgba(96,93,255,0.25);
+  border-radius: 16px;
+  padding: 22px 24px;
+  margin-bottom: 20px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+}
+.student-hero::before {
+  content: '';
+  position: absolute;
+  top: -40px;
+  right: -40px;
+  width: 140px;
+  height: 140px;
+  background: radial-gradient(circle, rgba(96,93,255,0.22) 0%, transparent 70%);
+  pointer-events: none;
+}
+.student-hero-icon {
+  font-size: 38px;
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface);
+  border: 1px solid rgba(96,93,255,0.3);
+  border-radius: 14px;
+  box-shadow: 0 6px 20px rgba(96,93,255,0.25);
+  flex-shrink: 0;
+}
+.student-hero-content {
+  flex: 1;
+  min-width: 0;
+}
+.student-hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  background: rgba(96,93,255,0.2);
+  border: 1px solid rgba(96,93,255,0.35);
+  border-radius: 20px;
+  color: var(--accent);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.student-hero-title {
+  margin: 0 0 6px;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.3px;
+}
+.student-hero-sub {
+  margin: 0 0 14px;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+  max-width: 760px;
+}
+.student-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.hero-btn-icon {
+  margin-right: 2px;
+}
+
+/* ============ Student Main Sub-Tabs ============ */
+.student-main-tabs {
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 10px;
+  margin-bottom: 18px;
+  overflow-x: auto;
+}
+.student-main-tab-btn {
+  padding: 8px 16px;
+  border-radius: 9px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+  transition: all .15s ease;
+}
+.student-main-tab-btn:hover {
+  color: var(--text);
+  background: var(--surface2);
+  border-color: var(--border-hover);
+}
+.student-main-tab-btn.active {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 4px 14px rgba(96,93,255,0.3);
+}
+
+/* ============ Attendance & Logbook ============ */
+.att-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 20px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.att-status-badge.present { background: rgba(52,211,153,0.15); color: #34d399; border: 1px solid rgba(52,211,153,0.3); }
+.att-status-badge.late { background: rgba(245,158,11,0.15); color: #f59e0b; border: 1px solid rgba(245,158,11,0.3); }
+.att-status-badge.absent { background: rgba(239,68,68,0.15); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); }
+.att-status-badge.rescheduled { background: rgba(81,141,191,0.15); color: #518DBF; border: 1px solid rgba(81,141,191,0.3); }
+.att-status-badge.excused { background: rgba(156,163,175,0.15); color: #9ca3af; border: 1px solid rgba(156,163,175,0.3); }
+
+/* ============ Assignment Cards ============ */
+.assignment-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 14px;
+}
+.assignment-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: transform .15s, border-color .15s;
+}
+.assignment-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent);
+}
+.assignment-grade-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  background: rgba(52,211,153,0.15);
+  color: #34d399;
+  border: 1px solid rgba(52,211,153,0.3);
+}
+
+/* ============ Lesson Planning Workstation ============ */
+.lesson-plans-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 16px;
+}
+.lesson-plan-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  transition: transform .15s, border-color .15s;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+}
+.lesson-plan-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+}
+.lesson-stage-block {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.lesson-stage-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--muted);
+  letter-spacing: 0.4px;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
 
 
 

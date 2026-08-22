@@ -584,7 +584,7 @@ async function callGemini(prompt, systemInstruction = '') {
 
 /* ---------- State & persistence ---------- */
 const KEY = 'lumen.state.v1';
-let state = { tasks: [], goals: [], habits: [], notes: [], recordings: [], krHistory: [], tagColors: {}, projects: [], activityLog: [], settings: {}, incomeTypes: ['ESL','IELTS','Software'], students: ['Alex Johnson', 'Emma Watson', 'Burak Demir', 'Maria Garcia'], income: [], expenses: [], expectedIncome: [], expectedExpenses: [] };
+let state = { tasks: [], goals: [], habits: [], notes: [], recordings: [], krHistory: [], tagColors: {}, projects: [], activityLog: [], settings: {}, incomeTypes: ['ESL','IELTS','Tutoring','Exam Prep'], students: [], income: [], expenses: [], expectedIncome: [], expectedExpenses: [], attendance: [], assignments: [], lessonPlans: [] };
 function getTagColor(name) {
   return (state.tagColors || {})[name.toLowerCase()] || null;
 }
@@ -653,11 +653,15 @@ function normalizeState(parsed) {
   if (!Array.isArray(state.activityLog)) state.activityLog = [];
   if (!Array.isArray(state.templates)) state.templates = [];
   // Finance & Student defaults
-  if (!Array.isArray(state.incomeTypes)) state.incomeTypes = ['ESL','IELTS','Software'];
+  if (!Array.isArray(state.incomeTypes)) state.incomeTypes = ['ESL','IELTS','Tutoring','Exam Prep'];
   if (!Array.isArray(state.income)) state.income = [];
   if (!Array.isArray(state.expenses)) state.expenses = [];
   if (!Array.isArray(state.expectedIncome)) state.expectedIncome = [];
   if (!Array.isArray(state.expectedExpenses)) state.expectedExpenses = [];
+  if (!Array.isArray(state.students)) state.students = [];
+  if (!Array.isArray(state.attendance)) state.attendance = [];
+  if (!Array.isArray(state.assignments)) state.assignments = [];
+  if (!Array.isArray(state.lessonPlans)) state.lessonPlans = [];
   getStudentsList();
   // Ensure all habits have required defaults
   if (Array.isArray(state.habits)) {
@@ -675,24 +679,16 @@ function normalizeState(parsed) {
 }
 
 function getStudentsList() {
-  if (!Array.isArray(state.students) || !state.students.length) {
-    state.students = [
-      { id: 'std-1', name: 'Alex Johnson', level: 'IELTS Prep (7.5 Goal)', rate: 35, currency: 'USD', status: 'active', email: 'alex.j@example.com', phone: '+1 (555) 234-5678', goals: 'Score Band 7.5 on IELTS Speaking & Writing by November', notes: 'Very motivated. Needs work on complex sentence structures and vocabulary precision.', tags: ['IELTS', 'Speaking'], createdAt: Date.now() - 30 * 86400000 },
-      { id: 'std-2', name: 'Emma Watson', level: 'General ESL (B2 Level)', rate: 30, currency: 'USD', status: 'active', email: 'emma.w@example.com', phone: '+1 (555) 876-5432', goals: 'Fluency in workplace conversations and email correspondence', notes: 'Excellent reading comprehension. Focus on pronunciation rhythm.', tags: ['Business ESL', 'Speaking'], createdAt: Date.now() - 20 * 86400000 },
-      { id: 'std-3', name: 'Burak Demir', level: 'Academic English & TOEFL', rate: 1200, currency: 'TRY', status: 'active', email: 'burak.d@example.com', phone: '+90 532 123 4567', goals: 'Achieve 100+ on TOEFL for Master admission in Europe', notes: 'Prefers 60-min intense grammar and essay review sessions on Tuesdays & Thursdays.', tags: ['TOEFL', 'Academic Writing'], createdAt: Date.now() - 15 * 86400000 },
-      { id: 'std-4', name: 'Maria Garcia', level: 'Conversational Fluency (C1)', rate: 40, currency: 'USD', status: 'active', email: 'maria.g@example.com', phone: '+34 612 345 678', goals: 'Eliminate hesitation in rapid debate and presentations', notes: 'Native Spanish speaker. Working on phrasal verbs and natural idioms.', tags: ['Conversation', 'Presentations'], createdAt: Date.now() - 10 * 86400000 }
-    ];
-  }
+  if (!Array.isArray(state.students)) state.students = [];
   // Migrate any legacy strings to student objects
   state.students = state.students.map((s, idx) => {
     if (typeof s === 'string') {
-      const isTRY = s.toLowerCase().includes('burak') || s.toLowerCase().includes('demir');
       return {
         id: 'std-' + (idx + 1) + '-' + s.toLowerCase().replace(/[^a-z0-9]/g, ''),
         name: s,
-        level: isTRY ? 'Academic English & TOEFL' : 'English / ESL Student',
-        rate: isTRY ? 1200 : 35,
-        currency: isTRY ? 'TRY' : 'USD',
+        level: 'English / ESL Student',
+        rate: 35,
+        currency: 'USD',
         status: 'active',
         email: '',
         phone: '',
@@ -7850,6 +7846,10 @@ function openStudentManageModal() {
 let _studentSearchQ = '';
 let _studentStatusFilter = 'ALL';
 let _studentViewMode = 'grid'; // 'grid' | 'table'
+let _studentActiveSubTab = 'roster'; // 'roster' | 'attendance' | 'assignments' | 'lessonPlans'
+let _attStatusFilter = 'ALL';
+let _assignStatusFilter = 'ALL';
+let _planStatusFilter = 'ALL';
 
 function renderStudents() {
   const root = viewRoot();
@@ -7858,21 +7858,13 @@ function renderStudents() {
   const expInc = state.expectedIncome || [];
   const tasks = state.tasks || [];
   const notes = state.notes || [];
+  const attendance = state.attendance || [];
+  const assignments = state.assignments || [];
+  const lessonPlans = state.lessonPlans || [];
   const today = todayISO();
   const thisMonth = today.slice(0, 7);
 
-  // Filter students
-  const q = (_studentSearchQ || '').toLowerCase().trim();
-  const filtered = students.filter(s => {
-    if (_studentStatusFilter !== 'ALL' && s.status !== _studentStatusFilter) return false;
-    if (q) {
-      const haystack = (s.name + ' ' + (s.level || '') + ' ' + (s.email || '') + ' ' + (s.phone || '') + ' ' + (s.goals || '') + ' ' + (s.notes || '') + ' ' + (s.tags || []).join(' ')).toLowerCase();
-      if (!haystack.includes(q)) return false;
-    }
-    return true;
-  });
-
-  // Calculate high-level student stats
+  // High-level metrics
   const activeCount = students.filter(s => s.status === 'active').length;
   const monthStudentInc = inc.filter(e => e.student && (e.date || '').startsWith(thisMonth));
   const monthLessonsCount = monthStudentInc.length;
@@ -7881,7 +7873,6 @@ function renderStudents() {
   const allTimeUsd = inc.filter(e => e.student && (e.currency || 'USD') === 'USD').reduce((sum, e) => sum + (e.amount || 0), 0);
   const allTimeTry = inc.filter(e => e.student && e.currency === 'TRY').reduce((sum, e) => sum + (e.amount || 0), 0);
 
-  // Helper for student financial stats
   function getStudentStats(s) {
     const sInc = inc.filter(e => e.student === s.name || e.student === s.id);
     const sExpInc = expInc.filter(e => e.student === s.name || e.student === s.id);
@@ -7892,200 +7883,528 @@ function renderStudents() {
     const sTasks = tasks.filter(t => t.student === s.name);
     const pendingTasks = sTasks.filter(t => t.status !== 'done').length;
     const sNotes = notes.filter(n => n.student === s.name);
-    return { lessonsCount, usdPaid, tryPaid, pendingCount, pendingTasks, notesCount: sNotes.length };
+    const sAtt = attendance.filter(a => a.studentName === s.name || a.studentId === s.id);
+    const sAssign = assignments.filter(a => a.studentName === s.name || a.studentId === s.id);
+    const sPlans = lessonPlans.filter(p => p.studentName === s.name || p.studentId === s.id);
+    return { lessonsCount, usdPaid, tryPaid, pendingCount, pendingTasks, notesCount: sNotes.length, attCount: sAtt.length, assignCount: sAssign.length, plansCount: sPlans.length };
   }
 
-  // Cards HTML
-  const cardsHTML = filtered.map(s => {
-    const st = getStudentStats(s);
-    const initials = s.name.split(' ').map(p => p[0]).slice(0, 2).join('').toUpperCase() || 'ST';
-    const currSym = s.currency === 'TRY' ? '₺' : '$';
-    const rateText = s.rate ? `${currSym}${s.rate.toLocaleString()}/hr` : 'Custom rate';
-    const revFormatted = s.currency === 'TRY'
-      ? `₺${st.tryPaid.toLocaleString()}${st.usdPaid > 0 ? ` · $${st.usdPaid.toLocaleString()}` : ''}`
-      : `$${st.usdPaid.toLocaleString()}${st.tryPaid > 0 ? ` · ₺${st.tryPaid.toLocaleString()}` : ''}`;
-
-    return `
-      <div class="student-card" data-student-id="${s.id}">
-        <div class="student-card-head">
-          <div class="student-avatar">${initials}</div>
-          <div class="student-name-wrap">
-            <h4 class="student-card-name">
-              <span>${esc(s.name)}</span>
-              <span class="student-status-dot ${s.status || 'active'}" title="Status: ${s.status || 'active'}"></span>
-            </h4>
-            <div class="student-level-tag">
-              <span>📚 ${esc(s.level || 'General ESL')}</span> · <b>${rateText}</b>
-            </div>
-          </div>
+  // Hero Section HTML
+  const heroHTML = `
+    <div class="student-hero">
+      <div class="student-hero-icon">🎓</div>
+      <div class="student-hero-content">
+        <div class="student-hero-badge">Teacher Command Center</div>
+        <h2 class="student-hero-title">Students &amp; Classroom Workstation</h2>
+        <p class="student-hero-sub">Manage student roster, track attendance &amp; punctuality, grade assignments, and organize structured curriculum lesson plans.</p>
+        <div class="student-hero-actions">
+          <button class="btn btn-accent btn-sm" id="std-hero-new-student"><span class="hero-btn-icon">➕</span> New Student</button>
+          <button class="btn btn-sm" id="std-hero-mark-attendance"><span class="hero-btn-icon">📅</span> Mark Attendance</button>
+          <button class="btn btn-sm" id="std-hero-assign-hw"><span class="hero-btn-icon">📋</span> Assign Homework</button>
+          <button class="btn btn-sm" id="std-hero-new-plan"><span class="hero-btn-icon">📖</span> New Lesson Plan</button>
+          <button class="btn btn-sm btn-ghost" id="std-hero-log-income"><span class="hero-btn-icon">💰</span> Log Income</button>
         </div>
-
-        <div class="student-metrics-row">
-          <div class="student-metric-box">
-            <span class="student-metric-num">${st.lessonsCount}</span>
-            <span class="student-metric-title">Lessons</span>
-          </div>
-          <div class="student-metric-box">
-            <span class="student-metric-num" style="color:#34d399">${revFormatted}</span>
-            <span class="student-metric-title">Revenue</span>
-          </div>
-          <div class="student-metric-box">
-            <span class="student-metric-num" style="color:${st.pendingTasks > 0 ? '#605DFF' : 'var(--muted)'}">${st.pendingTasks}</span>
-            <span class="student-metric-title">Tasks/HW</span>
-          </div>
-        </div>
-
-        ${s.goals ? `<div style="font-size:12px;color:var(--text);background:var(--surface2);padding:8px 10px;border-radius:8px;line-height:1.4">🎯 <b>Goal:</b> ${esc(s.goals)}</div>` : ''}
-
-        <div class="student-card-tags">
-          ${(s.tags || []).map(tg => tagSpan(tg)).join('')}
-          ${st.notesCount > 0 ? `<span class="badge" style="font-size:11px">📝 ${st.notesCount} notes</span>` : ''}
-          ${s.phone ? `<span class="badge" style="font-size:11px">📞 ${esc(s.phone)}</span>` : ''}
-        </div>
-
-        <div class="student-card-foot">
-          <div style="display:flex;gap:6px">
-            <button class="btn btn-sm btn-accent std-open-dossier" data-id="${s.id}">🎓 Dossier</button>
-            <button class="btn btn-sm btn-ghost std-log-income" data-student="${esc(s.name)}" data-curr="${s.currency || 'USD'}" data-rate="${s.rate || ''}" title="Log payment">💰 Log</button>
-            <button class="btn btn-sm btn-ghost std-add-note" data-student="${esc(s.name)}" title="Add lesson note">📝</button>
-          </div>
-          <div style="display:flex;gap:4px">
-            <button class="btn-icon std-edit-btn" data-id="${s.id}" title="Edit profile">${ic('settings', 14)}</button>
-            <button class="btn-icon std-del-btn" data-id="${s.id}" data-name="${esc(s.name)}" title="Remove student" style="color:var(--red)">${ic('trash', 14)}</button>
-          </div>
-        </div>
-      </div>`;
-  }).join('');
-
-  // Table HTML
-  const tableHTML = `
-    <div class="card" style="overflow-x:auto">
-      <table class="fin-tx-table">
-        <thead>
-          <tr>
-            <th>Student Name</th>
-            <th>Level / Subject</th>
-            <th>Rate</th>
-            <th>Status</th>
-            <th>Total Lessons</th>
-            <th>Revenue</th>
-            <th>Tasks / HW</th>
-            <th>Notes</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          ${filtered.map(s => {
-            const st = getStudentStats(s);
-            const currSym = s.currency === 'TRY' ? '₺' : '$';
-            const rateText = s.rate ? `${currSym}${s.rate.toLocaleString()}/hr` : '—';
-            const revFormatted = s.currency === 'TRY'
-              ? `₺${st.tryPaid.toLocaleString()}${st.usdPaid > 0 ? ` · $${st.usdPaid.toLocaleString()}` : ''}`
-              : `$${st.usdPaid.toLocaleString()}${st.tryPaid > 0 ? ` · ₺${st.tryPaid.toLocaleString()}` : ''}`;
-            return `
-              <tr>
-                <td><b>🎓 ${esc(s.name)}</b></td>
-                <td>${esc(s.level || 'General')}</td>
-                <td><b>${rateText}</b></td>
-                <td><span class="student-status-dot ${s.status || 'active'}"></span> <span style="font-size:12px;text-transform:capitalize">${s.status || 'active'}</span></td>
-                <td><b>${st.lessonsCount}</b></td>
-                <td style="color:#34d399;font-weight:700">${revFormatted}</td>
-                <td>${st.pendingTasks > 0 ? `<span class="badge" style="background:rgba(96,93,255,.15);color:var(--accent)">${st.pendingTasks} pending</span>` : '<span class="muted">0</span>'}</td>
-                <td>${st.notesCount}</td>
-                <td style="white-space:nowrap;text-align:right">
-                  <button class="btn btn-sm btn-ghost std-open-dossier" data-id="${s.id}">Dossier</button>
-                  <button class="btn btn-sm btn-ghost std-log-income" data-student="${esc(s.name)}" data-curr="${s.currency || 'USD'}" data-rate="${s.rate || ''}">💰</button>
-                  <button class="btn-icon std-edit-btn" data-id="${s.id}">${ic('settings', 13)}</button>
-                  <button class="btn-icon std-del-btn" data-id="${s.id}" data-name="${esc(s.name)}" style="color:var(--red)">${ic('trash', 13)}</button>
-                </td>
-              </tr>`;
-          }).join('')}
-        </tbody>
-      </table>
+      </div>
     </div>`;
 
-  root.innerHTML = `
-    <!-- Top Stats Row -->
-    <div class="students-stats">
-      <div class="student-stat-card">
-        <div class="student-stat-icon" style="background:rgba(96,93,255,.12);color:var(--accent)">🎓</div>
-        <div>
-          <div class="student-stat-val">${activeCount} <span class="muted" style="font-size:13px;font-weight:500">/ ${students.length}</span></div>
-          <div class="student-stat-lbl">Active Students</div>
-        </div>
-      </div>
-      <div class="student-stat-card">
-        <div class="student-stat-icon" style="background:rgba(52,211,153,.12);color:#34d399">📅</div>
-        <div>
-          <div class="student-stat-val" style="color:#34d399">${monthLessonsCount}</div>
-          <div class="student-stat-lbl">Lessons This Month</div>
-        </div>
-      </div>
-      <div class="student-stat-card">
-        <div class="student-stat-icon" style="background:rgba(81,141,191,.12);color:#518DBF">💵</div>
-        <div>
-          <div class="student-stat-val" style="color:#518DBF">$${monthUsdRevenue.toLocaleString()}${monthTryRevenue > 0 ? ` · <span style="font-size:15px">₺${monthTryRevenue.toLocaleString()}</span>` : ''}</div>
-          <div class="student-stat-lbl">Student Revenue (This Month)</div>
-        </div>
-      </div>
-      <div class="student-stat-card">
-        <div class="student-stat-icon" style="background:rgba(255,176,32,.12);color:#f59e0b">🏦</div>
-        <div>
-          <div class="student-stat-val">$${allTimeUsd.toLocaleString()}${allTimeTry > 0 ? ` · <span style="font-size:15px">₺${allTimeTry.toLocaleString()}</span>` : ''}</div>
-          <div class="student-stat-lbl">All-Time Student Earnings</div>
-        </div>
-      </div>
-    </div>
+  // Sub-Tabs Header
+  const subTabsHTML = `
+    <div class="student-main-tabs">
+      <button class="student-main-tab-btn ${_studentActiveSubTab === 'roster' ? 'active' : ''}" data-subtab="roster">👥 Students Roster (${students.length})</button>
+      <button class="student-main-tab-btn ${_studentActiveSubTab === 'attendance' ? 'active' : ''}" data-subtab="attendance">📅 Attendance Tracker (${attendance.length})</button>
+      <button class="student-main-tab-btn ${_studentActiveSubTab === 'assignments' ? 'active' : ''}" data-subtab="assignments">📋 Assignments &amp; Homework (${assignments.length})</button>
+      <button class="student-main-tab-btn ${_studentActiveSubTab === 'lessonPlans' ? 'active' : ''}" data-subtab="lessonPlans">📖 Lesson Plans (${lessonPlans.length})</button>
+    </div>`;
 
-    <!-- Toolbar & Action Bar -->
-    <div class="students-toolbar">
-      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1;min-width:260px">
-        <input type="text" class="search-input" id="student-search" placeholder="Search by name, level, goal, tags…" value="${esc(_studentSearchQ || '')}" style="max-width:280px">
-        <div style="display:flex;gap:4px">
-          <button class="btn btn-sm ${_studentStatusFilter === 'ALL' ? 'btn-accent' : 'btn-ghost'}" data-std-status="ALL">All</button>
-          <button class="btn btn-sm ${_studentStatusFilter === 'active' ? 'btn-accent' : 'btn-ghost'}" data-std-status="active">🟢 Active</button>
-          <button class="btn btn-sm ${_studentStatusFilter === 'paused' ? 'btn-accent' : 'btn-ghost'}" data-std-status="paused">🟡 Paused</button>
-          <button class="btn btn-sm ${_studentStatusFilter === 'completed' ? 'btn-accent' : 'btn-ghost'}" data-std-status="completed">⚪ Completed</button>
+  let bodyContent = '';
+
+  /* ------------------- TAB 1: ROSTER ------------------- */
+  if (_studentActiveSubTab === 'roster') {
+    const q = (_studentSearchQ || '').toLowerCase().trim();
+    const filtered = students.filter(s => {
+      if (_studentStatusFilter !== 'ALL' && s.status !== _studentStatusFilter) return false;
+      if (q) {
+        const haystack = (s.name + ' ' + (s.level || '') + ' ' + (s.email || '') + ' ' + (s.phone || '') + ' ' + (s.goals || '') + ' ' + (s.notes || '') + ' ' + (s.tags || []).join(' ')).toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
+      return true;
+    });
+
+    const cardsHTML = filtered.map(s => {
+      const st = getStudentStats(s);
+      const initials = s.name.split(' ').map(p => p[0]).slice(0, 2).join('').toUpperCase() || 'ST';
+      const currSym = s.currency === 'TRY' ? '₺' : '$';
+      const rateText = s.rate ? `${currSym}${s.rate.toLocaleString()}/hr` : 'Custom rate';
+      const revFormatted = s.currency === 'TRY'
+        ? `₺${st.tryPaid.toLocaleString()}${st.usdPaid > 0 ? ` · $${st.usdPaid.toLocaleString()}` : ''}`
+        : `$${st.usdPaid.toLocaleString()}${st.tryPaid > 0 ? ` · ₺${st.tryPaid.toLocaleString()}` : ''}`;
+
+      return `
+        <div class="student-card" data-student-id="${s.id}">
+          <div class="student-card-head">
+            <div class="student-avatar">${initials}</div>
+            <div class="student-name-wrap">
+              <h4 class="student-card-name">
+                <span>${esc(s.name)}</span>
+                <span class="student-status-dot ${s.status || 'active'}" title="Status: ${s.status || 'active'}"></span>
+              </h4>
+              <div class="student-level-tag">
+                <span>📚 ${esc(s.level || 'General ESL')}</span> · <b>${rateText}</b>
+              </div>
+            </div>
+          </div>
+
+          <div class="student-metrics-row">
+            <div class="student-metric-box">
+              <span class="student-metric-num">${st.lessonsCount}</span>
+              <span class="student-metric-title">Lessons</span>
+            </div>
+            <div class="student-metric-box">
+              <span class="student-metric-num" style="color:#34d399">${revFormatted}</span>
+              <span class="student-metric-title">Revenue</span>
+            </div>
+            <div class="student-metric-box">
+              <span class="student-metric-num" style="color:${st.pendingTasks > 0 ? '#605DFF' : 'var(--muted)'}">${st.pendingTasks}</span>
+              <span class="student-metric-title">Tasks/HW</span>
+            </div>
+          </div>
+
+          ${s.goals ? `<div style="font-size:12px;color:var(--text);background:var(--surface2);padding:8px 10px;border-radius:8px;line-height:1.4">🎯 <b>Goal:</b> ${esc(s.goals)}</div>` : ''}
+
+          <div class="student-card-tags">
+            ${(s.tags || []).map(tg => tagSpan(tg)).join('')}
+            ${st.attCount > 0 ? `<span class="badge" style="font-size:11px">📅 ${st.attCount} sessions</span>` : ''}
+            ${st.assignCount > 0 ? `<span class="badge" style="font-size:11px">📋 ${st.assignCount} HW</span>` : ''}
+            ${st.notesCount > 0 ? `<span class="badge" style="font-size:11px">📝 ${st.notesCount} notes</span>` : ''}
+          </div>
+
+          <div class="student-card-foot">
+            <div style="display:flex;gap:5px;flex-wrap:wrap">
+              <button class="btn btn-sm btn-accent std-open-dossier" data-id="${s.id}">🎓 Dossier</button>
+              <button class="btn btn-sm btn-ghost std-log-att" data-student="${esc(s.name)}" title="Mark attendance">📅</button>
+              <button class="btn btn-sm btn-ghost std-log-assign" data-student="${esc(s.name)}" title="Assign homework">📋</button>
+              <button class="btn btn-sm btn-ghost std-log-income" data-student="${esc(s.name)}" data-curr="${s.currency || 'USD'}" data-rate="${s.rate || ''}" title="Log payment">💰</button>
+            </div>
+            <div style="display:flex;gap:4px">
+              <button class="btn-icon std-edit-btn" data-id="${s.id}" title="Edit profile">${ic('settings', 14)}</button>
+              <button class="btn-icon std-del-btn" data-id="${s.id}" data-name="${esc(s.name)}" title="Remove student" style="color:var(--red)">${ic('trash', 14)}</button>
+            </div>
+          </div>
+        </div>`;
+    }).join('');
+
+    const tableHTML = `
+      <div class="card" style="overflow-x:auto">
+        <table class="fin-tx-table">
+          <thead>
+            <tr>
+              <th>Student Name</th>
+              <th>Level / Subject</th>
+              <th>Rate</th>
+              <th>Status</th>
+              <th>Lessons</th>
+              <th>Revenue</th>
+              <th>Attendance</th>
+              <th>Homework</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filtered.map(s => {
+              const st = getStudentStats(s);
+              const currSym = s.currency === 'TRY' ? '₺' : '$';
+              const rateText = s.rate ? `${currSym}${s.rate.toLocaleString()}/hr` : '—';
+              const revFormatted = s.currency === 'TRY'
+                ? `₺${st.tryPaid.toLocaleString()}${st.usdPaid > 0 ? ` · $${st.usdPaid.toLocaleString()}` : ''}`
+                : `$${st.usdPaid.toLocaleString()}${st.tryPaid > 0 ? ` · ₺${st.tryPaid.toLocaleString()}` : ''}`;
+              return `
+                <tr>
+                  <td><b>🎓 ${esc(s.name)}</b></td>
+                  <td>${esc(s.level || 'General')}</td>
+                  <td><b>${rateText}</b></td>
+                  <td><span class="student-status-dot ${s.status || 'active'}"></span> <span style="font-size:12px;text-transform:capitalize">${s.status || 'active'}</span></td>
+                  <td><b>${st.lessonsCount}</b></td>
+                  <td style="color:#34d399;font-weight:700">${revFormatted}</td>
+                  <td>${st.attCount > 0 ? `<span class="badge">${st.attCount} sessions</span>` : '<span class="muted">0</span>'}</td>
+                  <td>${st.assignCount > 0 ? `<span class="badge" style="background:rgba(96,93,255,.15);color:var(--accent)">${st.assignCount} tasks</span>` : '<span class="muted">0</span>'}</td>
+                  <td style="white-space:nowrap;text-align:right">
+                    <button class="btn btn-sm btn-ghost std-open-dossier" data-id="${s.id}">Dossier</button>
+                    <button class="btn btn-sm btn-ghost std-log-income" data-student="${esc(s.name)}" data-curr="${s.currency || 'USD'}" data-rate="${s.rate || ''}">💰</button>
+                    <button class="btn-icon std-edit-btn" data-id="${s.id}">${ic('settings', 13)}</button>
+                    <button class="btn-icon std-del-btn" data-id="${s.id}" data-name="${esc(s.name)}" style="color:var(--red)">${ic('trash', 13)}</button>
+                  </td>
+                </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>`;
+
+    bodyContent = `
+      <div class="students-stats">
+        <div class="student-stat-card">
+          <div class="student-stat-icon" style="background:rgba(96,93,255,.12);color:var(--accent)">🎓</div>
+          <div>
+            <div class="student-stat-val">${activeCount} <span class="muted" style="font-size:13px;font-weight:500">/ ${students.length}</span></div>
+            <div class="student-stat-lbl">Active Students</div>
+          </div>
+        </div>
+        <div class="student-stat-card">
+          <div class="student-stat-icon" style="background:rgba(52,211,153,.12);color:#34d399">📅</div>
+          <div>
+            <div class="student-stat-val" style="color:#34d399">${monthLessonsCount}</div>
+            <div class="student-stat-lbl">Lessons This Month</div>
+          </div>
+        </div>
+        <div class="student-stat-card">
+          <div class="student-stat-icon" style="background:rgba(81,141,191,.12);color:#518DBF">💵</div>
+          <div>
+            <div class="student-stat-val" style="color:#518DBF">$${monthUsdRevenue.toLocaleString()}${monthTryRevenue > 0 ? ` · <span style="font-size:15px">₺${monthTryRevenue.toLocaleString()}</span>` : ''}</div>
+            <div class="student-stat-lbl">Revenue (This Month)</div>
+          </div>
+        </div>
+        <div class="student-stat-card">
+          <div class="student-stat-icon" style="background:rgba(255,176,32,.12);color:#f59e0b">🏦</div>
+          <div>
+            <div class="student-stat-val">$${allTimeUsd.toLocaleString()}${allTimeTry > 0 ? ` · <span style="font-size:15px">₺${allTimeTry.toLocaleString()}</span>` : ''}</div>
+            <div class="student-stat-lbl">All-Time Student Earnings</div>
+          </div>
         </div>
       </div>
 
-      <div style="display:flex;align-items:center;gap:8px">
-        <div style="display:flex;gap:2px;background:var(--surface2);padding:2px;border-radius:8px;border:1px solid var(--border)">
-          <button class="btn btn-sm ${_studentViewMode === 'grid' ? 'btn-accent' : 'btn-ghost'}" id="std-mode-grid" title="Cards View">📇</button>
-          <button class="btn btn-sm ${_studentViewMode === 'table' ? 'btn-accent' : 'btn-ghost'}" id="std-mode-table" title="Table View">📋</button>
+      <div class="students-toolbar">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1;min-width:260px">
+          <input type="text" class="search-input" id="student-search" placeholder="Search by name, level, goal, tags…" value="${esc(_studentSearchQ || '')}" style="max-width:280px">
+          <div style="display:flex;gap:4px">
+            <button class="btn btn-sm ${_studentStatusFilter === 'ALL' ? 'btn-accent' : 'btn-ghost'}" data-std-status="ALL">All</button>
+            <button class="btn btn-sm ${_studentStatusFilter === 'active' ? 'btn-accent' : 'btn-ghost'}" data-std-status="active">🟢 Active</button>
+            <button class="btn btn-sm ${_studentStatusFilter === 'paused' ? 'btn-accent' : 'btn-ghost'}" data-std-status="paused">🟡 Paused</button>
+            <button class="btn btn-sm ${_studentStatusFilter === 'completed' ? 'btn-accent' : 'btn-ghost'}" data-std-status="completed">⚪ Completed</button>
+          </div>
         </div>
-        <button class="btn btn-accent" id="std-new-btn">${ic('plus', 14)} New Student</button>
+
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="display:flex;gap:2px;background:var(--surface2);padding:2px;border-radius:8px;border:1px solid var(--border)">
+            <button class="btn btn-sm ${_studentViewMode === 'grid' ? 'btn-accent' : 'btn-ghost'}" id="std-mode-grid" title="Cards View">📇</button>
+            <button class="btn btn-sm ${_studentViewMode === 'table' ? 'btn-accent' : 'btn-ghost'}" id="std-mode-table" title="Table View">📋</button>
+          </div>
+          <button class="btn btn-accent" id="std-new-btn">${ic('plus', 14)} New Student</button>
+        </div>
       </div>
-    </div>
 
-    <!-- Main List Container -->
-    ${filtered.length
-      ? (_studentViewMode === 'grid' ? `<div class="students-grid">${cardsHTML}</div>` : tableHTML)
-      : '<div class="card muted" style="padding:32px;text-align:center">No students found matching your filters. <button class="btn btn-sm btn-accent" id="std-empty-add" style="margin-left:8px">+ Add Student</button></div>'}
-  `;
+      ${filtered.length
+        ? (_studentViewMode === 'grid' ? `<div class="students-grid">${cardsHTML}</div>` : tableHTML)
+        : `<div class="card muted" style="padding:40px 20px;text-align:center">
+             <div style="font-size:36px;margin-bottom:8px">🎓</div>
+             <h3 style="margin:0 0 6px;color:var(--text)">Your Student Roster is Clean &amp; Ready</h3>
+             <p style="margin:0 0 16px;font-size:13px">Add your students to start tracking attendance, assigning homework, and logging tutoring income.</p>
+             <button class="btn btn-accent" id="std-empty-add">${ic('plus', 14)} Add First Student</button>
+           </div>`}
+    `;
+  }
 
-  // Bind Events
-  $('#student-search')?.addEventListener('input', e => {
-    _studentSearchQ = e.target.value;
-    renderStudents();
-  });
+  /* ------------------- TAB 2: ATTENDANCE TRACKER ------------------- */
+  else if (_studentActiveSubTab === 'attendance') {
+    const presentCount = attendance.filter(a => a.status === 'present').length;
+    const lateCount = attendance.filter(a => a.status === 'late').length;
+    const absentCount = attendance.filter(a => a.status === 'absent').length;
+    const totalSessions = attendance.length;
+    const attRate = totalSessions ? Math.round(((presentCount + lateCount) / totalSessions) * 100) : 100;
+    const punctRate = (presentCount + lateCount) ? Math.round((presentCount / (presentCount + lateCount)) * 100) : 100;
+    const totalHours = Math.round((attendance.reduce((sum, a) => sum + (parseInt(a.duration, 10) || 60), 0) / 60) * 10) / 10;
 
-  $$('button[data-std-status]').forEach(b => b.addEventListener('click', () => {
-    _studentStatusFilter = b.dataset.stdStatus;
+    const filteredAtt = attendance.filter(a => {
+      if (_attStatusFilter !== 'ALL' && a.status !== _attStatusFilter) return false;
+      return true;
+    });
+
+    bodyContent = `
+      <div class="students-stats">
+        <div class="student-stat-card">
+          <div class="student-stat-icon" style="background:rgba(96,93,255,.12);color:var(--accent)">📅</div>
+          <div>
+            <div class="student-stat-val">${totalSessions}</div>
+            <div class="student-stat-lbl">Total Sessions Taught</div>
+          </div>
+        </div>
+        <div class="student-stat-card">
+          <div class="student-stat-icon" style="background:rgba(52,211,153,.12);color:#34d399">🎯</div>
+          <div>
+            <div class="student-stat-val" style="color:#34d399">${attRate}%</div>
+            <div class="student-stat-lbl">Attendance Rate</div>
+          </div>
+        </div>
+        <div class="student-stat-card">
+          <div class="student-stat-icon" style="background:rgba(81,141,191,.12);color:#518DBF">⏱️</div>
+          <div>
+            <div class="student-stat-val" style="color:#518DBF">${punctRate}%</div>
+            <div class="student-stat-lbl">Punctuality Score</div>
+          </div>
+        </div>
+        <div class="student-stat-card">
+          <div class="student-stat-icon" style="background:rgba(255,176,32,.12);color:#f59e0b">⏳</div>
+          <div>
+            <div class="student-stat-val">${totalHours} hrs</div>
+            <div class="student-stat-lbl">Total Teaching Time</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="students-toolbar">
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;flex:1">
+          <span style="font-size:13px;font-weight:600;margin-right:4px">Status:</span>
+          <button class="btn btn-sm ${_attStatusFilter === 'ALL' ? 'btn-accent' : 'btn-ghost'}" data-att-filter="ALL">All (${attendance.length})</button>
+          <button class="btn btn-sm ${_attStatusFilter === 'present' ? 'btn-accent' : 'btn-ghost'}" data-att-filter="present">🟢 Present (${presentCount})</button>
+          <button class="btn btn-sm ${_attStatusFilter === 'late' ? 'btn-accent' : 'btn-ghost'}" data-att-filter="late">🟡 Late (${lateCount})</button>
+          <button class="btn btn-sm ${_attStatusFilter === 'absent' ? 'btn-accent' : 'btn-ghost'}" data-att-filter="absent">🔴 Absent (${absentCount})</button>
+        </div>
+        <button class="btn btn-accent" id="att-new-btn">${ic('plus', 14)} Mark Attendance</button>
+      </div>
+
+      ${filteredAtt.length ? `
+        <div class="card" style="overflow-x:auto">
+          <table class="fin-tx-table">
+            <thead>
+              <tr>
+                <th>Date &amp; Time</th>
+                <th>Student</th>
+                <th>Status</th>
+                <th>Duration</th>
+                <th>Topic / Covered Subject</th>
+                <th>Session Notes</th>
+                <th>Billing</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              ${filteredAtt.map(a => `
+                <tr>
+                  <td><b>${a.date || '—'}</b> ${a.time ? `<span class="muted" style="font-size:12px">at ${a.time}</span>` : ''}</td>
+                  <td><b>🎓 ${esc(a.studentName)}</b></td>
+                  <td><span class="att-status-badge ${a.status}">${a.status === 'present' ? '🟢 Present' : a.status === 'late' ? '🟡 Late' : a.status === 'absent' ? '🔴 Absent' : a.status === 'rescheduled' ? '🔵 Rescheduled' : '⚪ Excused'}</span></td>
+                  <td>${a.duration || 60} mins</td>
+                  <td><b>${esc(a.topic || 'General Lesson')}</b></td>
+                  <td style="max-width:220px;font-size:12.5px">${esc(a.notes || '—')}</td>
+                  <td>${a.billed ? `<span class="badge" style="background:rgba(52,211,153,.15);color:#34d399">💰 Billed (${fmtM(a.rate || 0, a.currency || 'USD')})</span>` : '<span class="muted">Unbilled</span>'}</td>
+                  <td style="white-space:nowrap;text-align:right">
+                    <button class="btn-icon att-del-btn" data-id="${a.id}" style="color:var(--red)" title="Delete entry">${ic('trash', 14)}</button>
+                  </td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>` : `<div class="card muted" style="padding:36px;text-align:center">No attendance logs found. <button class="btn btn-sm btn-accent" id="att-empty-add" style="margin-left:8px">+ Mark Attendance</button></div>`}
+    `;
+  }
+
+  /* ------------------- TAB 3: ASSIGNMENTS & HOMEWORK ------------------- */
+  else if (_studentActiveSubTab === 'assignments') {
+    const assignedCount = assignments.filter(a => a.status === 'assigned').length;
+    const submittedCount = assignments.filter(a => a.status === 'submitted').length;
+    const reviewedCount = assignments.filter(a => a.status === 'reviewed' || a.status === 'completed').length;
+    const overdueCount = assignments.filter(a => a.dueDate && a.dueDate < today && a.status !== 'completed').length;
+
+    const filteredAssign = assignments.filter(a => {
+      if (_assignStatusFilter !== 'ALL' && a.status !== _assignStatusFilter) return false;
+      return true;
+    });
+
+    bodyContent = `
+      <div class="students-stats">
+        <div class="student-stat-card">
+          <div class="student-stat-icon" style="background:rgba(96,93,255,.12);color:var(--accent)">📋</div>
+          <div>
+            <div class="student-stat-val">${assignedCount}</div>
+            <div class="student-stat-lbl">Active / Assigned</div>
+          </div>
+        </div>
+        <div class="student-stat-card">
+          <div class="student-stat-icon" style="background:rgba(81,141,191,.12);color:#518DBF">📥</div>
+          <div>
+            <div class="student-stat-val" style="color:#518DBF">${submittedCount}</div>
+            <div class="student-stat-lbl">Submitted (Needs Grading)</div>
+          </div>
+        </div>
+        <div class="student-stat-card">
+          <div class="student-stat-icon" style="background:rgba(52,211,153,.12);color:#34d399">⭐</div>
+          <div>
+            <div class="student-stat-val" style="color:#34d399">${reviewedCount}</div>
+            <div class="student-stat-lbl">Graded / Completed</div>
+          </div>
+        </div>
+        <div class="student-stat-card">
+          <div class="student-stat-icon" style="background:rgba(239,68,68,.12);color:#ef4444">⚠️</div>
+          <div>
+            <div class="student-stat-val" style="color:${overdueCount > 0 ? '#ef4444' : 'var(--muted)'}">${overdueCount}</div>
+            <div class="student-stat-lbl">Overdue Submissions</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="students-toolbar">
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;flex:1">
+          <span style="font-size:13px;font-weight:600;margin-right:4px">Filter:</span>
+          <button class="btn btn-sm ${_assignStatusFilter === 'ALL' ? 'btn-accent' : 'btn-ghost'}" data-assign-filter="ALL">All (${assignments.length})</button>
+          <button class="btn btn-sm ${_assignStatusFilter === 'assigned' ? 'btn-accent' : 'btn-ghost'}" data-assign-filter="assigned">Assigned</button>
+          <button class="btn btn-sm ${_assignStatusFilter === 'submitted' ? 'btn-accent' : 'btn-ghost'}" data-assign-filter="submitted">Submitted</button>
+          <button class="btn btn-sm ${_assignStatusFilter === 'reviewed' ? 'btn-accent' : 'btn-ghost'}" data-assign-filter="reviewed">Graded / Reviewed</button>
+        </div>
+        <button class="btn btn-accent" id="assign-new-btn">${ic('plus', 14)} Assign Homework</button>
+      </div>
+
+      ${filteredAssign.length ? `
+        <div class="assignment-grid">
+          ${filteredAssign.map(a => {
+            const isOverdue = a.dueDate && a.dueDate < today && a.status !== 'completed';
+            return `
+              <div class="assignment-card">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+                  <div>
+                    <span class="badge" style="font-size:11px;margin-bottom:4px">🎓 ${esc(a.studentName)}</span>
+                    <h4 style="margin:0 0 4px;font-size:15px;color:var(--text)">${esc(a.title)}</h4>
+                  </div>
+                  <span class="badge" style="text-transform:capitalize;background:${a.status === 'submitted' ? 'rgba(81,141,191,.2)' : a.status === 'reviewed' ? 'rgba(52,211,153,.2)' : 'var(--surface2)'}">${a.status}</span>
+                </div>
+
+                ${a.description ? `<p style="margin:0;font-size:12.5px;color:var(--text);line-height:1.45">${esc(a.description)}</p>` : ''}
+
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;margin-top:auto">
+                  <div style="display:flex;align-items:center;gap:6px">
+                    <span>📅 Due:</span>
+                    <b style="color:${isOverdue ? '#ef4444' : 'var(--text)'}">${a.dueDate || 'No due date'} ${isOverdue ? '⚠️ Overdue' : ''}</b>
+                  </div>
+                  ${a.score ? `<div class="assignment-grade-badge">⭐ ${esc(a.score)}</div>` : ''}
+                </div>
+
+                ${a.feedback ? `<div style="background:var(--surface2);padding:8px 10px;border-radius:6px;font-size:12px;line-height:1.4">💬 <b>Teacher Feedback:</b> ${esc(a.feedback)}</div>` : ''}
+
+                <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border);padding-top:10px;margin-top:4px">
+                  <button class="btn btn-sm btn-accent assign-grade-btn" data-id="${a.id}">📝 Review &amp; Grade</button>
+                  <div style="display:flex;gap:4px">
+                    <button class="btn-icon assign-edit-btn" data-id="${a.id}">${ic('settings', 13)}</button>
+                    <button class="btn-icon assign-del-btn" data-id="${a.id}" style="color:var(--red)">${ic('trash', 13)}</button>
+                  </div>
+                </div>
+              </div>`;
+          }).join('')}
+        </div>` : `<div class="card muted" style="padding:36px;text-align:center">No assignments found. <button class="btn btn-sm btn-accent" id="assign-empty-add" style="margin-left:8px">+ Assign Homework</button></div>`}
+    `;
+  }
+
+  /* ------------------- TAB 4: LESSON PLANS ------------------- */
+  else if (_studentActiveSubTab === 'lessonPlans') {
+    const plannedCount = lessonPlans.filter(p => p.status === 'planned').length;
+    const deliveredCount = lessonPlans.filter(p => p.status === 'delivered').length;
+    const draftCount = lessonPlans.filter(p => p.status === 'draft').length;
+
+    const filteredPlans = lessonPlans.filter(p => {
+      if (_planStatusFilter !== 'ALL' && p.status !== _planStatusFilter) return false;
+      return true;
+    });
+
+    bodyContent = `
+      <div class="students-stats">
+        <div class="student-stat-card">
+          <div class="student-stat-icon" style="background:rgba(96,93,255,.12);color:var(--accent)">📖</div>
+          <div>
+            <div class="student-stat-val">${plannedCount}</div>
+            <div class="student-stat-lbl">Planned Lessons</div>
+          </div>
+        </div>
+        <div class="student-stat-card">
+          <div class="student-stat-icon" style="background:rgba(52,211,153,.12);color:#34d399">✅</div>
+          <div>
+            <div class="student-stat-val" style="color:#34d399">${deliveredCount}</div>
+            <div class="student-stat-lbl">Delivered Lessons</div>
+          </div>
+        </div>
+        <div class="student-stat-card">
+          <div class="student-stat-icon" style="background:rgba(255,176,32,.12);color:#f59e0b">📝</div>
+          <div>
+            <div class="student-stat-val">${draftCount}</div>
+            <div class="student-stat-lbl">Draft Plans</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="students-toolbar">
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;flex:1">
+          <span style="font-size:13px;font-weight:600;margin-right:4px">Status:</span>
+          <button class="btn btn-sm ${_planStatusFilter === 'ALL' ? 'btn-accent' : 'btn-ghost'}" data-plan-filter="ALL">All (${lessonPlans.length})</button>
+          <button class="btn btn-sm ${_planStatusFilter === 'planned' ? 'btn-accent' : 'btn-ghost'}" data-plan-filter="planned">Planned</button>
+          <button class="btn btn-sm ${_planStatusFilter === 'delivered' ? 'btn-accent' : 'btn-ghost'}" data-plan-filter="delivered">Delivered</button>
+        </div>
+        <button class="btn btn-accent" id="plan-new-btn">${ic('plus', 14)} Create Lesson Plan</button>
+      </div>
+
+      ${filteredPlans.length ? `
+        <div class="lesson-plans-grid">
+          ${filteredPlans.map(p => `
+            <div class="lesson-plan-card">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+                <div>
+                  <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
+                    <span class="badge" style="font-size:11px">🎓 ${esc(p.studentName || 'All Students')}</span>
+                    <span class="badge" style="font-size:11px;background:var(--surface2)">📚 ${esc(p.level || 'General')}</span>
+                  </div>
+                  <h3 style="margin:0 0 4px;font-size:16px;color:var(--text)">${esc(p.title)}</h3>
+                  <div class="muted" style="font-size:12px">📅 ${p.date || 'Flexible Date'} · ⏱️ ${p.duration || 60} mins</div>
+                </div>
+                <span class="badge" style="text-transform:capitalize;background:${p.status === 'delivered' ? 'rgba(52,211,153,.2)' : 'rgba(96,93,255,.2)'}">${p.status || 'planned'}</span>
+              </div>
+
+              ${p.objective ? `
+                <div class="lesson-stage-block" style="border-left:3px solid var(--accent)">
+                  <div class="lesson-stage-title">🎯 Lesson Objective</div>
+                  <div>${esc(p.objective)}</div>
+                </div>` : ''}
+
+              <div style="display:flex;flex-direction:column;gap:6px">
+                ${p.warmUp ? `<div class="lesson-stage-block"><div class="lesson-stage-title">⏱️ Warm-up (5-10m)</div><div>${esc(p.warmUp)}</div></div>` : ''}
+                ${p.mainActivity ? `<div class="lesson-stage-block"><div class="lesson-stage-title">💡 Main Guided Activity</div><div>${esc(p.mainActivity)}</div></div>` : ''}
+                ${p.wrapUpHomework ? `<div class="lesson-stage-block"><div class="lesson-stage-title">📦 Wrap-up &amp; Homework</div><div>${esc(p.wrapUpHomework)}</div></div>` : ''}
+              </div>
+
+              <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border);padding-top:12px;margin-top:auto">
+                <button class="btn btn-sm btn-accent plan-deliver-btn" data-id="${p.id}">${p.status === 'delivered' ? '✅ Re-deliver' : '🚀 Deliver Lesson'}</button>
+                <div style="display:flex;gap:4px">
+                  <button class="btn-icon plan-edit-btn" data-id="${p.id}">${ic('settings', 14)}</button>
+                  <button class="btn-icon plan-del-btn" data-id="${p.id}" style="color:var(--red)">${ic('trash', 14)}</button>
+                </div>
+              </div>
+            </div>`).join('')}
+        </div>` : `<div class="card muted" style="padding:36px;text-align:center">No lesson plans created yet. <button class="btn btn-sm btn-accent" id="plan-empty-add" style="margin-left:8px">+ Create Lesson Plan</button></div>`}
+    `;
+  }
+
+  root.innerHTML = heroHTML + subTabsHTML + bodyContent;
+
+  // Bind Sub-Tabs
+  $$('.student-main-tab-btn').forEach(b => b.addEventListener('click', () => {
+    _studentActiveSubTab = b.dataset.subtab;
     renderStudents();
   }));
 
+  // Bind Hero Actions
+  $('#std-hero-new-student')?.addEventListener('click', () => openStudentEditModal(null));
+  $('#std-hero-mark-attendance')?.addEventListener('click', () => openAttendanceModal(null));
+  $('#std-hero-assign-hw')?.addEventListener('click', () => openAssignmentModal(null));
+  $('#std-hero-new-plan')?.addEventListener('click', () => openLessonPlanModal(null));
+  $('#std-hero-log-income')?.addEventListener('click', () => openFinanceModal('income'));
+
+  // Bind Roster Tab Events
+  $('#student-search')?.addEventListener('input', e => { _studentSearchQ = e.target.value; renderStudents(); });
+  $$('button[data-std-status]').forEach(b => b.addEventListener('click', () => { _studentStatusFilter = b.dataset.stdStatus; renderStudents(); }));
   $('#std-mode-grid')?.addEventListener('click', () => { _studentViewMode = 'grid'; renderStudents(); });
   $('#std-mode-table')?.addEventListener('click', () => { _studentViewMode = 'table'; renderStudents(); });
   $('#std-new-btn')?.addEventListener('click', () => openStudentEditModal(null));
   $('#std-empty-add')?.addEventListener('click', () => openStudentEditModal(null));
 
   $$('.std-open-dossier').forEach(b => b.addEventListener('click', () => openStudentDossier(b.dataset.id)));
+  $$('.std-log-att').forEach(b => b.addEventListener('click', () => openAttendanceModal(null, b.dataset.student)));
+  $$('.std-log-assign').forEach(b => b.addEventListener('click', () => openAssignmentModal(null, b.dataset.student)));
   $$('.std-edit-btn').forEach(b => b.addEventListener('click', () => {
     const s = getStudentsList().find(x => x.id === b.dataset.id);
     if (s) openStudentEditModal(s);
   }));
-
   $$('.std-log-income').forEach(b => b.addEventListener('click', () => {
     const sName = b.dataset.student;
     const sCurr = b.dataset.curr || 'USD';
@@ -8098,20 +8417,6 @@ function renderStudents() {
       if ($('#fin-desc')) $('#fin-desc').value = `Lesson with ${sName}`;
     }, 50);
   }));
-
-  $$('.std-add-note').forEach(b => b.addEventListener('click', () => {
-    const sName = b.dataset.student;
-    newNote();
-    const created = state.notes[0];
-    if (created) {
-      created.title = `${sName} - Lesson Note (${todayISO()})`;
-      created.student = sName;
-      created.tags = ['Lesson', 'Student'];
-      save();
-    }
-    location.hash = '#notes';
-  }));
-
   $$('.std-del-btn').forEach(b => b.addEventListener('click', () => {
     const id = b.dataset.id;
     const name = b.dataset.name;
@@ -8122,6 +8427,632 @@ function renderStudents() {
     renderStudents();
     toast(`Student "${name}" removed`);
   }));
+
+  // Bind Attendance Events
+  $$('button[data-att-filter]').forEach(b => b.addEventListener('click', () => { _attStatusFilter = b.dataset.attFilter; renderStudents(); }));
+  $('#att-new-btn')?.addEventListener('click', () => openAttendanceModal(null));
+  $('#att-empty-add')?.addEventListener('click', () => openAttendanceModal(null));
+  $$('.att-del-btn').forEach(b => b.addEventListener('click', () => {
+    const id = b.dataset.id;
+    captureUndo('Delete attendance entry');
+    state.attendance = (state.attendance || []).filter(x => x.id !== id);
+    save();
+    renderStudents();
+    toast('Attendance log deleted');
+  }));
+
+  // Bind Assignment Events
+  $$('button[data-assign-filter]').forEach(b => b.addEventListener('click', () => { _assignStatusFilter = b.dataset.assignFilter; renderStudents(); }));
+  $('#assign-new-btn')?.addEventListener('click', () => openAssignmentModal(null));
+  $('#assign-empty-add')?.addEventListener('click', () => openAssignmentModal(null));
+  $$('.assign-grade-btn').forEach(b => b.addEventListener('click', () => {
+    const a = (state.assignments || []).find(x => x.id === b.dataset.id);
+    if (a) openAssignmentGradingModal(a);
+  }));
+  $$('.assign-edit-btn').forEach(b => b.addEventListener('click', () => {
+    const a = (state.assignments || []).find(x => x.id === b.dataset.id);
+    if (a) openAssignmentModal(a);
+  }));
+  $$('.assign-del-btn').forEach(b => b.addEventListener('click', () => {
+    const id = b.dataset.id;
+    captureUndo('Delete assignment');
+    state.assignments = (state.assignments || []).filter(x => x.id !== id);
+    save();
+    renderStudents();
+    toast('Assignment deleted');
+  }));
+
+  // Bind Lesson Plan Events
+  $$('button[data-plan-filter]').forEach(b => b.addEventListener('click', () => { _planStatusFilter = b.dataset.planFilter; renderStudents(); }));
+  $('#plan-new-btn')?.addEventListener('click', () => openLessonPlanModal(null));
+  $('#plan-empty-add')?.addEventListener('click', () => openLessonPlanModal(null));
+  $$('.plan-deliver-btn').forEach(b => b.addEventListener('click', () => deliverLessonPlan(b.dataset.id)));
+  $$('.plan-edit-btn').forEach(b => b.addEventListener('click', () => {
+    const p = (state.lessonPlans || []).find(x => x.id === b.dataset.id);
+    if (p) openLessonPlanModal(p);
+  }));
+  $$('.plan-del-btn').forEach(b => b.addEventListener('click', () => {
+    const id = b.dataset.id;
+    captureUndo('Delete lesson plan');
+    state.lessonPlans = (state.lessonPlans || []).filter(x => x.id !== id);
+    save();
+    renderStudents();
+    toast('Lesson plan deleted');
+  }));
+}
+
+/* ============ Attendance Modal ============ */
+function openAttendanceModal(record, presetStudent) {
+  const students = getStudentsList();
+  const isEdit = !!record;
+  const a = record || {
+    studentName: presetStudent || (students[0]?.name || ''),
+    date: todayISO(),
+    time: new Date().toTimeString().slice(0, 5),
+    duration: 60,
+    status: 'present',
+    topic: '',
+    notes: '',
+    billed: false
+  };
+
+  const studentOpts = students.length
+    ? students.map(s => `<option value="${esc(s.name)}" ${s.name === a.studentName ? 'selected' : ''}>🎓 ${esc(s.name)} (${s.currency === 'TRY' ? '₺' : '$'}${s.rate || 35}/hr)</option>`).join('')
+    : '<option value="General Student">General Student</option>';
+
+  openModal(`
+    <div class="modal">
+      <div class="modal-head">
+        <h3>📅 ${isEdit ? 'Edit Attendance Log' : 'Mark Lesson Attendance'}</h3>
+        <button class="btn-icon" onclick="closeModal()">${ic('x', 16)}</button>
+      </div>
+      <div class="modal-body">
+        <div class="field">
+          <label class="field-label">Select Student *</label>
+          <select id="att-student">${studentOpts}</select>
+        </div>
+        <div class="field-row">
+          <div class="field"><label class="field-label">Date</label><input id="att-date" type="date" value="${a.date || todayISO()}"></div>
+          <div class="field"><label class="field-label">Time</label><input id="att-time" type="time" value="${a.time || '14:00'}"></div>
+          <div class="field"><label class="field-label">Duration</label>
+            <select id="att-dur">
+              <option value="30" ${a.duration == 30 ? 'selected' : ''}>30 mins</option>
+              <option value="45" ${a.duration == 45 ? 'selected' : ''}>45 mins</option>
+              <option value="60" ${a.duration == 60 ? 'selected' : ''}>60 mins</option>
+              <option value="90" ${a.duration == 90 ? 'selected' : ''}>90 mins</option>
+              <option value="120" ${a.duration == 120 ? 'selected' : ''}>120 mins</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label class="field-label">Attendance Status</label>
+          <select id="att-status">
+            <option value="present" ${a.status === 'present' ? 'selected' : ''}>🟢 Present (On-time)</option>
+            <option value="late" ${a.status === 'late' ? 'selected' : ''}>🟡 Late Arrival</option>
+            <option value="absent" ${a.status === 'absent' ? 'selected' : ''}>🔴 Absent / No Show</option>
+            <option value="rescheduled" ${a.status === 'rescheduled' ? 'selected' : ''}>🔵 Rescheduled</option>
+            <option value="excused" ${a.status === 'excused' ? 'selected' : ''}>⚪ Excused Absence</option>
+          </select>
+        </div>
+        <div class="field">
+          <label class="field-label">Lesson Topic / Materials Covered</label>
+          <input id="att-topic" type="text" value="${esc(a.topic || '')}" placeholder="e.g. IELTS Speaking Part 2 Mock, Conditionals Review…">
+        </div>
+        <div class="field">
+          <label class="field-label">Session Notes &amp; Observations</label>
+          <textarea id="att-notes" rows="2" placeholder="Student performance, vocabulary hurdles, homework set…">${esc(a.notes || '')}</textarea>
+        </div>
+        <div class="field" style="margin-top:10px">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+            <input id="att-auto-bill" type="checkbox" ${a.billed || !isEdit ? 'checked' : ''}>
+            <span>💰 Automatically log payment into Finance ledger</span>
+          </label>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <div style="flex:1"></div>
+        <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-accent" id="att-save-btn">Save Attendance</button>
+      </div>
+    </div>`);
+
+  $('#att-save-btn').addEventListener('click', () => {
+    const studentName = $('#att-student').value;
+    const date = $('#att-date').value || todayISO();
+    const time = $('#att-time').value;
+    const duration = parseInt($('#att-dur').value, 10) || 60;
+    const status = $('#att-status').value;
+    const topic = $('#att-topic').value.trim();
+    const notes = $('#att-notes').value.trim();
+    const autoBill = $('#att-auto-bill').checked;
+
+    const matchedStudent = students.find(s => s.name === studentName);
+    const rate = matchedStudent?.rate || 35;
+    const currency = matchedStudent?.currency || 'USD';
+    const billedAmount = Math.round((rate * (duration / 60)) * 100) / 100;
+
+    captureUndo('Save attendance');
+    if (!Array.isArray(state.attendance)) state.attendance = [];
+
+    if (isEdit) {
+      Object.assign(record, { studentName, date, time, duration, status, topic, notes, billed: autoBill, rate: billedAmount, currency, updatedAt: Date.now() });
+    } else {
+      state.attendance.unshift({
+        id: uid(),
+        studentName,
+        date,
+        time,
+        duration,
+        status,
+        topic,
+        notes,
+        billed: autoBill,
+        rate: billedAmount,
+        currency,
+        createdAt: Date.now()
+      });
+    }
+
+    if (autoBill && (!isEdit || !record?.financeLogged)) {
+      if (!Array.isArray(state.income)) state.income = [];
+      state.income.push({
+        id: uid(),
+        amount: billedAmount,
+        currency,
+        type: 'ESL Lesson',
+        student: studentName,
+        date,
+        description: `Lesson fee: ${topic || 'Tutoring session'} (${duration}m)`,
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      });
+      logActivity('finance.income', `💰 ${currency === 'TRY' ? '₺' : '$'}${billedAmount} for ${studentName} (${topic || 'Lesson'})`, 'finance');
+    }
+
+    save();
+    closeModal();
+    if (currentView() === 'students') renderStudents();
+    toast(`Attendance logged for ${studentName} ✅`);
+  });
+}
+
+/* ============ Assignment Modal ============ */
+function openAssignmentModal(assignment, presetStudent) {
+  const students = getStudentsList();
+  const isEdit = !!assignment;
+  const a = assignment || {
+    studentName: presetStudent || (students[0]?.name || ''),
+    title: '',
+    description: '',
+    assignedDate: todayISO(),
+    dueDate: isoDate(shiftDays(3)),
+    status: 'assigned',
+    scoreType: 'ielts_band',
+    score: '',
+    feedback: '',
+    tags: ['Homework']
+  };
+
+  const studentOpts = students.length
+    ? students.map(s => `<option value="${esc(s.name)}" ${s.name === a.studentName ? 'selected' : ''}>🎓 ${esc(s.name)}</option>`).join('')
+    : '<option value="General Student">General Student</option>';
+
+  openModal(`
+    <div class="modal">
+      <div class="modal-head">
+        <h3>📋 ${isEdit ? 'Edit Assignment' : 'Assign Homework / Task'}</h3>
+        <button class="btn-icon" onclick="closeModal()">${ic('x', 16)}</button>
+      </div>
+      <div class="modal-body">
+        <div class="field">
+          <label class="field-label">Student *</label>
+          <select id="as-student">${studentOpts}</select>
+        </div>
+        <div class="field">
+          <label class="field-label">Assignment Title *</label>
+          <input id="as-title" type="text" value="${esc(a.title || '')}" placeholder="e.g. Cambridge IELTS 18 Essay Task 2, Phrasal Verbs Quiz…" autofocus>
+        </div>
+        <div class="field-row">
+          <div class="field"><label class="field-label">Assigned Date</label><input id="as-assigned" type="date" value="${a.assignedDate || todayISO()}"></div>
+          <div class="field"><label class="field-label">Due Date</label><input id="as-due" type="date" value="${a.dueDate || ''}"></div>
+        </div>
+        <div class="field">
+          <label class="field-label">Instructions &amp; Prompts</label>
+          <textarea id="as-desc" rows="3" placeholder="Write 250 words answering the prompt. Focus on formal transitions and vocabulary precision…">${esc(a.description || '')}</textarea>
+        </div>
+        <div class="field-row">
+          <div class="field"><label class="field-label">Evaluation Metric</label>
+            <select id="as-scoretype">
+              <option value="ielts_band" ${a.scoreType === 'ielts_band' ? 'selected' : ''}>IELTS Band Score (0-9)</option>
+              <option value="percentage" ${a.scoreType === 'percentage' ? 'selected' : ''}>Percentage (0-100%)</option>
+              <option value="letter" ${a.scoreType === 'letter' ? 'selected' : ''}>Letter Grade (A-F)</option>
+              <option value="pass_fail" ${a.scoreType === 'pass_fail' ? 'selected' : ''}>Pass / Needs Revision</option>
+            </select>
+          </div>
+          <div class="field"><label class="field-label">Tags</label><input id="as-tags" type="text" value="${esc((a.tags || []).join(', '))}" placeholder="Writing, Speaking, Grammar"></div>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <div style="flex:1"></div>
+        <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-accent" id="as-save-btn">Save Assignment</button>
+      </div>
+    </div>`);
+
+  $('#as-save-btn').addEventListener('click', () => {
+    const title = $('#as-title').value.trim();
+    if (!title) { toast('Please enter an assignment title', 'error'); $('#as-title').focus(); return; }
+    const studentName = $('#as-student').value;
+    const assignedDate = $('#as-assigned').value || todayISO();
+    const dueDate = $('#as-due').value;
+    const description = $('#as-desc').value.trim();
+    const scoreType = $('#as-scoretype').value;
+    const tags = $('#as-tags').value.split(',').map(x => x.trim()).filter(Boolean);
+
+    captureUndo('Save assignment');
+    if (!Array.isArray(state.assignments)) state.assignments = [];
+
+    if (isEdit) {
+      Object.assign(assignment, { studentName, title, assignedDate, dueDate, description, scoreType, tags, updatedAt: Date.now() });
+    } else {
+      state.assignments.unshift({
+        id: uid(),
+        studentName,
+        title,
+        assignedDate,
+        dueDate,
+        description,
+        scoreType,
+        tags,
+        status: 'assigned',
+        score: '',
+        feedback: '',
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      });
+    }
+
+    save();
+    closeModal();
+    if (currentView() === 'students') renderStudents();
+    toast(`Assignment "${title}" assigned to ${studentName} 📋`);
+  });
+}
+
+function openAssignmentGradingModal(assignment) {
+  openModal(`
+    <div class="modal">
+      <div class="modal-head">
+        <div>
+          <h3 style="margin:0">📝 Grade &amp; Review Homework</h3>
+          <span class="muted" style="font-size:12px">Student: <b>${esc(assignment.studentName)}</b> · ${esc(assignment.title)}</span>
+        </div>
+        <button class="btn-icon" onclick="closeModal()">${ic('x', 16)}</button>
+      </div>
+      <div class="modal-body">
+        <div class="field-row">
+          <div class="field" style="flex:1">
+            <label class="field-label">Submission Status</label>
+            <select id="gr-status">
+              <option value="assigned" ${assignment.status === 'assigned' ? 'selected' : ''}>Assigned</option>
+              <option value="submitted" ${assignment.status === 'submitted' ? 'selected' : ''}>Submitted by Student</option>
+              <option value="reviewed" ${assignment.status === 'reviewed' ? 'selected' : ''}>Reviewed &amp; Graded</option>
+              <option value="completed" ${assignment.status === 'completed' ? 'selected' : ''}>Completed ✅</option>
+            </select>
+          </div>
+          <div class="field" style="flex:1">
+            <label class="field-label">Grade / Score</label>
+            <input id="gr-score" type="text" value="${esc(assignment.score || '')}" placeholder="e.g. Band 7.5, 92%, A+">
+          </div>
+        </div>
+        <div class="field">
+          <label class="field-label">Teacher Feedback &amp; Action Items</label>
+          <textarea id="gr-feedback" rows="4" placeholder="Excellent coherence and task response. Minor errors in article usage in paragraph 2…">${esc(assignment.feedback || '')}</textarea>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <div style="flex:1"></div>
+        <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-accent" id="gr-save-btn">Save Evaluation</button>
+      </div>
+    </div>`);
+
+  $('#gr-save-btn').addEventListener('click', () => {
+    assignment.status = $('#gr-status').value;
+    assignment.score = $('#gr-score').value.trim();
+    assignment.feedback = $('#gr-feedback').value.trim();
+    assignment.updatedAt = Date.now();
+    save();
+    closeModal();
+    if (currentView() === 'students') renderStudents();
+    toast(`Evaluation saved for ${assignment.studentName} ⭐`);
+  });
+}
+
+/* ============ Lesson Planning Workstation ============ */
+const LESSON_TEMPLATES = [
+  {
+    name: '🎯 IELTS Speaking Parts 2 & 3 Drill',
+    level: 'IELTS Band 7.0+',
+    duration: 60,
+    objective: 'Develop high-level fluency, lexical range, and structured 2-minute cue card responses without hesitation.',
+    warmUp: '5-min fluency drill: rapid 30-sec impromptu responses on random modern topics.',
+    mainActivity: 'Targeted cue card preparation (1 min prep, 2 min speech) with immediate phonetic and grammatical correction.',
+    wrapUpHomework: 'Record a 2-minute response to IELTS Cambridge 18 Cue Card #3 and upload for evaluation.'
+  },
+  {
+    name: '✍️ Academic Essay Writing & Cohesion',
+    level: 'Advanced / TOEFL / IELTS',
+    duration: 60,
+    objective: 'Master logical paragraph sequencing, counter-argument refutations, and formal academic vocabulary.',
+    warmUp: 'Review 3 sample thesis statements and identify clarity and grammatical flaws.',
+    mainActivity: 'Co-construct an IELTS Task 2 essay outline focusing on topic sentences and inversion structures.',
+    wrapUpHomework: 'Write a full 250-word essay following the structured template developed in class.'
+  },
+  {
+    name: '🗣️ Conversational Idioms & Natural Fluency',
+    level: 'Intermediate / B2',
+    duration: 60,
+    objective: 'Integrate 8 modern conversational phrasal verbs and idioms into spontaneous dialogues.',
+    warmUp: 'Guess the idiom from contextual dialogues and comic strip prompts.',
+    mainActivity: 'Simulated debate / workplace conversation requiring immediate usage of target idioms.',
+    wrapUpHomework: 'Write a short 10-line dialogue using at least 5 new idioms introduced today.'
+  }
+];
+
+function openLessonPlanModal(plan, presetStudent) {
+  const students = getStudentsList();
+  const isEdit = !!plan;
+  const p = plan || {
+    studentName: presetStudent || (students[0]?.name || 'All Students'),
+    title: '',
+    level: 'General ESL',
+    date: todayISO(),
+    duration: 60,
+    status: 'planned',
+    objective: '',
+    warmUp: '',
+    mainActivity: '',
+    wrapUpHomework: '',
+    materials: '',
+    tags: ['Curriculum']
+  };
+
+  const studentOpts = `
+    <option value="All Students" ${p.studentName === 'All Students' ? 'selected' : ''}>👥 All Students / Group</option>
+    ${students.map(s => `<option value="${esc(s.name)}" ${s.name === p.studentName ? 'selected' : ''}>🎓 ${esc(s.name)}</option>`).join('')}`;
+
+  openModal(`
+    <div class="modal" style="max-width:680px">
+      <div class="modal-head">
+        <h3>📖 ${isEdit ? 'Edit Lesson Plan' : 'Create Structured Lesson Plan'}</h3>
+        <button class="btn-icon" onclick="closeModal()">${ic('x', 16)}</button>
+      </div>
+      <div class="modal-body">
+        <div class="field" style="background:var(--surface2);padding:10px;border-radius:8px">
+          <label class="field-label" style="margin-bottom:6px">⚡ Load Curriculum Template</label>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            ${LESSON_TEMPLATES.map((tpl, i) => `<button class="btn btn-sm btn-ghost lp-tpl-load" data-idx="${i}" type="button">${tpl.name}</button>`).join('')}
+          </div>
+        </div>
+
+        <div class="field-row">
+          <div class="field" style="flex:2">
+            <label class="field-label">Target Student / Class</label>
+            <select id="lp-student">${studentOpts}</select>
+          </div>
+          <div class="field" style="flex:1">
+            <label class="field-label">Level</label>
+            <input id="lp-level" type="text" value="${esc(p.level || 'General')}">
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="field-label">Lesson Title *</label>
+          <input id="lp-title" type="text" value="${esc(p.title || '')}" placeholder="e.g. Inverted Conditionals &amp; Formal Cohesion" autofocus>
+        </div>
+
+        <div class="field-row">
+          <div class="field"><label class="field-label">Scheduled Date</label><input id="lp-date" type="date" value="${p.date || todayISO()}"></div>
+          <div class="field"><label class="field-label">Duration (mins)</label><input id="lp-dur" type="number" value="${p.duration || 60}"></div>
+          <div class="field"><label class="field-label">Status</label>
+            <select id="lp-status">
+              <option value="planned" ${p.status === 'planned' ? 'selected' : ''}>Planned</option>
+              <option value="delivered" ${p.status === 'delivered' ? 'selected' : ''}>Delivered ✅</option>
+              <option value="draft" ${p.status === 'draft' ? 'selected' : ''}>Draft</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="field-label">🎯 Key Learning Objective</label>
+          <textarea id="lp-obj" rows="2" placeholder="Student will be able to…">${esc(p.objective || '')}</textarea>
+        </div>
+
+        <div class="field">
+          <label class="field-label">⏱️ Warm-up &amp; Hook (5-10 mins)</label>
+          <textarea id="lp-warmup" rows="2" placeholder="Quick review, diagnostic prompt, icebreaker…">${esc(p.warmUp || '')}</textarea>
+        </div>
+
+        <div class="field">
+          <label class="field-label">💡 Main Guided Lesson &amp; Activities (25-30 mins)</label>
+          <textarea id="lp-main" rows="3" placeholder="Step-by-step instructional stages, drills, simulations…">${esc(p.mainActivity || '')}</textarea>
+        </div>
+
+        <div class="field">
+          <label class="field-label">📦 Wrap-up &amp; Homework Assignment (10 mins)</label>
+          <textarea id="lp-wrapup" rows="2" placeholder="Exit ticket, homework assignment, reflection…">${esc(p.wrapUpHomework || '')}</textarea>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <div style="flex:1"></div>
+        <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-accent" id="lp-save-btn">Save Lesson Plan</button>
+      </div>
+    </div>`);
+
+  $$('.lp-tpl-load').forEach(b => b.addEventListener('click', () => {
+    const tpl = LESSON_TEMPLATES[parseInt(b.dataset.idx, 10)];
+    if (tpl) {
+      $('#lp-title').value = tpl.name;
+      $('#lp-level').value = tpl.level;
+      $('#lp-dur').value = tpl.duration;
+      $('#lp-obj').value = tpl.objective;
+      $('#lp-warmup').value = tpl.warmUp;
+      $('#lp-main').value = tpl.mainActivity;
+      $('#lp-wrapup').value = tpl.wrapUpHomework;
+      toast(`Loaded template: ${tpl.name}`);
+    }
+  }));
+
+  $('#lp-save-btn').addEventListener('click', () => {
+    const title = $('#lp-title').value.trim();
+    if (!title) { toast('Please enter a lesson title', 'error'); $('#lp-title').focus(); return; }
+    const studentName = $('#lp-student').value;
+    const level = $('#lp-level').value.trim();
+    const date = $('#lp-date').value || todayISO();
+    const duration = parseInt($('#lp-dur').value, 10) || 60;
+    const status = $('#lp-status').value;
+    const objective = $('#lp-obj').value.trim();
+    const warmUp = $('#lp-warmup').value.trim();
+    const mainActivity = $('#lp-main').value.trim();
+    const wrapUpHomework = $('#lp-wrapup').value.trim();
+
+    captureUndo('Save lesson plan');
+    if (!Array.isArray(state.lessonPlans)) state.lessonPlans = [];
+
+    if (isEdit) {
+      Object.assign(plan, { studentName, title, level, date, duration, status, objective, warmUp, mainActivity, wrapUpHomework, updatedAt: Date.now() });
+    } else {
+      state.lessonPlans.unshift({
+        id: uid(),
+        studentName,
+        title,
+        level,
+        date,
+        duration,
+        status,
+        objective,
+        warmUp,
+        mainActivity,
+        wrapUpHomework,
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      });
+    }
+
+    save();
+    closeModal();
+    if (currentView() === 'students') renderStudents();
+    toast(`Lesson plan "${title}" saved 📖`);
+  });
+}
+
+function deliverLessonPlan(planId) {
+  const plan = (state.lessonPlans || []).find(p => p.id === planId);
+  if (!plan) return;
+
+  openModal(`
+    <div class="modal">
+      <div class="modal-head">
+        <h3>🚀 Deliver Lesson: ${esc(plan.title)}</h3>
+        <button class="btn-icon" onclick="closeModal()">${ic('x', 16)}</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:13px;line-height:1.5;margin-top:0">
+          Mark this lesson as delivered and automatically execute the follow-up teacher workflow for <b>${esc(plan.studentName)}</b>.
+        </p>
+
+        <div style="display:flex;flex-direction:column;gap:10px;background:var(--surface2);padding:14px;border-radius:10px;margin-top:10px">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+            <input type="checkbox" id="del-mark-att" checked>
+            <span>📅 Create Attendance Record (Present, ${plan.duration || 60}m)</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+            <input type="checkbox" id="del-log-fin" checked>
+            <span>💰 Log Lesson Fee in Finance Ledger</span>
+          </label>
+          ${plan.wrapUpHomework ? `
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+              <input type="checkbox" id="del-create-hw" checked>
+              <span>📋 Assign Wrap-up Homework: "<b>${esc(plan.wrapUpHomework.slice(0, 45))}…</b>"</span>
+            </label>` : ''}
+        </div>
+      </div>
+      <div class="modal-foot">
+        <div style="flex:1"></div>
+        <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-accent" id="del-execute-btn">Confirm Delivery ✅</button>
+      </div>
+    </div>`);
+
+  $('#del-execute-btn').addEventListener('click', () => {
+    plan.status = 'delivered';
+    plan.deliveredAt = Date.now();
+    const markAtt = $('#del-mark-att')?.checked;
+    const logFin = $('#del-log-fin')?.checked;
+    const createHw = $('#del-create-hw')?.checked;
+    const matchedStudent = getStudentsList().find(s => s.name === plan.studentName);
+    const rate = matchedStudent?.rate || 35;
+    const currency = matchedStudent?.currency || 'USD';
+    const amount = Math.round((rate * ((plan.duration || 60) / 60)) * 100) / 100;
+
+    if (markAtt && plan.studentName !== 'All Students') {
+      if (!Array.isArray(state.attendance)) state.attendance = [];
+      state.attendance.unshift({
+        id: uid(),
+        studentName: plan.studentName,
+        date: todayISO(),
+        time: new Date().toTimeString().slice(0, 5),
+        duration: plan.duration || 60,
+        status: 'present',
+        topic: plan.title,
+        notes: plan.objective,
+        billed: logFin,
+        rate: amount,
+        currency,
+        createdAt: Date.now()
+      });
+    }
+
+    if (logFin && plan.studentName !== 'All Students') {
+      if (!Array.isArray(state.income)) state.income = [];
+      state.income.push({
+        id: uid(),
+        amount,
+        currency,
+        type: 'ESL Lesson',
+        student: plan.studentName,
+        date: todayISO(),
+        description: `Delivered lesson: ${plan.title}`,
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      });
+      logActivity('finance.income', `💰 ${currency === 'TRY' ? '₺' : '$'}${amount} for ${plan.studentName} (${plan.title})`, 'finance');
+    }
+
+    if (createHw && plan.wrapUpHomework && plan.studentName !== 'All Students') {
+      if (!Array.isArray(state.assignments)) state.assignments = [];
+      state.assignments.unshift({
+        id: uid(),
+        studentName: plan.studentName,
+        title: `Homework: ${plan.title}`,
+        description: plan.wrapUpHomework,
+        assignedDate: todayISO(),
+        dueDate: isoDate(shiftDays(3)),
+        status: 'assigned',
+        scoreType: 'ielts_band',
+        tags: ['Homework'],
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      });
+    }
+
+    save();
+    closeModal();
+    if (currentView() === 'students') renderStudents();
+    toast(`Lesson "${plan.title}" marked as Delivered! 🎓✅`);
+  });
 }
 
 function openStudentDossier(studentId) {
@@ -8133,6 +9064,9 @@ function openStudentDossier(studentId) {
   const expInc = (state.expectedIncome || []).filter(e => e.student === s.name || e.student === s.id);
   const studentTasks = (state.tasks || []).filter(t => t.student === s.name);
   const studentNotes = (state.notes || []).filter(n => n.student === s.name);
+  const studentAttendance = (state.attendance || []).filter(a => a.studentName === s.name || a.studentId === s.id);
+  const studentAssignments = (state.assignments || []).filter(a => a.studentName === s.name || a.studentId === s.id);
+  const studentPlans = (state.lessonPlans || []).filter(p => p.studentName === s.name || p.studentId === s.id);
 
   const usdPaid = inc.filter(e => (e.currency || 'USD') === 'USD').reduce((sum, e) => sum + (e.amount || 0), 0);
   const tryPaid = inc.filter(e => e.currency === 'TRY').reduce((sum, e) => sum + (e.amount || 0), 0);
@@ -8156,12 +9090,12 @@ function openStudentDossier(studentId) {
             </div>
           </div>
           <div class="card" style="padding:14px">
-            <h4 style="margin:0 0 10px;font-size:13px;color:var(--muted)">💰 FINANCIAL METRICS</h4>
+            <h4 style="margin:0 0 10px;font-size:13px;color:var(--muted)">💰 FINANCIAL &amp; ATTENDANCE METRICS</h4>
             <div style="display:flex;flex-direction:column;gap:8px;font-size:13px">
-              <div><span class="muted">Total Lessons Logged:</span> <b>${inc.length} lessons</b></div>
+              <div><span class="muted">Total Lessons Logged:</span> <b>${inc.length} payments</b></div>
+              <div><span class="muted">Sessions Attended:</span> <b>${studentAttendance.length} sessions</b></div>
               <div><span class="muted">Total USD Paid:</span> <b style="color:#34d399">$${usdPaid.toLocaleString()}</b></div>
               <div><span class="muted">Total TRY Paid:</span> <b style="color:#518DBF">₺${tryPaid.toLocaleString()}</b></div>
-              <div><span class="muted">Pending Payments:</span> <b>${expInc.length} expected</b></div>
             </div>
           </div>
         </div>
@@ -8179,11 +9113,49 @@ function openStudentDossier(studentId) {
           </div>` : ''}
 
         <div style="display:flex;gap:8px;margin-top:18px;flex-wrap:wrap">
-          <button class="btn btn-accent" id="dossier-log-income">${ic('plus', 14)} Log Lesson / Income</button>
-          <button class="btn" id="dossier-assign-task">${ic('check-square', 14)} Assign Task / HW</button>
-          <button class="btn btn-ghost" id="dossier-add-note">${ic('file-text', 14)} New Note</button>
-          <button class="btn btn-ghost" id="dossier-edit-profile">${ic('settings', 14)} Edit Profile</button>
+          <button class="btn btn-accent" id="dossier-mark-att">📅 Mark Attendance</button>
+          <button class="btn" id="dossier-assign-hw">📋 Assign HW</button>
+          <button class="btn btn-ghost" id="dossier-new-plan">📖 New Lesson Plan</button>
+          <button class="btn btn-ghost" id="dossier-log-income">💰 Log Payment</button>
+          <button class="btn btn-ghost" id="dossier-edit-profile">⚙️ Edit Profile</button>
         </div>`;
+    } else if (activeTab === 'attendance') {
+      content = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <div><b>Attendance Timeline</b> (${studentAttendance.length} sessions)</div>
+          <button class="btn btn-sm btn-accent" id="dossier-att-add">+ Mark Attendance</button>
+        </div>
+        ${studentAttendance.length ? `
+          <div style="overflow-x:auto"><table class="fin-tx-table">
+            <thead><tr><th>Date</th><th>Status</th><th>Duration</th><th>Topic Covered</th></tr></thead>
+            <tbody>${studentAttendance.map(a => `
+              <tr>
+                <td><b>${a.date}</b></td>
+                <td><span class="att-status-badge ${a.status}">${a.status}</span></td>
+                <td>${a.duration || 60}m</td>
+                <td>${esc(a.topic || 'General Lesson')}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table></div>` : '<div class="muted" style="padding:20px;text-align:center">No attendance logged yet for this student.</div>'}`;
+    } else if (activeTab === 'assignments') {
+      content = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <div><b>Assignments &amp; Homework</b> (${studentAssignments.length} items)</div>
+          <button class="btn btn-sm btn-accent" id="dossier-assign-add">+ Assign Homework</button>
+        </div>
+        ${studentAssignments.length ? `
+          <div style="display:flex;flex-direction:column;gap:8px">${studentAssignments.map(a => `
+            <div class="assignment-card" style="padding:12px 14px">
+              <div style="display:flex;justify-content:space-between;align-items:center">
+                <b>📋 ${esc(a.title)}</b>
+                <span class="badge">${a.status}</span>
+              </div>
+              ${a.description ? `<p style="margin:4px 0;font-size:12px">${esc(a.description)}</p>` : ''}
+              <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px">
+                <span class="muted">Due: <b>${a.dueDate || 'Flexible'}</b></span>
+                ${a.score ? `<span class="assignment-grade-badge">⭐ ${esc(a.score)}</span>` : ''}
+              </div>
+            </div>`).join('')}</div>` : '<div class="muted" style="padding:20px;text-align:center">No assignments assigned to this student.</div>'}`;
     } else if (activeTab === 'financials') {
       content = `
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
@@ -8205,7 +9177,7 @@ function openStudentDossier(studentId) {
     } else if (activeTab === 'tasks') {
       content = `
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-          <div><b>Assigned Tasks &amp; Homework</b> (${studentTasks.length} tasks)</div>
+          <div><b>Assigned Tasks &amp; Tasks</b> (${studentTasks.length} tasks)</div>
           <button class="btn btn-sm btn-accent" id="dossier-task-add">${ic('plus', 13)} Assign Task</button>
         </div>
         ${studentTasks.length ? `<div style="display:flex;flex-direction:column;gap:8px">${studentTasks.map(t => `
@@ -8217,7 +9189,6 @@ function openStudentDossier(studentId) {
                 ${t.desc ? `<div class="muted" style="font-size:12px">${esc(t.desc)}</div>` : ''}
               </div>
               <span class="badge ${PRIOS[t.priority]?.cls || ''}">${PRIOS[t.priority]?.label || 'Med'}</span>
-              ${t.due ? `<span class="due-chip">${fmtShort(t.due)}</span>` : ''}
             </div>
           </div>`).join('')}</div>` : '<div class="muted" style="padding:20px;text-align:center">No tasks assigned to this student.</div>'}`;
     } else if (activeTab === 'notes') {
@@ -8244,6 +9215,11 @@ function openStudentDossier(studentId) {
   }
 
   function bindDossierContentEvents() {
+    $('#dossier-mark-att')?.addEventListener('click', () => { closeModal(); openAttendanceModal(null, s.name); });
+    $('#dossier-att-add')?.addEventListener('click', () => { closeModal(); openAttendanceModal(null, s.name); });
+    $('#dossier-assign-hw')?.addEventListener('click', () => { closeModal(); openAssignmentModal(null, s.name); });
+    $('#dossier-assign-add')?.addEventListener('click', () => { closeModal(); openAssignmentModal(null, s.name); });
+    $('#dossier-new-plan')?.addEventListener('click', () => { closeModal(); openLessonPlanModal(null, s.name); });
     $('#dossier-log-income')?.addEventListener('click', () => {
       closeModal();
       openFinanceModal('income');
@@ -8262,50 +9238,7 @@ function openStudentDossier(studentId) {
         if ($('#fin-amt') && s.rate) $('#fin-amt').value = s.rate;
       }, 50);
     });
-    $('#dossier-assign-task')?.addEventListener('click', () => {
-      closeModal();
-      openTaskModal();
-      setTimeout(() => {
-        if ($('#f-student')) $('#f-student').value = s.name;
-        if ($('#f-title')) $('#f-title').value = `Prepare lesson for ${s.name}`;
-      }, 50);
-    });
-    $('#dossier-task-add')?.addEventListener('click', () => {
-      closeModal();
-      openTaskModal();
-      setTimeout(() => {
-        if ($('#f-student')) $('#f-student').value = s.name;
-        if ($('#f-title')) $('#f-title').value = `Homework for ${s.name}`;
-      }, 50);
-    });
-    $('#dossier-add-note')?.addEventListener('click', () => {
-      closeModal();
-      newNote();
-      const n = state.notes[0];
-      if (n) {
-        n.title = `${s.name} - Lesson Note (${todayISO()})`;
-        n.student = s.name;
-        n.tags = ['Lesson', 'Student'];
-        save();
-      }
-      location.hash = '#notes';
-    });
-    $('#dossier-note-add')?.addEventListener('click', () => {
-      closeModal();
-      newNote();
-      const n = state.notes[0];
-      if (n) {
-        n.title = `${s.name} - Lesson Note (${todayISO()})`;
-        n.student = s.name;
-        n.tags = ['Lesson', 'Student'];
-        save();
-      }
-      location.hash = '#notes';
-    });
-    $('#dossier-edit-profile')?.addEventListener('click', () => {
-      closeModal();
-      openStudentEditModal(s);
-    });
+    $('#dossier-edit-profile')?.addEventListener('click', () => { closeModal(); openStudentEditModal(s); });
     $$('[data-dossier-task-check]').forEach(b => b.addEventListener('click', () => {
       const taskId = b.dataset.dossierTaskCheck;
       const t = state.tasks.find(x => x.id === taskId);
@@ -8330,6 +9263,8 @@ function openStudentDossier(studentId) {
       <div class="modal-body">
         <div class="student-tabs">
           <button class="student-tab-btn active" data-tab="overview">📋 Overview</button>
+          <button class="student-tab-btn" data-tab="attendance">📅 Attendance (${studentAttendance.length})</button>
+          <button class="student-tab-btn" data-tab="assignments">📋 Homework (${studentAssignments.length})</button>
           <button class="student-tab-btn" data-tab="financials">💰 Payments (${inc.length})</button>
           <button class="student-tab-btn" data-tab="tasks">✅ Tasks (${studentTasks.length})</button>
           <button class="student-tab-btn" data-tab="notes">📝 Notes (${studentNotes.length})</button>
@@ -8365,7 +9300,7 @@ function openStudentEditModal(student) {
       <div class="modal-body">
         <div class="field">
           <label class="field-label">Student / Client Full Name *</label>
-          <input id="se-name" type="text" value="${esc(s.name || '')}" placeholder="e.g. Burak Demir, Emma Watson…" autofocus>
+          <input id="se-name" type="text" value="${esc(s.name || '')}" placeholder="e.g. Caner Yilmaz, Emma Watson…" autofocus>
         </div>
         <div class="field-row">
           <div class="field" style="flex:1">

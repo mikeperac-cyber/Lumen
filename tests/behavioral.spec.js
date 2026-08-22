@@ -448,8 +448,21 @@ test.describe('Lumen behavioral — task CRUD + undo + backup round-trip', () =>
     const errors = [];
     page.on('pageerror', (err) => errors.push(err.message));
 
-    await page.goto('/#finance');
+    // First add a student in #students
+    await page.goto('/#students');
     await page.waitForLoadState('domcontentloaded');
+    await page.waitForTimeout(600);
+
+    await page.locator('#std-new-btn').click();
+    await page.waitForTimeout(400);
+    await page.locator('#se-name').fill('Burak Demir');
+    await page.locator('#se-curr').selectOption('TRY');
+    await page.locator('#se-rate').fill('1500');
+    await page.locator('#se-save').click();
+    await page.waitForTimeout(500);
+
+    // Now go to #finance
+    await page.goto('/#finance');
     await page.waitForTimeout(600);
 
     // Verify Recent Transactions is at top
@@ -490,9 +503,10 @@ test.describe('Lumen behavioral — task CRUD + undo + backup round-trip', () =>
     await page.waitForLoadState('domcontentloaded');
     await page.waitForTimeout(600);
 
-    // Verify Students view header and stats
+    // Verify Students view header, hero section, and stats
     await expect(page.locator('#view-title')).toContainText('Students');
-    await expect(page.locator('.students-stats')).toBeVisible();
+    await expect(page.locator('.student-hero')).toBeVisible();
+    await expect(page.locator('.student-hero-icon')).toContainText('🎓');
 
     // Click "+ New Student"
     await page.locator('#std-new-btn').click();
@@ -521,12 +535,12 @@ test.describe('Lumen behavioral — task CRUD + undo + backup round-trip', () =>
     await expect(dossierModal).toBeVisible();
     await expect(dossierModal).toContainText('Caner Yilmaz');
 
-    // Switch to Payments tab
-    await dossierModal.locator('.student-tab-btn[data-tab="financials"]').click();
+    // Switch to Attendance tab
+    await dossierModal.locator('.student-tab-btn[data-tab="attendance"]').click();
     await page.waitForTimeout(300);
 
-    // Switch to Tasks tab
-    await dossierModal.locator('.student-tab-btn[data-tab="tasks"]').click();
+    // Switch to Homework tab
+    await dossierModal.locator('.student-tab-btn[data-tab="assignments"]').click();
     await page.waitForTimeout(300);
 
     // Close dossier
