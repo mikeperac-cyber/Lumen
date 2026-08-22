@@ -152,7 +152,7 @@ html[data-theme="dracula"] {
   --surface3: #44475a;
   --border: #6272a4;
   --text: #f8f8f2;
-  --text-strong: #bd93f9;
+  --text-strong: #ffffff;
   --muted: #8be9fd;
   --accent: #bd93f9;
   --accent2: #ff79c6;
@@ -164,26 +164,6 @@ html[data-theme="dracula"] {
   --shadow: 0 8px 26px rgba(0, 0, 0, .45);
 }
 
-html[data-theme="terracotta"] {
-  --bg: #121318;
-  --bg2: #181b22;
-  --surface: #1f232d;
-  --surface2: #272c39;
-  --surface3: #323848;
-  --border: #3e4558;
-  --text: #f5ede8;
-  --text-strong: #FF6363;
-  --muted: #9da7be;
-  --accent: #FF6363;
-  --accent2: #B33101;
-  --grad: linear-gradient(135deg, #FF6363, #B33101);
-  --green: #34d399;
-  --red: #FF6363;
-  --amber: #f59e0b;
-  --pink: #518DBF;
-  --shadow: 0 8px 28px rgba(179, 49, 1, .25);
-}
-
 html[data-theme="cerulean"] {
   --bg: #0d131a;
   --bg2: #121a24;
@@ -192,15 +172,15 @@ html[data-theme="cerulean"] {
   --surface3: #283a52;
   --border: #354c6b;
   --text: #ecf4fa;
-  --text-strong: #518DBF;
+  --text-strong: #ffffff;
   --muted: #8fa8c4;
   --accent: #518DBF;
-  --accent2: #FF6363;
-  --grad: linear-gradient(135deg, #518DBF, #FF6363);
+  --accent2: #3a75a6;
+  --grad: linear-gradient(135deg, #518DBF, #3a75a6);
   --green: #34d399;
-  --red: #FF6363;
+  --red: #f87171;
   --amber: #f59e0b;
-  --pink: #B33101;
+  --pink: #ff79c6;
   --shadow: 0 8px 28px rgba(81, 141, 191, .25);
 }
 
@@ -213,16 +193,16 @@ html[data-theme="coral-dawn"] {
   --surface3: #fae7dc;
   --border: #e8d6cb;
   --text: #2e2320;
-  --text-strong: #B33101;
+  --text-strong: #1f1614;
   --muted: rgba(46, 35, 32, .65);
-  --accent: #B33101;
-  --accent2: #FF6363;
-  --grad: linear-gradient(135deg, #B33101, #FF6363);
+  --accent: #E05338;
+  --accent2: #C83E24;
+  --grad: linear-gradient(135deg, #E05338, #C83E24);
   --green: #1f9d61;
-  --red: #FF6363;
+  --red: #e44d5d;
   --amber: #d97706;
   --pink: #518DBF;
-  --shadow: 0 8px 24px rgba(179, 49, 1, .12);
+  --shadow: 0 8px 24px rgba(224, 83, 56, .12);
 }
 
 /* ---- Custom Accent Color Overrides ---- */
@@ -1016,7 +996,7 @@ button:disabled { opacity: .45; cursor: default; }
 .sched-period-label {
   background: var(--surface); padding: 8px 10px; font-size: 11px; font-weight: 700;
   color: var(--muted); display: flex; flex-direction: column; justify-content: center;
-  gap: 2px; border-right: 2px solid var(--accent);
+  gap: 2px; border-right: 1px solid var(--border);
 }
 .sched-period-name { font-weight: 700; font-size: 12px; color: var(--text); }
 .sched-period-time { font-size: 10px; color: var(--muted); font-weight: 600; }
