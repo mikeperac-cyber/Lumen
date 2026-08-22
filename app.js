@@ -584,7 +584,7 @@ async function callGemini(prompt, systemInstruction = '') {
 
 /* ---------- State & persistence ---------- */
 const KEY = 'lumen.state.v1';
-let state = { tasks: [], goals: [], habits: [], notes: [], recordings: [], krHistory: [], tagColors: {}, projects: [], activityLog: [], settings: {}, incomeTypes: ['ESL','IELTS','Software'], income: [], expenses: [], expectedIncome: [], expectedExpenses: [] };
+let state = { tasks: [], goals: [], habits: [], notes: [], recordings: [], krHistory: [], tagColors: {}, projects: [], activityLog: [], settings: {}, incomeTypes: ['ESL','IELTS','Software'], students: ['Alex Johnson', 'Emma Watson', 'Burak Demir', 'Maria Garcia'], income: [], expenses: [], expectedIncome: [], expectedExpenses: [] };
 function getTagColor(name) {
   return (state.tagColors || {})[name.toLowerCase()] || null;
 }
@@ -654,6 +654,7 @@ function normalizeState(parsed) {
   if (!Array.isArray(state.templates)) state.templates = [];
   // Finance defaults
   if (!Array.isArray(state.incomeTypes)) state.incomeTypes = ['ESL','IELTS','Software'];
+  if (!Array.isArray(state.students)) state.students = ['Alex Johnson', 'Emma Watson', 'Burak Demir', 'Maria Garcia'];
   if (!Array.isArray(state.income)) state.income = [];
   if (!Array.isArray(state.expenses)) state.expenses = [];
   if (!Array.isArray(state.expectedIncome)) state.expectedIncome = [];
@@ -6568,10 +6569,14 @@ function applyMerge(inc, incomingRev) {
   state.expenses = mergeOne(state.expenses, inc.expenses, 'expenses');
   state.expectedIncome = mergeOne(state.expectedIncome, inc.expectedIncome, 'expectedIncome');
   state.expectedExpenses = mergeOne(state.expectedExpenses, inc.expectedExpenses, 'expectedExpenses');
-  // Merge income types (union of both)
+  // Merge income types and students (union of both)
   if (Array.isArray(inc.incomeTypes)) {
     const set = new Set([...(state.incomeTypes || []), ...inc.incomeTypes]);
     state.incomeTypes = [...set];
+  }
+  if (Array.isArray(inc.students)) {
+    const set = new Set([...(state.students || []), ...inc.students]);
+    state.students = [...set];
   }
   // Merge tagColors (newer timestamp wins per tag)
   if (inc.tagColors) {
@@ -6609,6 +6614,7 @@ function pushState() {
         projects: state.projects, krHistory: state.krHistory, tagColors: state.tagColors,
         achievements: state.achievements, income: state.income, expenses: state.expenses,
         expectedIncome: state.expectedIncome, expectedExpenses: state.expectedExpenses, incomeTypes: state.incomeTypes,
+        students: state.students,
         deleted: syncMeta.tombstones
       }
     });
@@ -6641,6 +6647,7 @@ function enqueueSyncSnapshot() {
       notes: state.notes, recordings: state.recordings,
       achievements: state.achievements, income: state.income, expenses: state.expenses,
       expectedIncome: state.expectedIncome, expectedExpenses: state.expectedExpenses, incomeTypes: state.incomeTypes,
+      students: state.students,
       deleted: syncMeta.tombstones
     }
   };
@@ -7238,16 +7245,42 @@ function renderAnalytics() {
 }
 
 /* ============ Finance Tracker ============ */
+let _finCurrFilter = 'ALL';
+let _finStudentFilter = 'ALL';
+
+function fmtM(v, curr = 'USD') {
+  const num = (v || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  return curr === 'TRY' ? `₺${num}` : `$${num}`;
+}
+
 function renderFinance() {
   const root = viewRoot();
-  const inc = state.income || [];
-  const exp = state.expenses || [];
-  const expInc = state.expectedIncome || [];
-  const expExp = state.expectedExpenses || [];
+  const rawInc = state.income || [];
+  const rawExp = state.expenses || [];
+  const rawExpInc = state.expectedIncome || [];
+  const rawExpExp = state.expectedExpenses || [];
   const today = todayISO();
   const thisMonth = today.slice(0, 7);
 
-  // This month actuals
+  // Filter by currency & student if set
+  const filterFn = e => {
+    if (_finCurrFilter !== 'ALL' && (e.currency || 'USD') !== _finCurrFilter) return false;
+    if (_finStudentFilter !== 'ALL') {
+      if (_finStudentFilter === '__NONE__') {
+        if (e.student) return false;
+      } else if (e.student !== _finStudentFilter) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const inc = rawInc.filter(filterFn);
+  const exp = rawExp.filter(filterFn);
+  const expInc = rawExpInc.filter(filterFn);
+  const expExp = rawExpExp.filter(filterFn);
+
+  // Month Actuals (primary currency or filtered)
   const monthInc = inc.filter(e => (e.date || '').startsWith(thisMonth)).reduce((s, e) => s + (e.amount || 0), 0);
   const monthExp = exp.filter(e => (e.date || '').startsWith(thisMonth)).reduce((s, e) => s + (e.amount || 0), 0);
   const monthNet = monthInc - monthExp;
@@ -7261,6 +7294,12 @@ function renderFinance() {
   const totalInc = inc.reduce((s, e) => s + (e.amount || 0), 0);
   const totalExp = exp.reduce((s, e) => s + (e.amount || 0), 0);
   const totalNet = totalInc - totalExp;
+
+  // Dual currency summaries (USD & TRY totals across all transactions)
+  const usdIncThisMonth = rawInc.filter(e => (e.currency || 'USD') === 'USD' && (e.date || '').startsWith(thisMonth)).reduce((s, e) => s + (e.amount || 0), 0);
+  const tryIncThisMonth = rawInc.filter(e => e.currency === 'TRY' && (e.date || '').startsWith(thisMonth)).reduce((s, e) => s + (e.amount || 0), 0);
+  const usdExpThisMonth = rawExp.filter(e => (e.currency || 'USD') === 'USD' && (e.date || '').startsWith(thisMonth)).reduce((s, e) => s + (e.amount || 0), 0);
+  const tryExpThisMonth = rawExp.filter(e => e.currency === 'TRY' && (e.date || '').startsWith(thisMonth)).reduce((s, e) => s + (e.amount || 0), 0);
 
   // 6-month trend (net cash flow per month)
   const monthLabels = [];
@@ -7294,11 +7333,12 @@ function renderFinance() {
   const maxExpCat = expCatEntries.length ? expCatEntries[0][1] : 1;
   const expCatColors = ['#ff5d6c','#ffb020','#f472b6','#22d3ee','#a3e635','#7c6cf6','#4f8cff','#34d399'];
 
-  const fmtM = v => '$' + (v || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  // Currency label for charts & stats
+  const activeCurr = _finCurrFilter === 'TRY' ? 'TRY' : 'USD';
 
   // ===== Daily expenses line graph (categorized, this month) =====
   const daysInMonth = new Date().getDate();
-  const dailyExpCats = {}; // { day: { cat: amount } }
+  const dailyExpCats = {};
   const allExpCats = new Set();
   exp.filter(e => (e.date || '').startsWith(thisMonth)).forEach(e => {
     const day = parseInt((e.date || '').slice(8), 10);
@@ -7336,7 +7376,7 @@ function renderFinance() {
   const pieTotal = expCatEntries.length ? expCatEntries.reduce((s, [, a]) => s + a, 0) : 0;
   const pieR = 55, pieCx = 70, pieCy = 70;
   const pieSegs = [];
-  let pieAngle = -Math.PI / 2; // start at top
+  let pieAngle = -Math.PI / 2;
   expCatEntries.forEach(([cat, amt], i) => {
     const frac = pieTotal ? amt / pieTotal : 0;
     const endAngle = pieAngle + frac * 2 * Math.PI;
@@ -7353,9 +7393,9 @@ function renderFinance() {
     pieAngle = endAngle;
   });
   const pieSVG = pieSegs.map(s => `<path d="${s.path}" fill="${s.color}" stroke="var(--surface)" stroke-width="2"/>`).join('');
-  const pieLegend = pieSegs.map(s => `<div class="vd-legend-item"><span class="vd-legend-dot" style="background:${s.color}"></span>${esc(s.cat)} <b>${fmtM(s.amt)}</b> <span class="muted">(${s.pct}%)</span></div>`).join('');
+  const pieLegend = pieSegs.map(s => `<div class="vd-legend-item"><span class="vd-legend-dot" style="background:${s.color}"></span>${esc(s.cat)} <b>${fmtM(s.amt, activeCurr)}</b> <span class="muted">(${s.pct}%)</span></div>`).join('');
 
-  // ===== Overdue expected payments =====
+  // Overdue expected payments
   const todayDate = today;
   const overdueExpected = [
     ...expInc.filter(e => (e.date || '') <= todayDate && !inc.some(i => i.type === e.type && Math.abs(i.amount - e.amount) < 1 && (i.date || '').slice(0,7) === (e.date || '').slice(0,7))).map(e => ({ ...e, kind: 'income' })),
@@ -7363,28 +7403,28 @@ function renderFinance() {
   ];
   const overdueHTML = overdueExpected.length ? overdueExpected.map(e => {
     const isInc = e.kind === 'income';
+    const curr = e.currency || 'USD';
     const daysLate = Math.floor((Date.now() - new Date((e.date || today) + 'T00:00:00').getTime()) / 86400000);
     return `<div class="fin-overdue-row ${isInc ? 'inc' : 'exp'}">
       <span class="fin-overdue-icon">${isInc ? '📈' : '📉'}</span>
       <div class="fin-overdue-info">
-        <div class="fin-overdue-title">${esc(isInc ? e.type || 'Income' : e.category || 'Expense')} — ${fmtM(e.amount)}</div>
+        <div class="fin-overdue-title">${esc(isInc ? e.type || 'Income' : e.category || 'Expense')} — ${fmtM(e.amount, curr)}${e.student ? ` <span class="badge" style="background:rgba(81,141,191,.15);color:#518DBF;padding:1px 6px;border-radius:10px;font-size:11px">🎓 ${esc(e.student)}</span>` : ''}</div>
         <div class="fin-overdue-sub">Expected ${e.date} · ${daysLate > 0 ? daysLate + ' day' + (daysLate === 1 ? '' : 's') + ' late' : 'Due today'} · ${esc(e.description || 'No description')}</div>
       </div>
       <span class="fin-overdue-badge ${daysLate > 0 ? 'late' : 'due'}">${daysLate > 0 ? daysLate + 'd late' : 'Due'}</span>
     </div>`;
   }).join('') : '<div class="muted" style="padding:12px 0;font-size:13px">✅ All expected payments received on time.</div>';
 
-  // Recent transactions (last 10)
+  // Recent transactions list
   const recent = [...inc.map(e => ({ ...e, kind: 'income' })), ...exp.map(e => ({ ...e, kind: 'expense' }))]
     .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
-    .slice(0, 12);
+    .slice(0, 15);
 
   // SVG bar chart for 6-month trend
   const bw = 560, bh = 160, bp = 20, bph = 28;
   const bcw = bw - bp * 2, bch = bh - bph * 2;
   const bxStep = bcw / monthLabels.length;
   const barW = bxStep * 0.35;
-  const yScaleV = v => bph + bch - (v / maxMonth) * bch;
   const barsSVG = monthLabels.map((lbl, i) => {
     const x = bp + i * bxStep + bxStep * 0.15;
     const incH = (monthIncData[i] / maxMonth) * bch;
@@ -7404,18 +7444,108 @@ function renderFinance() {
   const avgMonthlyBurn = pastNonZeroExp.length ? Math.round(pastNonZeroExp.reduce((s, x) => s + x, 0) / pastNonZeroExp.length) : Math.round(monthExp || 1);
   const currentRunwayMonths = totalNet > 0 && avgMonthlyBurn > 0 ? (totalNet / avgMonthlyBurn).toFixed(1) : '0.0';
 
-  // Recurring subscriptions detection (frequent categories / repeat amounts)
-  const recurringExp = exp.filter(e => e.recurring || (e.description && (e.description.toLowerCase().includes('sub') || e.description.toLowerCase().includes('plan') || e.description.toLowerCase().includes('host') || e.description.toLowerCase().includes('rent'))));
-  const recurringTotalMonthly = recurringExp.reduce((s, e) => s + (e.amount || 0), 0);
+  // Student filter options
+  const studentList = state.students || ['Alex Johnson', 'Emma Watson', 'Burak Demir', 'Maria Garcia'];
+  const studentFilterOpts = [
+    `<option value="ALL" ${_finStudentFilter === 'ALL' ? 'selected' : ''}>All Students</option>`,
+    `<option value="__NONE__" ${_finStudentFilter === '__NONE__' ? 'selected' : ''}>General / No Student</option>`,
+    ...studentList.map(s => `<option value="${esc(s)}" ${_finStudentFilter === s ? 'selected' : ''}>🎓 ${esc(s)}</option>`)
+  ].join('');
 
   root.innerHTML = `
-    <!-- Summary cards -->
+    <!-- Top Workstation: Recent Transactions & Quick Logging (ON TOP) -->
+    <div class="card" style="margin-bottom:20px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:14px">
+        <div>
+          <h3 class="card-title" style="margin:0 0 2px">📜 Recent transactions</h3>
+          <p class="muted" style="font-size:12px;margin:0">Log income, lessons, expenses and manage student earnings.</p>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <button class="btn btn-accent" id="fin-add-inc">${ic('plus',14)} Log income</button>
+          <button class="btn" id="fin-add-exp">${ic('plus',14)} Log expense</button>
+          <button class="btn btn-ghost" id="fin-add-exp-inc">🔮 Log expected income</button>
+          <button class="btn btn-ghost" id="fin-add-exp-exp">🔮 Log expected expense</button>
+          <button class="btn btn-ghost" id="fin-manage-students">🎓 Students</button>
+        </div>
+      </div>
+
+      <!-- Filters toolbar: Currency & Student Selection -->
+      <div style="display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:14px;padding:8px 12px;background:var(--surface2);border-radius:10px;border:1px solid var(--border)">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span class="muted" style="font-size:12px;font-weight:700">CURRENCY:</span>
+          <div style="display:flex;gap:4px">
+            <button class="btn btn-sm ${!_finCurrFilter || _finCurrFilter === 'ALL' ? 'btn-accent' : 'btn-ghost'}" data-fin-curr="ALL">All</button>
+            <button class="btn btn-sm ${_finCurrFilter === 'USD' ? 'btn-accent' : 'btn-ghost'}" data-fin-curr="USD">💵 USD ($)</button>
+            <button class="btn btn-sm ${_finCurrFilter === 'TRY' ? 'btn-accent' : 'btn-ghost'}" data-fin-curr="TRY">₺ TRY (Turkish Lira)</button>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="muted" style="font-size:12px;font-weight:700">STUDENT:</span>
+          <select id="fin-filter-student" style="font-size:12px;padding:4px 8px;border-radius:6px;width:auto;min-width:140px">
+            ${studentFilterOpts}
+          </select>
+        </div>
+      </div>
+
+      <!-- Transaction Table -->
+      ${recent.length ? `<div style="overflow-x:auto"><table class="fin-tx-table">
+        <thead><tr><th>Date</th><th>Type</th><th>Source/Category</th><th>Student / Client</th><th>Description</th><th>Amount</th><th></th></tr></thead>
+        <tbody>${recent.map(e => {
+          const isInc = e.kind === 'income';
+          const cat = isInc ? (e.type || '—') : (e.category || '—');
+          const curr = e.currency || 'USD';
+          return `<tr class="fin-tx-row ${isInc ? 'inc' : 'exp'}">
+            <td class="fin-tx-date">${e.date || '—'}</td>
+            <td>${isInc ? '📈 Income' : '📉 Expense'}</td>
+            <td><b>${esc(cat)}</b></td>
+            <td>${e.student ? `<span class="badge" style="background:rgba(81,141,191,.15);color:#518DBF;border:1px solid rgba(81,141,191,.3);padding:2px 8px;border-radius:12px;font-size:11.5px;font-weight:600">🎓 ${esc(e.student)}</span>` : '<span class="muted" style="font-size:12px">—</span>'}</td>
+            <td>${esc(e.description || '—')}</td>
+            <td class="fin-tx-amt ${isInc ? 'fin-pos' : 'fin-neg'}">${isInc ? '+' : '−'}${fmtM(e.amount, curr)}</td>
+            <td><button class="btn-icon fin-tx-del" data-del-tx="${e.id}" data-kind="${e.kind}" title="Delete">${ic('trash', 13)}</button></td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table></div>` : '<div class="muted" style="padding:18px 0;text-align:center;font-size:13px">No transactions found matching the selected filters.</div>'}
+    </div>
+
+    <!-- Summary cards with Dual Currency indicators -->
     <div class="vd-summary">
-      <div class="vd-stat-card"><div class="vd-stat-icon" style="background:rgba(52,211,153,.14)">📈</div><div><div class="vd-stat-val" style="color:#34d399">${fmtM(monthInc)}</div><div class="vd-stat-lbl">Income this month</div></div></div>
-      <div class="vd-stat-card"><div class="vd-stat-icon" style="background:rgba(255,93,108,.14)">📉</div><div><div class="vd-stat-val" style="color:#ff5d6c">${fmtM(monthExp)}</div><div class="vd-stat-lbl">Expenses this month</div></div></div>
-      <div class="vd-stat-card"><div class="vd-stat-icon" style="background:rgba(124,108,246,.14)">💰</div><div><div class="vd-stat-val" style="color:${monthNet >= 0 ? '#34d399' : '#ff5d6c'}">${fmtM(monthNet)}</div><div class="vd-stat-lbl">Net cash flow</div></div></div>
-      <div class="vd-stat-card"><div class="vd-stat-icon" style="background:rgba(79,140,255,.14)">🔮</div><div><div class="vd-stat-val" style="color:${expNetMonth >= 0 ? '#34d399' : '#ff5d6c'}">${fmtM(expNetMonth)}</div><div class="vd-stat-lbl">Expected net (this month)</div></div></div>
-      <div class="vd-stat-card"><div class="vd-stat-icon" style="background:rgba(255,176,32,.14)">🏦</div><div><div class="vd-stat-val">${fmtM(totalNet)}</div><div class="vd-stat-lbl">All-time net balance</div></div></div>
+      <div class="vd-stat-card">
+        <div class="vd-stat-icon" style="background:rgba(52,211,153,.14)">📈</div>
+        <div>
+          <div class="vd-stat-val" style="color:#34d399">${fmtM(monthInc, activeCurr)}</div>
+          <div class="vd-stat-lbl">Income this month</div>
+          ${_finCurrFilter === 'ALL' && tryIncThisMonth > 0 ? `<div class="muted" style="font-size:11px;margin-top:2px">USD: $${usdIncThisMonth.toLocaleString()} · TRY: ₺${tryIncThisMonth.toLocaleString()}</div>` : ''}
+        </div>
+      </div>
+      <div class="vd-stat-card">
+        <div class="vd-stat-icon" style="background:rgba(255,93,108,.14)">📉</div>
+        <div>
+          <div class="vd-stat-val" style="color:#ff5d6c">${fmtM(monthExp, activeCurr)}</div>
+          <div class="vd-stat-lbl">Expenses this month</div>
+          ${_finCurrFilter === 'ALL' && tryExpThisMonth > 0 ? `<div class="muted" style="font-size:11px;margin-top:2px">USD: $${usdExpThisMonth.toLocaleString()} · TRY: ₺${tryExpThisMonth.toLocaleString()}</div>` : ''}
+        </div>
+      </div>
+      <div class="vd-stat-card">
+        <div class="vd-stat-icon" style="background:rgba(124,108,246,.14)">💰</div>
+        <div>
+          <div class="vd-stat-val" style="color:${monthNet >= 0 ? '#34d399' : '#ff5d6c'}">${fmtM(monthNet, activeCurr)}</div>
+          <div class="vd-stat-lbl">Net cash flow</div>
+        </div>
+      </div>
+      <div class="vd-stat-card">
+        <div class="vd-stat-icon" style="background:rgba(79,140,255,.14)">🔮</div>
+        <div>
+          <div class="vd-stat-val" style="color:${expNetMonth >= 0 ? '#34d399' : '#ff5d6c'}">${fmtM(expNetMonth, activeCurr)}</div>
+          <div class="vd-stat-lbl">Expected net (this month)</div>
+        </div>
+      </div>
+      <div class="vd-stat-card">
+        <div class="vd-stat-icon" style="background:rgba(255,176,32,.14)">🏦</div>
+        <div>
+          <div class="vd-stat-val">${fmtM(totalNet, activeCurr)}</div>
+          <div class="vd-stat-lbl">All-time net balance</div>
+        </div>
+      </div>
     </div>
 
     <!-- Interactive Runway & Burn Rate Simulator -->
@@ -7423,7 +7553,7 @@ function renderFinance() {
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
         <div>
           <h3 class="card-title" style="margin-bottom:2px">🛡️ Financial Runway &amp; Burn Simulator</h3>
-          <p class="muted" style="font-size:12px;margin:0">Estimate runway based on your average monthly burn of <b>${fmtM(avgMonthlyBurn)}/mo</b>.</p>
+          <p class="muted" style="font-size:12px;margin:0">Estimate runway based on your average monthly burn of <b>${fmtM(avgMonthlyBurn, activeCurr)}/mo</b>.</p>
         </div>
         <div style="display:flex;align-items:center;gap:12px">
           <div style="text-align:right">
@@ -7441,8 +7571,8 @@ function renderFinance() {
           <input type="range" id="fin-burn-slider" min="0" max="50" step="5" value="0" style="width:100%;accent-color:var(--accent)">
         </div>
         <div style="display:flex;gap:16px;font-size:12.5px">
-          <div><span class="muted">Liquid Balance:</span> <b>${fmtM(totalNet)}</b></div>
-          <div><span class="muted">Adj. Burn:</span> <b id="fin-sim-adj-burn">${fmtM(avgMonthlyBurn)}/mo</b></div>
+          <div><span class="muted">Liquid Balance:</span> <b>${fmtM(totalNet, activeCurr)}</b></div>
+          <div><span class="muted">Adj. Burn:</span> <b id="fin-sim-adj-burn">${fmtM(avgMonthlyBurn, activeCurr)}/mo</b></div>
         </div>
       </div>
     </div>
@@ -7468,7 +7598,7 @@ function renderFinance() {
           </svg>
           <div>
             <div style="font-size:14px;font-weight:700;color:${savingsGrade.color};margin-bottom:4px">${savingsGrade.label}</div>
-            <p class="muted" style="font-size:12px;line-height:1.4;margin:0">Net savings: <b>${fmtM(monthNet)}</b> from <b>${fmtM(monthInc)}</b> revenue.</p>
+            <p class="muted" style="font-size:12px;line-height:1.4;margin:0">Net savings: <b>${fmtM(monthNet, activeCurr)}</b> from <b>${fmtM(monthInc, activeCurr)}</b> revenue.</p>
           </div>
         </div>
       </div>
@@ -7478,7 +7608,7 @@ function renderFinance() {
         <h3 class="card-title">📈 Income by type (this month)</h3>
         ${incTypeEntries.length ? incTypeEntries.map(([type, amt]) => {
           const pct = Math.round(amt / maxIncType * 100);
-          return `<div class="vd-finc-row"><span class="vd-finc-label">${esc(type)}</span><div class="vd-finc-bar"><div class="vd-finc-fill" style="width:${pct}%;background:#34d399"></div></div><span class="vd-finc-amt">${fmtM(amt)}</span></div>`;
+          return `<div class="vd-finc-row"><span class="vd-finc-label">${esc(type)}</span><div class="vd-finc-bar"><div class="vd-finc-fill" style="width:${pct}%;background:#34d399"></div></div><span class="vd-finc-amt">${fmtM(amt, activeCurr)}</span></div>`;
         }).join('') : '<div class="muted" style="padding:8px 0;font-size:12px">No income logged this month.</div>'}
         <button class="btn btn-sm btn-ghost" id="fin-manage-types" style="margin-top:8px">⚙️ Manage income types</button>
       </div>
@@ -7492,7 +7622,7 @@ function renderFinance() {
           return `<div class="fin-budget-row">
             <span style="width:85px;flex-shrink:0">${esc(cat)}</span>
             <div class="fin-budget-track"><div class="fin-budget-fill" style="width:${pct}%;background:${color}"></div></div>
-            <span style="font-weight:600;min-width:60px;text-align:right">${fmtM(amt)}</span>
+            <span style="font-weight:600;min-width:60px;text-align:right">${fmtM(amt, activeCurr)}</span>
           </div>`;
         }).join('') : '<div class="muted" style="padding:8px 0;font-size:12px">No expenses logged this month.</div>'}
       </div>
@@ -7512,7 +7642,7 @@ function renderFinance() {
       <div class="card">
         <h3 class="card-title">🥧 Expenditure proportion</h3>
         ${pieSegs.length ? `<div class="vd-donut-wrap">
-          <svg viewBox="0 0 140 140" class="vd-donut">${pieSVG}<text x="${pieCx}" y="${pieCy}" text-anchor="middle" dy=".35em" fill="var(--text)" font-size="14" font-weight="800">${fmtM(pieTotal)}</text><text x="${pieCx}" y="${pieCy + 12}" text-anchor="middle" fill="var(--muted)" font-size="8">total</text></svg>
+          <svg viewBox="0 0 140 140" class="vd-donut">${pieSVG}<text x="${pieCx}" y="${pieCy}" text-anchor="middle" dy=".35em" fill="var(--text)" font-size="14" font-weight="800">${fmtM(pieTotal, activeCurr)}</text><text x="${pieCx}" y="${pieCy + 12}" text-anchor="middle" fill="var(--muted)" font-size="8">total</text></svg>
           <div class="vd-donut-legend">${pieLegend}</div>
         </div>` : '<div class="muted" style="padding:12px 0;font-size:13px">No expenses logged this month.</div>'}
       </div>
@@ -7529,37 +7659,11 @@ function renderFinance() {
         <table class="fin-compare-table">
           <thead><tr><th></th><th>Expected</th><th>Actual</th><th>Diff</th></tr></thead>
           <tbody>
-            <tr><td class="fin-td-label">📈 Income</td><td>${fmtM(expIncMonth)}</td><td>${fmtM(monthInc)}</td><td class="${monthInc - expIncMonth >= 0 ? 'fin-pos' : 'fin-neg'}">${monthInc - expIncMonth >= 0 ? '+' : ''}${fmtM(monthInc - expIncMonth)}</td></tr>
-            <tr><td class="fin-td-label">📉 Expenses</td><td>${fmtM(expExpMonth)}</td><td>${fmtM(monthExp)}</td><td class="${expExpMonth - monthExp >= 0 ? 'fin-pos' : 'fin-neg'}">${expExpMonth - monthExp >= 0 ? '+' : ''}${fmtM(expExpMonth - monthExp)}</td></tr>
-            <tr class="fin-total-row"><td class="fin-td-label">💰 Net</td><td>${fmtM(expNetMonth)}</td><td>${fmtM(monthNet)}</td><td class="${monthNet - expNetMonth >= 0 ? 'fin-pos' : 'fin-neg'}">${monthNet - expNetMonth >= 0 ? '+' : ''}${fmtM(monthNet - expNetMonth)}</td></tr>
+            <tr><td class="fin-td-label">📈 Income</td><td>${fmtM(expIncMonth, activeCurr)}</td><td>${fmtM(monthInc, activeCurr)}</td><td class="${monthInc - expIncMonth >= 0 ? 'fin-pos' : 'fin-neg'}">${monthInc - expIncMonth >= 0 ? '+' : ''}${fmtM(monthInc - expIncMonth, activeCurr)}</td></tr>
+            <tr><td class="fin-td-label">📉 Expenses</td><td>${fmtM(expExpMonth, activeCurr)}</td><td>${fmtM(monthExp, activeCurr)}</td><td class="${expExpMonth - monthExp >= 0 ? 'fin-pos' : 'fin-neg'}">${expExpMonth - monthExp >= 0 ? '+' : ''}${fmtM(expExpMonth - monthExp, activeCurr)}</td></tr>
+            <tr class="fin-total-row"><td class="fin-td-label">💰 Net</td><td>${fmtM(expNetMonth, activeCurr)}</td><td>${fmtM(monthNet, activeCurr)}</td><td class="${monthNet - expNetMonth >= 0 ? 'fin-pos' : 'fin-neg'}">${monthNet - expNetMonth >= 0 ? '+' : ''}${fmtM(monthNet - expNetMonth, activeCurr)}</td></tr>
           </tbody>
         </table>
-      </div>
-
-      <!-- Recent transactions -->
-      <div class="card vd-card-wide">
-        <h3 class="card-title">📋 Recent transactions</h3>
-        ${recent.length ? `<table class="fin-tx-table">
-          <thead><tr><th>Date</th><th>Type</th><th>Category/Source</th><th>Description</th><th>Amount</th><th></th></tr></thead>
-          <tbody>${recent.map(e => {
-            const isInc = e.kind === 'income';
-            const cat = isInc ? (e.type || '—') : (e.category || '—');
-            return `<tr class="fin-tx-row ${isInc ? 'inc' : 'exp'}">
-              <td class="fin-tx-date">${e.date || '—'}</td>
-              <td>${isInc ? '📈 Income' : '📉 Expense'}</td>
-              <td>${esc(cat)}</td>
-              <td>${esc(e.description || '')}</td>
-              <td class="fin-tx-amt ${isInc ? 'fin-pos' : 'fin-neg'}">${isInc ? '+' : '−'}${fmtM(e.amount)}</td>
-              <td><button class="btn-icon fin-tx-del" data-del-tx="${e.id}" data-kind="${e.kind}" title="Delete">${ic('trash', 13)}</button></td>
-            </tr>`;
-          }).join('')}</tbody>
-        </table>` : '<div class="muted" style="padding:12px 0;font-size:13px">No transactions yet — log income or expenses to get started.</div>'}
-        <div style="display:flex;gap:8px;margin-top:12px">
-          <button class="btn btn-accent" id="fin-add-inc">${ic('plus',14)} Log income</button>
-          <button class="btn" id="fin-add-exp">${ic('plus',14)} Log expense</button>
-          <button class="btn btn-ghost" id="fin-add-exp-inc">🔮 Log expected income</button>
-          <button class="btn btn-ghost" id="fin-add-exp-exp">🔮 Log expected expense</button>
-        </div>
       </div>
     </div>`;
 
@@ -7570,17 +7674,29 @@ function renderFinance() {
       const cutPct = parseInt(e.target.value, 10);
       $('#fin-slider-pct').textContent = cutPct + '% cut';
       const adjBurn = Math.max(1, Math.round(avgMonthlyBurn * (1 - cutPct / 100)));
-      $('#fin-sim-adj-burn').textContent = fmtM(adjBurn) + '/mo';
+      $('#fin-sim-adj-burn').textContent = fmtM(adjBurn, activeCurr) + '/mo';
       const adjRunway = totalNet > 0 ? (totalNet / adjBurn).toFixed(1) : '0.0';
       $('#fin-sim-runway-val').textContent = adjRunway;
     });
   }
 
-  // Bind
+  // Bind Filters
+  $$('button[data-fin-curr]').forEach(b => b.addEventListener('click', () => {
+    _finCurrFilter = b.dataset.finCurr;
+    renderFinance();
+  }));
+
+  $('#fin-filter-student')?.addEventListener('change', e => {
+    _finStudentFilter = e.target.value;
+    renderFinance();
+  });
+
+  // Bind Actions
   $('#fin-add-inc')?.addEventListener('click', () => openFinanceModal('income'));
   $('#fin-add-exp')?.addEventListener('click', () => openFinanceModal('expense'));
   $('#fin-add-exp-inc')?.addEventListener('click', () => openFinanceModal('expectedIncome'));
   $('#fin-add-exp-exp')?.addEventListener('click', () => openFinanceModal('expectedExpense'));
+  $('#fin-manage-students')?.addEventListener('click', openStudentManageModal);
   $('#fin-manage-types')?.addEventListener('click', openIncomeTypeModal);
   $$('.fin-tx-del').forEach(b => b.addEventListener('click', e => {
     e.stopPropagation();
@@ -7607,12 +7723,24 @@ function openFinanceModal(kind) {
   const typeOpts = (state.incomeTypes || ['ESL','IELTS','Software']).map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('');
   const expCats = ['Rent','Utilities','Food','Transport','Supplies','Software','Marketing','Education','Healthcare','Other'];
   const catOpts = isIncome ? typeOpts : expCats.map(c => `<option value="${c}">${c}</option>`).join('');
+  const studentList = state.students || ['Alex Johnson', 'Emma Watson', 'Burak Demir', 'Maria Garcia'];
+  const studentOpts = studentList.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
   const today = todayISO();
+  const defaultCurr = state.settings?.currency || 'USD';
+
   openModal(`
     <div class="modal">
       <div class="modal-head"><h3>${title}</h3><button class="btn-icon" onclick="closeModal()">${ic('x', 16)}</button></div>
       <div class="modal-body">
-        <div class="field"><label class="field-label">Amount</label><input id="fin-amt" type="number" step="0.01" min="0" placeholder="0.00" autofocus></div>
+        <div class="field-row">
+          <div class="field" style="flex:1"><label class="field-label">Amount</label><input id="fin-amt" type="number" step="0.01" min="0" placeholder="0.00" autofocus></div>
+          <div class="field" style="width:130px"><label class="field-label">Currency</label>
+            <select id="fin-curr">
+              <option value="USD" ${defaultCurr === 'USD' ? 'selected' : ''}>USD ($)</option>
+              <option value="TRY" ${defaultCurr === 'TRY' ? 'selected' : ''}>TRY (₺)</option>
+            </select>
+          </div>
+        </div>
         <div class="field-row">
           <div class="field"><label class="field-label">${isIncome ? 'Income type' : 'Category'}</label>
             <select id="fin-cat">${catOpts}</select>
@@ -7620,6 +7748,13 @@ function openFinanceModal(kind) {
           </div>
           <div class="field"><label class="field-label">Date</label><input id="fin-date" type="date" value="${today}"></div>
         </div>
+        ${isIncome ? `<div class="field"><label class="field-label">Student / Client (optional)</label>
+          <select id="fin-student">
+            <option value="">— None / General —</option>
+            ${studentOpts}
+          </select>
+          <button class="btn btn-sm btn-ghost" id="fin-add-student-inline" style="margin-top:4px">+ Add student</button>
+        </div>` : ''}
         <div class="field"><label class="field-label">Description (optional)</label><input id="fin-desc" type="text" placeholder="What was this for?"></div>
       </div>
       <div class="modal-foot">
@@ -7628,22 +7763,69 @@ function openFinanceModal(kind) {
         <button class="btn btn-accent" id="fin-save">Save</button>
       </div>
     </div>`);
+
   $('#fin-add-type')?.addEventListener('click', () => { closeModal(); openIncomeTypeModal(); });
+  $('#fin-add-student-inline')?.addEventListener('click', () => { closeModal(); openStudentManageModal(); });
   $('#fin-save').addEventListener('click', () => {
     const amount = parseFloat($('#fin-amt').value);
     if (!amount || amount <= 0) { toast('Enter a valid amount', 'error'); return; }
+    const currency = $('#fin-curr').value || 'USD';
     const category = $('#fin-cat').value;
     const date = $('#fin-date').value || today;
+    const student = isIncome ? ($('#fin-student')?.value || undefined) : undefined;
     const description = $('#fin-desc').value.trim();
     captureUndo(title);
-    const entry = { id: uid(), amount: Math.round(amount * 100) / 100, type: isIncome ? category : undefined, category: !isIncome ? category : undefined, date, description, createdAt: Date.now(), updatedAt: Date.now() };
+    const entry = { id: uid(), amount: Math.round(amount * 100) / 100, currency, type: isIncome ? category : undefined, category: !isIncome ? category : undefined, student: student || undefined, date, description, createdAt: Date.now(), updatedAt: Date.now() };
     const arr = kind === 'income' ? state.income : kind === 'expense' ? state.expenses : kind === 'expectedIncome' ? state.expectedIncome : state.expectedExpenses;
     arr.push(entry);
     save();
-    logActivity('finance.' + kind, `${isIncome ? '📈' : '📉'} ${esc(category)} $${amount}`, 'finance');
+    const currSym = currency === 'TRY' ? '₺' : '$';
+    logActivity('finance.' + kind, `${isIncome ? '📈' : '📉'} ${esc(category)} ${currSym}${amount}${student ? ` (${esc(student)})` : ''}`, 'finance');
     closeModal(); renderFinance();
     toast(`${title} saved ✅`);
   });
+}
+
+function openStudentManageModal() {
+  const students = state.students || ['Alex Johnson', 'Emma Watson', 'Burak Demir', 'Maria Garcia'];
+  openModal(`
+    <div class="modal">
+      <div class="modal-head"><h3>🎓 Manage Students &amp; Clients</h3><button class="btn-icon" onclick="closeModal()">${ic('x', 16)}</button></div>
+      <div class="modal-body">
+        <p class="muted" style="font-size:12.5px;margin-top:0">Add and manage student names for tracking tutoring, lesson fees, and payments.</p>
+        <div id="student-list" style="max-height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:6px">${students.map((s, i) => `<div class="fin-type-row" data-student-idx="${i}">
+          <span class="fin-type-name">🎓 ${esc(s)}</span>
+          <button class="btn-icon fin-student-del" data-del-student="${i}" title="Remove">${ic('trash', 14)}</button>
+        </div>`).join('')}</div>
+        <div class="field" style="margin-top:14px"><label class="field-label">Add new student</label>
+          <div style="display:flex;gap:8px">
+            <input id="new-student-name" type="text" placeholder="e.g. Liam Taylor, Selin Kaya…" style="flex:1">
+            <button class="btn btn-accent btn-sm" id="add-student-btn">${ic('plus',14)} Add</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-foot"><div style="flex:1"></div><button class="btn btn-accent" onclick="closeModal();renderFinance()">Done</button></div>
+    </div>`);
+
+  $('#add-student-btn').addEventListener('click', () => {
+    const v = $('#new-student-name').value.trim();
+    if (!v) return;
+    if (!Array.isArray(state.students)) state.students = [];
+    if (state.students.some(s => s.toLowerCase() === v.toLowerCase())) { toast('Student name already exists', 'error'); return; }
+    captureUndo('Add student');
+    state.students.push(v);
+    save(); closeModal(); openStudentManageModal();
+    toast(`Student "${v}" added 🎓`);
+  });
+
+  $$('.fin-student-del').forEach(b => b.addEventListener('click', () => {
+    const idx = parseInt(b.dataset.delStudent, 10);
+    const removed = state.students[idx];
+    captureUndo('Remove student');
+    state.students.splice(idx, 1);
+    save(); closeModal(); openStudentManageModal();
+    toast(`Student "${removed}" removed`);
+  }));
 }
 
 function openIncomeTypeModal() {
@@ -7663,7 +7845,7 @@ function openIncomeTypeModal() {
           </div>
         </div>
       </div>
-      <div class="modal-foot"><div style="flex:1"></div><button class="btn btn-accent" onclick="closeModal()">Done</button></div>
+      <div class="modal-foot"><div style="flex:1"></div><button class="btn btn-accent" onclick="closeModal();renderFinance()">Done</button></div>
     </div>`);
   $('#add-type-btn').addEventListener('click', () => {
     const v = $('#new-type').value.trim();

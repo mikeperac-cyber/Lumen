@@ -443,4 +443,42 @@ test.describe('Lumen behavioral — task CRUD + undo + backup round-trip', () =>
 
     expect(errors).toEqual([]);
   });
+
+  test('Finance tracker supports TRY currency and student name assignment', async ({ page }) => {
+    const errors = [];
+    page.on('pageerror', (err) => errors.push(err.message));
+
+    await page.goto('/#finance');
+    await page.waitForLoadState('domcontentloaded');
+    await page.waitForTimeout(600);
+
+    // Verify Recent Transactions is at top
+    const recentCard = page.locator('#view-root .card').first();
+    await expect(recentCard).toContainText('Recent transactions');
+
+    // Click Log Income button
+    await page.locator('#fin-add-inc').click();
+    await page.waitForTimeout(400);
+
+    // Fill in Amount: 1500
+    await page.locator('#fin-amt').fill('1500');
+
+    // Select Currency: TRY
+    await page.locator('#fin-curr').selectOption('TRY');
+
+    // Select Student: Burak Demir
+    await page.locator('#fin-student').selectOption('Burak Demir');
+
+    // Save income
+    await page.locator('#fin-save').click();
+    await page.waitForTimeout(500);
+
+    // Verify transaction appears in table with TRY symbol and Student badge
+    const txRow = page.locator('.fin-tx-row').first();
+    await expect(txRow).toBeVisible();
+    await expect(txRow).toContainText('₺1,500');
+    await expect(txRow).toContainText('Burak Demir');
+
+    expect(errors).toEqual([]);
+  });
 });
