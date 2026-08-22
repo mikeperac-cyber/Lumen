@@ -1,5 +1,6 @@
 /* ============ Lumen — styles ============ */
 :root {
+  color-scheme: dark;
   --bg: #0e1013;
   --bg2: #12151b;
   --surface: #161a21;
@@ -20,6 +21,7 @@
   --radius: 12px;
 }
 html[data-theme="light"] {
+  color-scheme: light;
   --bg: #f4f5f9;
   --bg2: #eceef5;
   --surface: #ffffff;
@@ -41,6 +43,7 @@ html[data-theme="light"] {
 
 /* ---- Theme Palettes ---- */
 html[data-theme="cyberpunk"] {
+  color-scheme: dark;
   --bg: #090a15;
   --bg2: #0e1022;
   --surface: #141730;
@@ -81,6 +84,7 @@ html[data-theme="nord"] {
 }
 
 html[data-theme="sepia"] {
+  color-scheme: light;
   --bg: #fbf0d9;
   --bg2: #f2e3c6;
   --surface: #fff8eb;
@@ -201,6 +205,7 @@ html[data-theme="cerulean"] {
 }
 
 html[data-theme="coral-dawn"] {
+  color-scheme: light;
   --bg: #fcf7f4;
   --bg2: #f5ece6;
   --surface: #ffffff;
@@ -386,9 +391,9 @@ input, textarea, select { font-family: inherit; color: var(--text); }
 .nav-item .nav-emoji { font-size: 16px; width: 20px; text-align: center; }
 .sidebar-foot { display: flex; flex-direction: column; gap: 2px; border-top: 1px solid var(--border); padding-top: 10px; }
 
-/* More menu (collapsed sidebar) */
+/* More menu */
 .more-menu {
-  position: absolute; left: 68px; bottom: 80px;
+  position: fixed;
   width: 215px; background: var(--bg); border: 1px solid var(--border);
   border-radius: 12px; padding: 6px;
   box-shadow: 0 16px 40px rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,.05);
@@ -1625,6 +1630,7 @@ button:disabled { opacity: .45; cursor: default; }
 }
 .search-filters { display: flex; gap: 8px; padding: 8px 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
 .search-filters select, .search-filters input[type="date"] {
+  width: auto; flex: 1; min-width: 130px;
   font-size: 12px; padding: 4px 8px; border-radius: 6px;
   background: var(--surface2); border: 1px solid var(--border); color: var(--text);
 }

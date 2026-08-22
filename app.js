@@ -11149,6 +11149,27 @@ function init() {
     moreBtn.addEventListener('click', e => {
       e.stopPropagation();
       moreMenu.classList.toggle('hidden');
+      if (!moreMenu.classList.contains('hidden')) {
+        const btnRect = moreBtn.getBoundingClientRect();
+        const sidebarRect = moreBtn.closest('.sidebar').getBoundingClientRect();
+        // If sidebar is collapsed (width < 100), show menu to the right. Otherwise show below.
+        if (sidebarRect.width < 100) {
+          moreMenu.style.left = (sidebarRect.right + 4) + 'px';
+          moreMenu.style.top = btnRect.top + 'px';
+        } else {
+          moreMenu.style.left = btnRect.left + 'px';
+          moreMenu.style.top = (btnRect.bottom + 4) + 'px';
+        }
+        
+        // Handle bottom overflow
+        const menuRect = moreMenu.getBoundingClientRect();
+        if (menuRect.bottom > window.innerHeight) {
+          moreMenu.style.top = 'auto';
+          moreMenu.style.bottom = '10px';
+        } else {
+          moreMenu.style.bottom = 'auto';
+        }
+      }
       // Highlight current view inside the menu
       const cv = currentView();
       $$('.more-item', moreMenu).forEach(mi => mi.classList.toggle('active', mi.dataset.view === cv));
