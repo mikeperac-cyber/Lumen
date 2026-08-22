@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#605DFF">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Lumen">
+<title>Lumen — Your Personal Command Center</title>
+<meta name="description" content="Lumen is a fast, local-first personal command center for tasks, goals, habits, notes, and focus — zero build, zero tracking, encrypted, and offline-capable.">
+<meta property="og:title" content="Lumen — Personal Productivity Operating System">
+<meta property="og:description" content="Local-first personal command center for tasks, goals, habits, notes, voice memos, and timeboxing.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="icon-512.png">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Lumen — Personal Productivity Operating System">
+<meta name="twitter:description" content="Local-first personal command center for tasks, goals, habits, notes, voice memos, and timeboxing.">
+<meta name="twitter:image" content="icon-512.png">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%E2%9C%A6%3C/text%3E%3C/svg%3E">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="stylesheet" href="styles.css?v=83">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="brand-mark">✦</span>
+      <span class="brand-name">Lumen</span>
+    </div>
+    <nav class="nav">
+      <button class="nav-item" data-view="brief" id="nav-brief"></button>
+      <button class="nav-item" data-view="tasks" id="nav-tasks"></button>
+      <button class="nav-item" data-view="habits" id="nav-habits"></button>
+      <button class="nav-item" data-view="more" id="nav-more"><span class="nav-icon">☰</span><span>More</span></button>
+    </nav>
+    <div class="more-menu hidden" id="more-menu">
+      <button class="more-item" data-view="dashboard">📊 Dashboard</button>
+      <button class="more-item" data-view="review">📅 Weekly review</button>
+      <button class="more-item" data-view="projects">📁 Projects</button>
+      <button class="more-item" data-view="schedule">📅 Schedule</button>
+      <button class="more-item" data-view="tags">🏷️ Tags</button>
+      <button class="more-item" data-view="goals">🎯 Goals</button>
+      <button class="more-item" data-view="achievements">🏆 Achievements</button>
+      <button class="more-item" data-view="notes">📝 Notes</button>
+      <button class="more-item" data-view="voice">🎙️ Voice</button>
+      <button class="more-item" data-view="activity">📈 Activity</button>
+      <button class="more-item" data-view="analytics">📊 Habit Analytics</button>
+      <button class="more-item" data-view="finance">💰 Finance</button>
+      <button class="more-item" data-view="perf">⚡ Performance</button>
+    </div>
+    <div class="sidebar-foot">
+      <button class="nav-item" id="theme-toggle" title="Toggle theme"></button>
+      <button class="nav-item" data-view="settings" id="nav-settings"></button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div class="topbar-left">
+        <h1 class="view-title" id="view-title">Dashboard</h1>
+        <p class="view-sub muted" id="view-sub"></p>
+      </div>
+      <div class="topbar-right">
+        <button class="btn-icon" id="global-focus-hub-btn" title="Focus Hub &amp; Ambient Sounds (H)">🎧</button>
+        <button class="btn-icon mic-btn" id="global-mic-btn" title="Voice capture (V)"></button>
+        <button class="search-btn" id="global-search-btn">
+          <span id="search-icon"></span>
+          <span>Search anything…</span>
+          <kbd>Ctrl K</kbd>
+        </button>
+        <div class="quick-add">
+          <button class="btn btn-accent" id="quick-add-btn"><span id="quick-add-icon"></span> New</button>
+          <div class="quick-menu hidden" id="quick-menu">
+            <div class="quick-menu-section">Create</div>
+            <div class="quick-menu-grid">
+              <button class="quick-item" data-action="task">➕ Task</button>
+              <button class="quick-item" data-action="project">📁 Project</button>
+              <button class="quick-item" data-action="goal">🎯 Goal</button>
+              <button class="quick-item" data-action="habit">🔥 Habit</button>
+              <button class="quick-item" data-action="note">📝 Note</button>
+              <button class="quick-item" data-action="tag">🏷️ Tag</button>
+              <button class="quick-item" data-action="finance">💰 Income/expense</button>
+              <button class="quick-item" data-action="voice">🎙️ Voice memo</button>
+            </div>
+            <div class="quick-menu-section">Go to</div>
+            <div class="quick-menu-grid">
+              <button class="quick-item" data-action="go-brief">✦ Brief</button>
+              <button class="quick-item" data-action="go-dashboard">📊 Dashboard</button>
+              <button class="quick-item" data-action="go-schedule">📅 Schedule</button>
+              <button class="quick-item" data-action="go-projects">📁 Projects</button>
+              <button class="quick-item" data-action="go-goals">🎯 Goals</button>
+              <button class="quick-item" data-action="go-habits">🔥 Habits</button>
+              <button class="quick-item" data-action="go-notes">📝 Notes</button>
+              <button class="quick-item" data-action="go-voice">🎙️ Voice</button>
+              <button class="quick-item" data-action="go-tags">🏷️ Tags</button>
+              <button class="quick-item" data-action="go-finance">💰 Finance</button>
+              <button class="quick-item" data-action="go-analytics">📊 Analytics</button>
+              <button class="quick-item" data-action="go-achievements">🏆 Achievements</button>
+              <button class="quick-item" data-action="go-activity">📈 Activity</button>
+              <button class="quick-item" data-action="go-review">📅 Review</button>
+              <button class="quick-item" data-action="go-settings">⚙️ Settings</button>
+            </div>
+            <div class="quick-menu-section">Actions</div>
+            <div class="quick-menu-grid">
+              <button class="quick-item" data-action="undo">↩️ Undo</button>
+              <button class="quick-item" data-action="redo">↪️ Redo</button>
+              <button class="quick-item" data-action="ics">📅 Export .ics</button>
+              <button class="quick-item" data-action="backup">📦 Backup</button>
+              <button class="quick-item" data-action="focus">🎯 Focus mode</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+    <section class="content" id="view-root"></section>
+  </main>
+</div>
+
+<div id="modal-root"></div>
+<div id="search-root"></div>
+<div id="toast-root"></div>
+
+<div id="capture-pill" class="capture-pill hidden">
+  <button class="cap-main" id="cap-btn" title="Record / stop"></button>
+  <div class="cap-info">
+    <div class="cap-line"><span class="cap-timer" id="cap-timer">Ready</span><span class="cap-live hidden" id="cap-live">● LIVE</span></div>
+    <div class="cap-transcript" id="cap-transcript">Tap the mic and speak…</div>
+    <div class="cap-actions hidden" id="cap-actions">
+      <button class="btn btn-sm" id="cap-note">📝 Note</button>
+      <button class="btn btn-sm btn-accent" id="cap-task">✅ Task</button>
+      <button class="btn btn-sm btn-ghost" id="cap-discard">🗑 Discard</button>
+    </div>
+  </div>
+  <button class="btn-icon cap-close" id="cap-close" title="Close">✕</button>
+</div>
+
+<div id="floating-pomo-pill" class="floating-pomo-pill hidden">
+  <span class="fp-icon">🍅</span>
+  <div class="fp-info">
+    <div class="fp-time" id="fp-time">25:00</div>
+    <div class="fp-label" id="fp-label">Focus session</div>
+  </div>
+  <button class="btn-icon fp-btn" id="fp-toggle" title="Pause / Resume">⏸</button>
+  <button class="btn-icon fp-close" id="fp-close" title="Dismiss">✕</button>
+</div>
+
+<script src="peerjs.min.js"></script>
+<script src="app.js?v=83"></script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('./sw.js').catch(function () {});
+  });
+}
+</script>
+</body>
+</html>

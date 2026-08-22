@@ -1,0 +1,41 @@
+{
+  "name": "lumen-productivity",
+  "version": "1.0.0",
+  "description": "Lumen — Local-first personal command center & productivity operating system for tasks, goals, habits, notes, and focus.",
+  "main": "app.js",
+  "scripts": {
+    "start": "serve . -l 8092 --no-clipboard",
+    "dev": "serve . -l 8092 --no-clipboard",
+    "test": "playwright test --reporter=list",
+    "test:ui": "playwright test --ui",
+    "test:report": "playwright show-report"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/miketeacher-ai/to-do-list-1.git"
+  },
+  "keywords": [
+    "productivity",
+    "kanban",
+    "okr",
+    "habits",
+    "pomodoro",
+    "pwa",
+    "local-first",
+    "zero-build",
+    "web-crypto",
+    "gemini-ai",
+    "timeboxing"
+  ],
+  "author": "Lumen Contributors",
+  "license": "MIT",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/miketeacher-ai/to-do-list-1/issues"
+  },
+  "homepage": "https://github.com/miketeacher-ai/to-do-list-1#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "serve": "^14.2.6"
+  }
+}
