@@ -1,0 +1,64 @@
+// @ts-check
+const { test, expect } = require('@playwright/test');
+const { spawn } = require('child_process');
+
+function waitPort(port, timeoutMs) {
+  const net = require('net');
+  const t0 = Date.now();
+  return new Promise((res, rej) => {
+    (function tryOnce() {
+      const s = net.connect(port, '127.0.0.1');
+      s.on('connect', () => { s.destroy(); res(true); });
+      s.on('error', () => { s.destroy(); if (Date.now() - t0 > timeoutMs) return rej(new Error('port never opened')); setTimeout(tryOnce, 300); });
+    })();
+  });
+}
+function killTree(pid) {
+  return new Promise(res => spawn('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' }).on('exit', res));
+}
+
+const IS_WIN = process.platform === 'win32';
+const PORT = 8094;
+function startServer(cwd) {
+  // Windows: .cmd shims need a shell; POSIX: npx execs directly, run detached so the
+  // whole process group can be killed with -pid.
+  return spawn(IS_WIN ? 'npx.cmd' : 'npx', ['serve', '.', '-l', String(PORT), '--no-clipboard'], { cwd, stdio: 'ignore', shell: IS_WIN, detached: !IS_WIN });
+}
+async function stopServer(srv) {
+  if (IS_WIN) {
+    await new Promise(res => spawn('taskkill', ['/PID', String(srv.pid), '/T', '/F'], { stdio: 'ignore' }).on('exit', res));
+    return;
+  }
+  try { process.kill(-srv.pid, 'SIGKILL'); }
+  catch (_) { try { srv.kill('SIGKILL'); } catch (_) {} }
+  await new Promise(res => { if (srv.exitCode !== null) res(); else srv.once('exit', res); });
+}
+
+test('offline shell: reload AND fresh navigation boot the app with the server dead', async ({ page }) => {
+  test.setTimeout(120000);
+  const srv = startServer(process.cwd());
+  try {
+    await waitPort(PORT, 20000);
+    await page.goto(`http://127.0.0.1:${PORT}/`);
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(2200);
+    expect(await page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
+
+    await stopServer(srv);
+    await page.waitForTimeout(500);
+
+    // Reload while genuinely offline
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 15000 });
+    await page.waitForTimeout(800);
+    expect(await page.evaluate(() => !!document.querySelector('.app'))).toBe(true);
+
+    // Fresh navigation (new tab) while offline
+    const page2 = await page.context().newPage();
+    await page2.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    await page2.waitForTimeout(600);
+    expect(await page2.evaluate(() => !!document.querySelector('.app'))).toBe(true);
+    await page2.close();
+  } finally {
+    await stopServer(srv);
+  }
+});

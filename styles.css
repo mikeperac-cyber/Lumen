@@ -2886,3 +2886,52 @@ html.focus-mode .topbar { justify-content: center; }
 
 
 
+
+/* ---- Pinnable dashboard widgets ----
+   Pinned (default) = always expanded; the pin toggle appears on hover/focus.
+   Unpinned = folded to its title strip, dimmed, and expands on hover,
+   keyboard focus-within, or tap-to-peek on touch devices. */
+#view-root .card[data-dw] { position: relative; }
+#view-root .card[data-dw] > .dw-head { padding-right: 28px; }
+.pin-toggle {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  background: transparent;
+  color: var(--muted, #8b93a7);
+  opacity: 0;
+  transform: scale(.9);
+  transition: opacity .16s ease, color .16s ease, transform .16s ease, background .16s ease;
+}
+#view-root .card[data-dw]:hover .pin-toggle,
+#view-root .card[data-dw]:focus-within .pin-toggle,
+.pin-toggle.pinned { opacity: 1; transform: scale(1); }
+.pin-toggle:hover { color: var(--accent); background: rgba(96, 93, 255, .14); }
+.pin-toggle.pinned { color: var(--accent); }
+
+.dw-body { display: grid; grid-template-rows: 1fr; transition: grid-template-rows .24s ease, opacity .18s ease; }
+.dw-body-in { min-height: 0; overflow: hidden; }
+.dw-folded { box-shadow: none; }
+.dw-folded > .dw-head { opacity: .72; transition: opacity .18s ease; }
+.dw-folded .dw-body { grid-template-rows: 0fr; opacity: 0; }
+.dw-folded:hover,
+.dw-folded:focus-within,
+.dw-folded.peek { box-shadow: var(--shadow, 0 8px 24px rgba(0, 0, 0, .25)); }
+.dw-folded:hover > .dw-head,
+.dw-folded:focus-within > .dw-head,
+.dw-folded.peek > .dw-head { opacity: 1; }
+.dw-folded:hover .dw-body,
+.dw-folded:focus-within .dw-body,
+.dw-folded.peek .dw-body { grid-template-rows: 1fr; opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .dw-body { transition: none; }
+}

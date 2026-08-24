@@ -33,3 +33,7 @@ desktop.ini
 .freebuff/
 .freebuff*
 .memory/
+
+# Playwright MCP session artifacts
+.playwright-mcp/
+dashboard-pin-engine.png

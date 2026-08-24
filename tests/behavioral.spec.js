@@ -160,8 +160,8 @@ test.describe('Lumen behavioral — task CRUD + undo + backup round-trip', () =>
     await freezeBtn.click();
     await page.waitForTimeout(500);
 
-    // Verify frozen cell icon rendered in heatmap
-    await expect(habitCard.locator('.day.frozen, .hm.frozen')).toBeVisible();
+    // Verify frozen cell icon rendered (week strip + heatmap both include today now)
+    await expect(habitCard.locator('.day.frozen, .hm.frozen').first()).toBeVisible();
 
     expect(errors).toEqual([]);
   });

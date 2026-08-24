@@ -96,6 +96,32 @@ function clamp(n, lo, hi) { return Math.max(lo, Math.min(hi, n)); }
 function debounce(fn, ms) {
   let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
 }
+/* Filter inputs live inside the HTML that their re-render replaces, so each keystroke
+   used to destroy the element being typed in (focus + caret lost after one character).
+   bindFilterInput debounces the re-render and restores focus/caret to the fresh node. */
+function restoreFocus(sel) {
+  const el = $(sel);
+  if (!el) return;
+  el.focus();
+  const len = el.value.length;
+  try { el.setSelectionRange(len, len); } catch (_) { /* date/number inputs */ }
+}
+function bindFilterInput(sel, ms, onApply) {
+  const el = $(sel);
+  if (!el) return;
+  const run = debounce((value) => {
+    onApply(value);
+    // Restore focus only when it wasn't deliberately moved during the debounce
+    // window (e.g. the user clicked a toolbar button). After the re-render the
+    // old input is gone, so "focus nowhere" means typing should continue.
+    const ae = document.activeElement;
+    if (!ae || ae === document.body || ae === el) restoreFocus(sel);
+  }, ms);
+  el.addEventListener('input', e => {
+    if (e.isComposing) return; // let IME composition finish before re-rendering
+    run(e.target.value);
+  });
+}
 
 /* ---------- Web Audio Synthesizer (Zero external assets) ---------- */
 let _audioCtx = null;
@@ -746,13 +772,16 @@ function load() {
     const lsRaw = (() => { try { return localStorage.getItem(KEY); } catch (_) { return null; } })();
     if (idbState) {
       // IDB has data — use it as the source of truth (it may be newer)
-      const idbParsed = typeof idbState === 'string' ? JSON.parse(idbState) : idbState;
-      normalizeState(idbParsed);
-      // Also update localStorage as a fallback
-      try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (_) {}
+      const idbStr = typeof idbState === 'string' ? idbState : JSON.stringify(idbState);
+      // Identical snapshot → the sync fast-path already parsed it; skip the re-parse
+      // and the full-vault stringify+write this used to do on every single boot.
+      if (idbStr !== lsRaw) {
+        normalizeState(JSON.parse(idbStr));
+        try { localStorage.setItem(KEY, idbStr); } catch (_) {}
+      }
     } else if (lsRaw) {
       // IDB empty but localStorage has data — migrate to IDB
-      stateDbPut(JSON.stringify(state)).catch(() => {});
+      stateDbPut(lsRaw).catch(() => {});
     }
   }).catch(() => { /* IDB unavailable — localStorage-only mode */ });
 }
@@ -787,26 +816,37 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 
 /* ============ Undo / Redo ============ */
 const UNDO_MAX = 40;
+const UNDO_BYTES = 12 * 1024 * 1024; // total snapshot budget — full-vault JSON strings add up fast
 let undoStack = []; // array of JSON-stringified state snapshots
 let redoStack = [];
+let undoBytes = 0;
+function pushUndoSnapshot(snap) {
+  if (undoStack[undoStack.length - 1] === snap) return false; // no-op action — skip duplicate
+  undoStack.push(snap);
+  undoBytes += snap.length;
+  while (undoStack.length > 1 && (undoStack.length > UNDO_MAX || undoBytes > UNDO_BYTES)) {
+    undoBytes -= undoStack.shift().length;
+  }
+  return true;
+}
 function captureUndo(label) {
   // Save current state snapshot before a mutation.
   // label is informational (used for the toast) but not stored.
-  undoStack.push(JSON.stringify(state));
-  if (undoStack.length > UNDO_MAX) undoStack.shift();
+  pushUndoSnapshot(JSON.stringify(state));
   redoStack = []; // any new action clears the redo stack
 }
 function performUndo() {
   if (!undoStack.length) { toast('Nothing to undo'); return; }
   redoStack.push(JSON.stringify(state));
   const prev = undoStack.pop();
+  undoBytes -= prev.length;
   state = JSON.parse(prev);
   save(); renderView();
   toast('↩️ Undo', 'success');
 }
 function performRedo() {
   if (!redoStack.length) { toast('Nothing to redo'); return; }
-  undoStack.push(JSON.stringify(state));
+  pushUndoSnapshot(JSON.stringify(state));
   const next = redoStack.pop();
   state = JSON.parse(next);
   save(); renderView();
@@ -1214,8 +1254,10 @@ function perfStats() {
   return stats;
 }
 
+let _lastHashRendered = null;
 function renderView() {
   const view = currentView();
+  _lastHashRendered = location.hash;
   if (Date.now() - _lastAchEval > 5000) { _lastAchEval = Date.now(); evaluateAchievements(); }
   const [title, sub] = TITLES[view] || ['Dashboard', 'Welcome back'];
   $('#view-title').textContent = title;
@@ -2050,7 +2092,7 @@ function projectsDashboardHTML() {
     </div>`;
   }
 
-  return `<div class="card">
+  return `<div class="card" data-dw="projects">
     <h3 class="card-title"><span>🚀 My Projects</span><div style="display:flex;gap:6px;align-items:center"><button class="btn btn-sm btn-ghost" id="proj-export-btn" title="Export as CSV">📥</button><button class="btn btn-sm" id="proj-add-btn">${ic('plus', 14)} Add project</button></div></h3>
     ${projects.length ? statsHTML : ''}
     ${projects.length > 3 ? filterHTML : ''}
@@ -2064,7 +2106,7 @@ function teachingDashboardHTML() {
   const students = getStudentsList();
   const activeHw = (state.assignments || []).filter(a => a.status === 'assigned' || a.status === 'submitted');
   const plannedLessons = (state.lessonPlans || []).filter(p => p.status === 'planned');
-  return `<div class="card">
+  return `<div class="card" data-dw="teaching">
     <h3 class="card-title"><span>🎓 Teaching Command Hub</span><a class="link-btn" href="#students">All students →</a></h3>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(70px,1fr));gap:8px;margin-bottom:12px">
       <div style="background:var(--surface2);padding:8px 6px;border-radius:8px;text-align:center">
@@ -2248,6 +2290,92 @@ function openProjectModal(project, projId) {
 }
 
 /* ============ Dashboard ============ */
+/* ---- Pinnable dashboard widgets ----
+   Every major dashboard card carries data-dw="<id>". After each render,
+   initDashWidgets() groups everything below the header into a collapsible body,
+   injects a pin toggle into the header, and applies persisted fold state.
+   Pinned (default) = always expanded. Unpinned = folded to its title strip and
+   expands on hover / keyboard focus (or tap-to-peek on touch devices). */
+const DASH_FOLD_KEY = 'lumen.dash.fold';
+const DASH_WIDGET_LABELS = {
+  deadlines: 'Deadlines', 'task-stats': 'Task stats', today: 'Today', habits: 'Habit check-in',
+  radar: 'Wheel of Life', timetrack: 'Time tracking', focus: 'Focus timer',
+  teaching: 'Teaching hub', notes: 'Recent notes', projects: 'Projects'
+};
+let _dashFoldCache = null;
+function dashFoldedSet() {
+  if (_dashFoldCache) return _dashFoldCache;
+  try { _dashFoldCache = new Set(JSON.parse(localStorage.getItem(DASH_FOLD_KEY) || '[]')); }
+  catch (_) { _dashFoldCache = new Set(); }
+  return _dashFoldCache;
+}
+function persistDashFolds() {
+  try { localStorage.setItem(DASH_FOLD_KEY, JSON.stringify([...dashFoldedSet()])); } catch (_) {}
+}
+function applyDashWidgetState(card) {
+  const id = card.dataset.dw;
+  const label = DASH_WIDGET_LABELS[id] || id;
+  const folded = dashFoldedSet().has(id);
+  card.classList.toggle('dw-folded', folded);
+  const btn = card.querySelector(':scope > .dw-head > .pin-toggle');
+  if (btn) {
+    btn.classList.toggle('pinned', !folded);
+    btn.setAttribute('aria-pressed', String(!folded));
+    btn.setAttribute('aria-label', (folded ? 'Pin ' : 'Unpin ') + label);
+    btn.title = folded ? `📌 Pin ${label} — keep expanded` : `📍 Unpin ${label} — folds until you hover`;
+    btn.innerHTML = ic('pin', 15);
+  }
+}
+function toggleDashPin(id, card) {
+  const folded = dashFoldedSet();
+  const label = DASH_WIDGET_LABELS[id] || id;
+  if (folded.has(id)) { folded.delete(id); toast(`📌 ${label} pinned open`, 'success'); }
+  else { folded.add(id); toast(`📍 ${label} unpinned — hover its header to expand`); }
+  persistDashFolds();
+  if (card) applyDashWidgetState(card);
+}
+function initDashWidgets() {
+  $$('#view-root [data-dw]').forEach(card => {
+    const kids = [...card.children];
+    if (!kids.length) return;
+    let body = card.querySelector(':scope > .dw-body');
+    if (!body) {
+      // First child is the header (h3.card-title or an equivalent header block);
+      // everything below it becomes the collapsible body.
+      const bodyIn = document.createElement('div');
+      bodyIn.className = 'dw-body-in';
+      kids.slice(1).forEach(k => bodyIn.appendChild(k));
+      body = document.createElement('div');
+      body.className = 'dw-body';
+      body.appendChild(bodyIn);
+      card.appendChild(body);
+      kids[0].classList.add('dw-head');
+      const pin = document.createElement('button');
+      pin.className = 'pin-toggle';
+      pin.type = 'button';
+      pin.dataset.dwPin = card.dataset.dw;
+      kids[0].appendChild(pin);
+    }
+    applyDashWidgetState(card);
+    // Touch fallback: no hover — tap a folded widget once to peek, tap elsewhere to close.
+    card.addEventListener('click', e => {
+      if (e.target.closest('[data-dw-pin]')) return;
+      if (!card.classList.contains('dw-folded') || card.classList.contains('peek')) return;
+      if (window.matchMedia && matchMedia('(hover: none)').matches) {
+        card.classList.add('peek');
+        const off = ev => {
+          if (!card.contains(ev.target)) { card.classList.remove('peek'); document.removeEventListener('pointerdown', off); }
+        };
+        document.addEventListener('pointerdown', off);
+      }
+    });
+  });
+  $$('[data-dw-pin]').forEach(btn => btn.addEventListener('click', e => {
+    e.stopPropagation();
+    toggleDashPin(btn.dataset.dwPin, btn.closest('[data-dw]'));
+  }));
+}
+
 function renderDashboard() {
   const today = todayISO();
   const doneToday = state.tasks.filter(t => t.completedAt === today).length;
@@ -2339,7 +2467,7 @@ function renderDashboard() {
     return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.5" class="radar-dot" title="${a.label}: ${a.val}%"/>`;
   }).join('');
 
-  const lifeRadarHTML = `<div class="card">
+  const lifeRadarHTML = `<div class="card" data-dw="radar">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
       <h3 class="card-title" style="margin:0"><span>🎡 Wheel of Life &amp; Balance</span></h3>
       <span class="badge" style="background:rgba(96,93,255,0.15);color:var(--accent);font-weight:700">Score: ${lifeBalanceScore}/100</span>
@@ -2374,7 +2502,7 @@ function renderDashboard() {
         <div><div class="stat-value">${state.notes.length}</div><div class="stat-label">notes captured</div></div>
       </div>
     </div>
-    <div class="card" style="margin-bottom:14px">
+    <div class="card" data-dw="task-stats" style="margin-bottom:14px">
       <h3 class="card-title"><span>📊 Task stats</span></h3>
       <div class="task-stats-grid">
         <div class="ts-item"><div class="ts-val">${state.tasks.length}</div><div class="ts-lbl">Total tasks</div></div>
@@ -2387,11 +2515,11 @@ function renderDashboard() {
     </div>
     <div class="dash-grid">
       <div class="dash-stack">
-        <div class="card">
+        <div class="card" data-dw="today">
           <h3 class="card-title"><span>☀️ Today</span><a class="link-btn" href="#tasks">Open board →</a></h3>
           ${taskRows}
         </div>
-        <div class="card">
+        <div class="card" data-dw="habits">
           <h3 class="card-title"><span>🔥 Habit check-in</span><a class="link-btn" href="#habits">All habits →</a></h3>
           ${habitChips}
         </div>
@@ -2399,15 +2527,19 @@ function renderDashboard() {
         ${timeTrackDashboardHTML()}
       </div>
       <div class="dash-stack">
-        <div class="card">${pomodoroHTML()}</div>
+        <div class="card" data-dw="focus">${pomodoroHTML()}</div>
         ${teachingDashboardHTML()}
-        <div class="card">
+        <div class="card" data-dw="notes">
           <h3 class="card-title"><span>📝 Recent notes</span><a class="link-btn" href="#notes">All notes →</a></h3>
           ${recentNotes}
         </div>
         ${projectsDashboardHTML()}
       </div>
     </div>`;
+
+  // Pinnable widgets: fold/unfold bodies + pin toggles (before bindings — they only
+  // query descendants, and normalization moves nodes without destroying them).
+  initDashWidgets();
 
   // deadline rows → jump to goals
   $$('.dl-row').forEach(el => el.addEventListener('click', () => { location.hash = '#goals'; }));
@@ -3074,12 +3206,12 @@ function deadlinesCardHTML() {
   </div>`;
   const total = overdue.length + upcoming.length + snoozed.length;
   if (!total) {
-    return `<div class="card dl-card">
+    return `<div class="card dl-card" data-dw="deadlines">
       <h3 class="card-title"><span>⏰ Deadlines</span></h3>
       <div class="empty-state" style="padding:14px 0 6px"><div class="es-icon">🎉</div>No overdue, upcoming, or snoozed deadlines.</div>
     </div>`;
   }
-  return `<div class="card dl-card">
+  return `<div class="card dl-card" data-dw="deadlines">
     <h3 class="card-title"><span>⏰ Deadlines</span>
       <span class="dl-counts">
         ${overdue.length ? `<span class="badge priority-high">${overdue.length} overdue</span>` : ''}
@@ -3371,12 +3503,12 @@ function timeTrackDashboardHTML() {
   const weeklyTrend = thisWeek > lastWeek ? '📈' : thisWeek < lastWeek ? '📉' : '➡️';
   const weeklyTxt = lastWeek > 0 ? `${Math.round(((thisWeek - lastWeek) / lastWeek) * 100)}% vs last week` : 'First week of data';
   if (!totalTime && catEntries.length === 0) {
-    return `<div class="card">
+    return `<div class="card" data-dw="timetrack">
       <h3 class="card-title"><span>⏱ Time tracking</span></h3>
       <div class="empty-state"><div class="es-icon">⏱</div>Move tasks to "In Progress" to start tracking time.</div>
     </div>`;
   }
-  return `<div class="card tt-card">
+  return `<div class="card tt-card" data-dw="timetrack">
     <h3 class="card-title"><span>⏱ Time tracking</span><span class="tt-total">${fmtProgressTimeLong(totalTime)} total</span></h3>
     <div class="tt-summary">
       <div class="tt-stat">
@@ -3877,7 +4009,7 @@ function renderTasks() {
     quickInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); quickAdd(); } });
     $('#quick-task-go').addEventListener('click', quickAdd);
   }
-  $('#task-q').addEventListener('input', e => { taskFilter.q = e.target.value; renderTasks(); });
+  bindFilterInput('#task-q', 120, v => { taskFilter.q = v; renderTasks(); });
   $('#task-goal').addEventListener('change', e => { taskFilter.goal = e.target.value; renderTasks(); });
   $('#task-category').addEventListener('change', e => { taskFilter.category = e.target.value; renderTasks(); });
   const tagChip = $('#task-tag-chip');
@@ -4091,7 +4223,7 @@ function renderMatrix() {
     </div>`;
   // Bind
   $('#task-view-toggle').addEventListener('click', () => { taskViewMode = 'kanban'; renderTasks(); });
-  $('#task-q').addEventListener('input', e => { taskFilter.q = e.target.value; renderMatrix(); });
+  bindFilterInput('#task-q', 120, v => { taskFilter.q = v; renderMatrix(); });
   $('#task-goal').addEventListener('change', e => { taskFilter.goal = e.target.value; renderMatrix(); });
   $('#task-category').addEventListener('change', e => { taskFilter.category = e.target.value; renderMatrix(); });
   const tc = $('#task-tag-chip');
@@ -4965,8 +5097,11 @@ let heatCells = [];
 let heatCache = new Map();
 function buildHeatCells() {
   const today = new Date();
-  const start = shiftDays(-111);
-  start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
+  // Anchor the 112-cell window to the CURRENT week (ending Sunday) so today is always
+  // inside it. The old start-anchored window drifted up to 6 days short of today,
+  // which made the "today" highlight disappear depending on the weekday.
+  const dow = (today.getDay() + 6) % 7; // Mon = 0
+  const start = shiftDays(-15 * 7 - dow);
   heatCells = [];
   for (let w = 0; w < 16; w++) {
     for (let d = 0; d < 7; d++) {
@@ -5179,8 +5314,7 @@ function renderHabits() {
     q.addEventListener('input', e => {
       habitFilterQ = e.target.value.trim().toLowerCase();
       renderHabits();
-      const inp = $('#habit-q');
-      if (inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
+      restoreFocus('#habit-q');
     });
   }
   $$('#habit-q-clear, #habit-q-clear-empty').forEach(cq => cq.addEventListener('click', () => { habitFilterQ = ''; renderHabits(); }));
@@ -5778,7 +5912,7 @@ function renderNotes() {
 
   notesListVirt.sync();
 
-  $('#note-q').addEventListener('input', e => { noteFilterQ = e.target.value; renderNotes(); });
+  bindFilterInput('#note-q', 120, v => { noteFilterQ = v; renderNotes(); });
   $$('#note-new, #note-new-empty').forEach(b => b.addEventListener('click', () => { newNote(); renderNotes(); }));
   if (note) bindNoteEditor(note);
 }
@@ -6557,11 +6691,35 @@ let syncMeta = loadSyncMeta();
 if (!localStorage.getItem(SYNC_KEY)) saveSyncMeta(); // persist the ID immediately so it survives reloads
 let peer = null, conn = null, peerStatus = 'offline', peerStatusDetail = '';
 let suppressAutoPush = false, autoPushTimer = null;
-const PeerCtor = window.Peer || null;
+/* PeerJS (~92KB) is loaded on demand — only when sync is actually used — instead of
+   parsing it on every cold boot. The service worker keeps it cached for offline use. */
+let _peerLibLoading = null;
+function loadPeerLib() {
+  if (window.Peer) return Promise.resolve(window.Peer);
+  if (_peerLibLoading) return _peerLibLoading;
+  _peerLibLoading = new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = 'peerjs.min.js';
+    s.onload = () => res(window.Peer);
+    s.onerror = () => { _peerLibLoading = null; rej(new Error('Sync library unavailable (offline?)')); };
+    document.head.appendChild(s);
+  });
+  return _peerLibLoading;
+}
 const isConnected = () => !!(conn && conn.open);
 
 function ensurePeer() {
-  if (peer || !PeerCtor) return;
+  if (peer) return;
+  if (!window.Peer) {
+    loadPeerLib().then(P => { if (!peer && P) startPeer(P); })
+      .catch(err => { peerStatus = 'error'; peerStatusDetail = err.message; updateSyncUI(); });
+    return;
+  }
+  startPeer(window.Peer);
+}
+
+function startPeer(PeerCtor) {
+  if (peer) return;
   peerStatus = 'starting';
   updateSyncUI();
   try {
@@ -6618,8 +6776,8 @@ function adoptConnection(c) {
 }
 
 function connectToDevice(id) {
-  if (!PeerCtor) { toast('Sync library not loaded (offline?)', 'error'); return; }
-  if (!peer) ensurePeer();
+  if (!window.Peer && !_peerLibLoading) ensurePeer();
+  if (!peer) { toast('Sync library is loading — try again in a second', 'error'); return; }
   if (peerStatus === 'starting') { toast('Sync is still starting — try again in a second', 'error'); return; }
   if (!peer) return;
   const target = String(id || '').trim().toLowerCase();
@@ -6888,7 +7046,7 @@ function handleAudio(msg) {
 }
 
 function syncStatusText() {
-  if (!PeerCtor) return 'Unavailable — sync library failed to load';
+  if (!window.Peer && !_peerLibLoading && peerStatus === 'offline') return '⚪ Not connected';
   const q = (syncMeta.syncQueue || []).length;
   const qBadge = q ? ` <span class="sync-q-badge">${q} queued</span>` : '';
   if (peerStatus === 'connected') return '🟢 ' + (peerStatusDetail || 'Connected') + qBadge;
@@ -6904,7 +7062,7 @@ function updateSyncUI() {
   if (btn) btn.disabled = !isConnected();
 }
 function syncCardHTML() {
-  if (!PeerCtor) {
+  if (!window.Peer && !_peerLibLoading && peerStatus === 'error') {
     return `<div class="card"><h3 class="card-title">🔄 Cross-device sync</h3><p class="muted" style="font-size:13px;line-height:1.5">The sync library (PeerJS) couldn't load — check your internet connection and reload the page. Everything else works fully offline.</p></div>`;
   }
   return `<div class="card">
@@ -8500,7 +8658,7 @@ function renderStudents() {
   $('#std-hero-log-income')?.addEventListener('click', () => openFinanceModal('income'));
 
   // Bind Roster Tab Events
-  $('#student-search')?.addEventListener('input', e => { _studentSearchQ = e.target.value; renderStudents(); });
+  bindFilterInput('#student-search', 150, v => { _studentSearchQ = v; renderStudents(); });
   $$('button[data-std-status]').forEach(b => b.addEventListener('click', () => { _studentStatusFilter = b.dataset.stdStatus; renderStudents(); }));
   $('#std-mode-grid')?.addEventListener('click', () => { _studentViewMode = 'grid'; renderStudents(); });
   $('#std-mode-table')?.addEventListener('click', () => { _studentViewMode = 'table'; renderStudents(); });
@@ -11055,14 +11213,15 @@ function openSearch() {
         { name: 'undo', icon: 'zap', label: 'Undo last action', act: () => { closeSearch(); performUndo(); } },
         { name: 'redo', icon: 'zap', label: 'Redo last action', act: () => { closeSearch(); performRedo(); } },
       ];
+      let quickAdd = null;
       if (cmd.startsWith('task ') && cmd.length > 5) {
         const taskText = raw.slice(1).replace(/^task\s+/i, '');
         const parsed = parseNaturalLanguageTask(taskText);
         if (parsed) {
-          commands.unshift({
-            name: 'task',
-            icon: 'plus',
-            label: `⚡ Quick add: “${parsed.title}”${parsed.due ? ' · 📅 ' + fmtShort(parsed.due) : ''}${parsed.priority !== 'med' ? ' · !' + parsed.priority : ''}`,
+          quickAdd = {
+            type: 'Command', icon: 'plus',
+            title: `⚡ Quick add: “${parsed.title}”${parsed.due ? ' · 📅 ' + fmtShort(parsed.due) : ''}${parsed.priority !== 'med' ? ' · !' + parsed.priority : ''}`,
+            sub: '>task',
             act: () => {
               closeSearch();
               state.tasks.push(Object.assign({ id: uid(), desc: '', recurrence: '', subtasks: [], createdAt: Date.now(), updatedAt: Date.now() }, parsed));
@@ -11070,11 +11229,14 @@ function openSearch() {
               renderView();
               toast(`Task added: ${parsed.title} ✅`);
             }
-          });
+          };
         }
       }
-      const filtered = commands.filter(c => c.name.includes(cmd) || c.label.toLowerCase().includes(cmd));
-      const results = filtered.map(c => ({ type: 'Command', icon: c.icon, title: c.label, sub: '>' + c.name, act: c.act }));
+      // Match base commands by the leading command word only, so ">task buy milk"
+      // still lists them alongside the parsed quick-add suggestion.
+      const cmdWord = cmd.split(/\s+/)[0];
+      const filtered = commands.filter(c => c.name.includes(cmdWord) || c.label.toLowerCase().includes(cmdWord));
+      const results = (quickAdd ? [quickAdd] : []).concat(filtered.map(c => ({ type: 'Command', icon: c.icon, title: c.label, sub: '>' + c.name, act: c.act })));
       searchResults = results;
       searchRows = buildSearchRows(results);
       searchVirt.setItems(searchRows, searchRowHTML, 'cmd|' + results.length);
@@ -11120,13 +11282,15 @@ function openSearch() {
           sub: 'tap to filter board',
           act: () => applyTagFilter(tag.name.toLowerCase())
         }));
+      // Guard the status lookup: legacy/imported tasks can carry a status that is no
+      // longer in STATUSES — one throw here used to abort the whole search run.
       state.tasks.filter(t => {
         if (!matches(t.title + ' ' + (t.tags || []).join(' '))) return false;
         if (searchCat && t.category !== searchCat) return false;
         if (searchDateFrom && t.due && t.due < searchDateFrom) return false;
         if (searchDateTo && t.due && t.due > searchDateTo) return false;
         return true;
-      }).forEach(t => push({ type: 'Task', icon: 'check-square', title: t.title, sub: STATUSES.find(s => s.id === t.status).title, act: () => { openTaskModal(t); } }));
+      }).forEach(t => push({ type: 'Task', icon: 'check-square', title: t.title, sub: (STATUSES.find(s => s.id === t.status) || {}).title || t.status || 'Task', act: () => { openTaskModal(t); } }));
       state.notes.filter(n => matches(n.title + ' ' + n.content + ' ' + (n.tags || []).join(' ')))
         .forEach(n => push({ type: 'Note', icon: 'file-text', title: n.title || 'Untitled', sub: n.audioId ? 'Voice memo' : 'Note', act: () => { selectedNoteId = n.id; location.hash = '#notes'; } }));
       const goalHits = state.goals.filter(g => matches(g.title + ' ' + (g.desc || '') + ' ' + (g.tags || []).join(' ')))
@@ -11447,7 +11611,9 @@ function init() {
   bindFloatingPomoPill();
   initInstall();
   if (!location.hash || !NAV[location.hash.slice(1)]) location.hash = '#brief';
-  window.addEventListener('hashchange', renderView);
+  // init() renders below; the hashchange fired by the default-view assignment above
+  // arrives after this and used to trigger a second full render on every cold boot.
+  window.addEventListener('hashchange', () => { if (location.hash !== _lastHashRendered) renderView(); });
   document.addEventListener('keydown', onKey);
   setInterval(checkOverdueNotifications, 60000); // catch deadlines passing while the app stays open
   // re-render a filtered board every minute so the amber pulse fires when a hidden deadline
