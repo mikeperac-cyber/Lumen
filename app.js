@@ -1,5 +1,13 @@
 /* ============ Lumen — app logic ============ */
 'use strict';
+/* Fast boot marker — measured until first view paint */
+const _bootStart = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+let _firstPaintDone = false;
+const _idle = (cb) => (window.requestIdleCallback ? requestIdleCallback(cb, { timeout: 800 }) : setTimeout(cb, 64));
+const _whenIdle = (cb) => _idle(cb);
+/* Global error boundary → toast + console, keeps SPA alive */
+window.addEventListener('error', e => { console.error('[Lumen]', e.error || e.message); try { toast('⚠️ ' + (e.message || 'Unexpected error'), 'error'); } catch (_) {} });
+window.addEventListener('unhandledrejection', e => { console.error('[Lumen unhandled]', e.reason); try { toast('⚠️ ' + (e.reason && e.reason.message || 'Promise error'), 'error'); } catch (_) {} });
 
 /* ---------- Icons ---------- */
 const ICONS = {
@@ -50,6 +58,23 @@ function ic(name, size = 18) {
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() + '-' + Math.random().toString(36).slice(2, 9));
+async function shareText(title, text) {
+  const payload = { title, text };
+  try {
+    if (navigator.share && navigator.canShare && navigator.canShare(payload)) { await navigator.share(payload); toast('Shared ✅'); return; }
+    if (navigator.share) { await navigator.share(payload); toast('Shared ✅'); return; }
+  } catch (e) { if (e && e.name === 'AbortError') return; }
+  try { await navigator.clipboard.writeText(`${title}\n${text}`); toast('Copied to clipboard ⧉'); } catch (_) { toast('Share not available', 'error'); }
+}
+function duplicateTaskById(id) {
+  const t = state.tasks.find(x => x.id === id);
+  if (!t) return;
+  captureUndo('Duplicate task');
+  const clone = JSON.parse(JSON.stringify(t));
+  clone.id = uid(); clone.title = t.title + ' (copy)'; clone.createdAt = Date.now(); clone.updatedAt = Date.now(); clone.completedAt = null;
+  if (clone.status === 'done') clone.status = 'today';
+  state.tasks.unshift(clone); save(); renderView(); toast('Duplicated ✅');
+}
 function esc(s) {
   return String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -643,8 +668,11 @@ function tagSpan(name) {
 }
 function setTagColor(name, color) {
   if (!state.tagColors) state.tagColors = {};
-  if (color) state.tagColors[name.toLowerCase()] = color;
-  else delete state.tagColors[name.toLowerCase()];
+  if (!state._tagColorMeta) state._tagColorMeta = {};
+  const key = name.toLowerCase();
+  const ts = Date.now();
+  if (color) { state.tagColors[key] = color; state._tagColorMeta[key] = ts; }
+  else { delete state.tagColors[key]; state._tagColorMeta[key] = ts; if (!syncMeta.tombstones.tagColors) syncMeta.tombstones.tagColors = {}; syncMeta.tombstones.tagColors[key] = ts; saveSyncMeta(); }
   save();
 }
 
@@ -682,6 +710,48 @@ function stateDbPut(val) {
   }));
 }
 
+/* ---- Encrypted auto-backup IDB (3 rotating slots) ---- */
+const AUTO_VAULT_DB = 'lumen-vault-auto';
+const AUTO_VAULT_STORE = 'slots';
+let _autoVaultDb = null;
+function autoVaultDb() {
+  return new Promise((res, rej) => {
+    if (_autoVaultDb) return res(_autoVaultDb);
+    let rq; try { rq = indexedDB.open(AUTO_VAULT_DB, 1); } catch (e) { return rej(e); }
+    rq.onupgradeneeded = e => { const db = e.target.result; if (!db.objectStoreNames.contains(AUTO_VAULT_STORE)) db.createObjectStore(AUTO_VAULT_STORE); };
+    rq.onsuccess = e => { _autoVaultDb = e.target.result; res(_autoVaultDb); };
+    rq.onerror = () => rej(rq.error);
+  });
+}
+let _autoVaultIdx = 0;
+async function autoVaultBackup(json, password) {
+  try {
+    const enc = await encryptVaultBackup(json, password);
+    const db = await autoVaultDb();
+    const key = 'slot-' + (_autoVaultIdx % 3);
+    _autoVaultIdx = (_autoVaultIdx + 1) % 3;
+    await new Promise((res, rej) => {
+      const tx = db.transaction(AUTO_VAULT_STORE, 'readwrite');
+      tx.objectStore(AUTO_VAULT_STORE).put(enc, key);
+      tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+    });
+  } catch (e) {
+    if (e && e.name === 'QuotaExceededError') { /* skip — IDB quota (6MB) */ }
+    else console.warn('autoVaultBackup failed', e);
+  }
+}
+async function autoVaultList() {
+  try {
+    const db = await autoVaultDb();
+    return await new Promise((res, rej) => {
+      const tx = db.transaction(AUTO_VAULT_STORE, 'readonly');
+      const rq = tx.objectStore(AUTO_VAULT_STORE).getAll();
+      rq.onsuccess = () => res(rq.result || []);
+      rq.onerror = () => rej(rq.error);
+    });
+  } catch (_) { return []; }
+}
+
 function normalizeState(parsed) {
   state = Object.assign(state, parsed);
   state.settings = Object.assign({
@@ -696,6 +766,9 @@ function normalizeState(parsed) {
   }, parsed.settings || {});
   if (!Array.isArray(state.krHistory)) state.krHistory = [];
   if (!state.tagColors) state.tagColors = {};
+  if (!state._tagColorMeta) state._tagColorMeta = {};
+  if (!state._incomeTypesMeta) state._incomeTypesMeta = {};
+  if (!state._expenseCategoriesMeta) state._expenseCategoriesMeta = {};
   if (!Array.isArray(state.projects)) state.projects = [];
   state.projects.forEach(p => { if (!p.id) p.id = uid(); });
   if (!Array.isArray(state.activityLog)) state.activityLog = [];
@@ -796,11 +869,19 @@ function save() {
   reviewWeekCache.clear(); // review per-week data derives from state — drop it on any mutation
   _stateRev++;
   _dashMemo = null; // invalidate dashboard memo
+  _timeTrackMemo = null;
+  _teachingMemo = null;
+  _deadlinesMemo = null;
   _searchIndex = null; // invalidate search index
   saveDirty = true;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(flushSave, 150);
 }
+// Midnight rollover: deadlines memo key includes todayISO(); invalidate at 00:00
+setInterval(() => {
+  const now = new Date();
+  if (now.getHours() === 0 && now.getMinutes() === 0) { _deadlinesMemo = null; _dashMemo = null; _timeTrackMemo = null; _teachingMemo = null; }
+}, 60 * 1000);
 function flushSave() {
   clearTimeout(saveTimer); saveTimer = 0;
   if (!saveDirty) return;
@@ -817,6 +898,11 @@ function flushSave() {
   stateDbPut(toStore).catch(() => {});
   maybeAutoSync();
   checkOverdueNotifications();
+  // Encrypted auto-backup (opt-in, 3 rotating IDB slots) — reuse AES-GCM vault
+  if (state.settings && state.settings.autoBackup) {
+    const pwd = state.settings.autoBackupPassword || state.settings.geminiApiKey || '';
+    if (pwd) autoVaultBackup(json, pwd).catch(() => {});
+  }
 }
 window.addEventListener('pagehide', flushSave);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushSave(); });
@@ -1233,11 +1319,74 @@ let _lastAchEval = 0;
 const PERF_MAX = 200; // keep last N render entries
 const PERF_SLOW_MS = 100; // renders above this get flagged
 const perfLog = []; // { view, ms, ts, slow }
+let _memoHits = { deadlines: 0, timeTrack: 0, teaching: 0, search: 0 };
 function perfRecord(view, ms) {
   const entry = { view, ms: Math.round(ms * 10) / 10, ts: Date.now(), slow: ms > PERF_SLOW_MS };
   perfLog.push(entry);
   if (perfLog.length > PERF_MAX) perfLog.shift();
+  if (_debugVisible) updateDebugOverlay();
 }
+/* ---- Debug overlay (fast diagnostics) ---- */
+let _debugVisible = (typeof localStorage !== 'undefined' && localStorage.getItem('lumen.debug') === '1') || (typeof location !== 'undefined' && location.search.includes('debug'));
+function toggleDebugOverlay() {
+  _debugVisible = !_debugVisible;
+  try { localStorage.setItem('lumen.debug', _debugVisible ? '1' : '0'); } catch (_) {}
+  if (_debugVisible) ensureDebugOverlay(); else { const el = document.getElementById('debug-overlay'); if (el) el.remove(); }
+}
+function ensureDebugOverlay() {
+  if (document.getElementById('debug-overlay')) { updateDebugOverlay(); return; }
+  const el = document.createElement('div');
+  el.id = 'debug-overlay';
+  el.innerHTML = `<div class="debug-head"><b>⚡ Lumen Debug</b><span id="debug-boot"></span><button id="debug-close" class="btn btn-xs btn-ghost">✕</button></div><div id="debug-body" class="debug-body">loading…</div><div class="debug-foot"><button id="debug-clear-perf" class="btn btn-xs btn-ghost">Clear perf</button><button id="debug-dump" class="btn btn-xs btn-accent">Dump state</button><button id="debug-slow" class="btn btn-xs btn-ghost">Force slow</button></div>`;
+  document.body.appendChild(el);
+  el.querySelector('#debug-close').addEventListener('click', toggleDebugOverlay);
+  el.querySelector('#debug-clear-perf').addEventListener('click', () => { perfLog.length = 0; updateDebugOverlay(); toast('Perf cleared'); });
+  el.querySelector('#debug-dump').addEventListener('click', () => {
+    const dump = { _stateRev, tasks: state.tasks.length, goals: state.goals.length, habits: state.habits.length, notes: state.notes.length, stateBytes: JSON.stringify(state).length, perfLog: perfLog.slice(-10), syncQueue: (syncMeta.syncQueue||[]).length, peerStatus, SW: (typeof navigator !== 'undefined' && navigator.serviceWorker) ? 'registered' : 'n/a' };
+    console.table(dump); console.log('full state', state); toast('Dump → console');
+  });
+  el.querySelector('#debug-slow').addEventListener('click', () => { const t0 = performance.now(); while (performance.now() - t0 < 250) {} toast('Forced 250ms block — check overlay'); });
+  // draggable
+  let sx=0, sy=0, ox=0, oy=0, dragging=false;
+  const head = el.querySelector('.debug-head');
+  head.style.cursor = 'move';
+  head.addEventListener('pointerdown', e => { dragging=true; sx=e.clientX; sy=e.clientY; const r=el.getBoundingClientRect(); ox=r.left; oy=r.top; el.setPointerCapture(e.pointerId); });
+  head.addEventListener('pointermove', e => { if (!dragging) return; el.style.left = (ox + e.clientX - sx) + 'px'; el.style.top = (oy + e.clientY - sy) + 'px'; el.style.right='auto'; el.style.bottom='auto'; });
+  head.addEventListener('pointerup', () => dragging=false);
+  updateDebugOverlay();
+}
+function updateDebugOverlay() {
+  const body = document.getElementById('debug-body');
+  const boot = document.getElementById('debug-boot');
+  if (!body) return;
+  const bootMs = Math.round(((performance.now() - _bootStart) || 0));
+  const stateBytes = (() => { try { return JSON.stringify(state).length; } catch (_) { return 0; } })();
+  const lsBytes = (() => { try { return (localStorage.getItem(KEY)||'').length; } catch (_) { return 0; } })();
+  const last = perfLog[perfLog.length-1];
+  const slow = perfLog.filter(e=>e.slow).length;
+  const hitTotal = Object.values(_memoHits).reduce((a,b)=>a+b,0);
+  if (boot) boot.textContent = `${bootMs}ms boot`;
+  body.innerHTML = `
+    <div class="debug-row"><span>View</span><b>${currentView()} ${last ? `· ${last.ms}ms ${last.slow?'🐢':''}` : ''}</b></div>
+    <div class="debug-row"><span>_stateRev</span><b>${_stateRev}</b></div>
+    <div class="debug-row"><span>State</span><b>${(stateBytes/1024).toFixed(1)}KB · LS ${(lsBytes/1024).toFixed(1)}KB · ${state.tasks.length}t/${state.goals.length}g/${state.habits.length}h/${state.notes.length}n</b></div>
+    <div class="debug-row"><span>Memo hits</span><b>${hitTotal} (dl:${_memoHits.deadlines} tt:${_memoHits.timeTrack} teach:${_memoHits.teaching} srch:${_memoHits.search})</b></div>
+    <div class="debug-row"><span>Perf</span><b>${perfLog.length} logs · ${slow} slow >${PERF_SLOW_MS}ms</b></div>
+    <div class="debug-row"><span>Sync</span><b>${peerStatus} · Q ${(syncMeta.syncQueue||[]).length} · rev ${syncMeta.rev||0}</b></div>
+    <div class="debug-row"><span>SW</span><b>${navigator.serviceWorker ? (navigator.serviceWorker.controller ? 'controlled' : 'registered') : 'n/a'} · v99</b></div>
+    <div class="debug-row"><span>Flags</span><b>offline:${!navigator.onLine} · focus:${pomo.running||taskPomo.running}</b></div>
+  `;
+}
+if (_debugVisible) window.addEventListener('DOMContentLoaded', ensureDebugOverlay);
+window.__LUMEN_DEBUG = {
+  get state() { return state; },
+  get syncMeta() { return syncMeta; },
+  get _stateRev() { return _stateRev; },
+  perfLog, _memoHits,
+  get bootMs() { return Math.round((performance.now() - _bootStart) || 0); },
+  toggleDebugOverlay, ensureDebugOverlay, updateDebugOverlay,
+  autoVaultList, getSearchTasksHay
+};
 function perfStats() {
   const byView = {};
   perfLog.forEach(e => {
@@ -1283,7 +1432,13 @@ function renderView() {
   const _t0 = performance.now();
   const RENDERERS = { brief: renderBrief, dashboard: renderDashboard, students: renderStudents, review: renderReview, tasks: renderTasks, projects: renderProjects, tags: renderTags, schedule: renderSchedule, goals: renderGoals, habits: renderHabits, achievements: renderAchievements, notes: renderNotes, voice: renderVoice, activity: renderActivity, settings: renderSettings, analytics: renderAnalytics, finance: renderFinance, perf: renderPerf };
   (RENDERERS[view] || renderDashboard)();
-  perfRecord(view, performance.now() - _t0);
+  const ms = performance.now() - _t0;
+  perfRecord(view, ms);
+  if (ms > PERF_SLOW_MS) {
+    // perf budget exceeded — warn in debug or console, never block UI
+    console.warn(`[Lumen perf] ${view} ${ms.toFixed(1)}ms > ${PERF_SLOW_MS}ms`);
+    if (_debugVisible) toast(`🐢 ${view} ${ms.toFixed(0)}ms (slow)`, 'error');
+  }
   root.scrollTop = 0;
 }
 
@@ -1380,6 +1535,15 @@ const ACCENT_COLORS = [
   { id: 'orange', label: 'Orange', hex: '#f97316' }
 ];
 
+let _themesLoaded = false;
+function ensureThemesCSS() {
+  if (_themesLoaded || document.querySelector('link[href="themes.css"]')) { _themesLoaded = true; return; }
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = 'themes.css?v=99';
+  link.onload = () => { _themesLoaded = true; };
+  document.head.appendChild(link);
+}
 function applyTheme() {
   if (!state.settings) state.settings = {};
   let t = state.settings.theme || 'dracula';
@@ -1387,6 +1551,12 @@ function applyTheme() {
   if (!valid.has(t)) {
     t = (t === 'light' || t === 'sepia') ? 'sepia' : (t === 'coral-dawn' ? 'coral-dawn' : 'dracula');
     state.settings.theme = t;
+  }
+  // lazy-load extra themes after first paint (keeps critical CSS ~22KB lighter)
+  if (t !== 'dracula' && t !== 'light' && t !== 'sepia') ensureThemesCSS();
+  else if (t === 'dracula' || t === 'sepia') {
+    // dracula/sepia critical, but still preload themes for next switch idle
+    _whenIdle(ensureThemesCSS);
   }
   document.documentElement.dataset.theme = t;
   document.documentElement.dataset.accent = state.settings.accent || 'violet';
@@ -1422,6 +1592,80 @@ function goalsAtRisk() {
     if (why) out.push({ g, why, cls });
   });
   return out;
+}
+const BRIEF_COMMIT_KEY = 'lumen.brief.commitDate';
+function briefCommitDate() { try { return localStorage.getItem(BRIEF_COMMIT_KEY) || ''; } catch (_) { return ''; } }
+function isBriefCommittedToday() { return briefCommitDate() === todayISO(); }
+function getOverdueTasks() { const today = todayISO(); return state.tasks.filter(t => t.status !== 'done' && t.due && t.due < today); }
+function getBriefCandidates() {
+  const today = todayISO();
+  const prScore = { high: 3, med: 2, low: 1 };
+  const pool = state.tasks.filter(t => t.status !== 'done' && t.status !== 'today' && t.due !== today);
+  // exclude already overdue (they go in overdue bucket)
+  const nonOverdue = pool.filter(t => !t.due || t.due >= today);
+  return nonOverdue.sort((a, b) => {
+    const pa = prScore[a.priority] || 2, pb = prScore[b.priority] || 2;
+    if (pb !== pa) return pb - pa;
+    // goal-linked tasks first (goal health heuristic)
+    const ga = a.goalId ? 1 : 0, gb = b.goalId ? 1 : 0;
+    if (gb !== ga) return gb - ga;
+    if (a.due && b.due) return a.due.localeCompare(b.due);
+    if (a.due && !b.due) return -1;
+    if (!a.due && b.due) return 1;
+    return (b.updatedAt || 0) - (a.updatedAt || 0);
+  }).slice(0, 5);
+}
+function getHabitsToProtect() {
+  const today = todayISO();
+  return [...state.habits].filter(h => !h.dates[today]).sort((a, b) => habitStreak(b) - habitStreak(a)).slice(0, 4);
+}
+function commitBriefDay(selectedIds) {
+  const ids = new Set(selectedIds);
+  let moved = 0;
+  state.tasks.forEach(t => { if (ids.has(t.id) && t.status !== 'done' && t.status !== 'today') { t.status = 'today'; t.updatedAt = Date.now(); moved++; } });
+  if (moved) { save(); }
+  try { localStorage.setItem(BRIEF_COMMIT_KEY, todayISO()); } catch (_) {}
+  // seed pomodoro queue: if focus timer idle, set first committed task as implicit focus hint
+  return moved;
+}
+function linkGraphForTask(t) {
+  if (!t || !t.goalId) return '';
+  const g = state.goals.find(x => x.id === t.goalId);
+  if (!g) return '';
+  let kr = null;
+  if (t.krId) kr = (g.keyResults || []).find(k => k.id === t.krId);
+  if (!kr && t.advancedKrId) kr = (g.keyResults || []).find(k => k.id === t.advancedKrId);
+  if (!kr) kr = (g.keyResults || []).find(k => k.current < k.target);
+  if (kr) return `<span class="link-chip" title="Links to key result ${esc(kr.title)}">→ ${esc(g.title)} · ${esc(kr.title)} ${kr.current}/${kr.target}</span>`;
+  return `<span class="link-chip" title="Linked goal">→ ${esc(g.title)}</span>`;
+}
+function linkGraphForHabit(h) { return ''; }
+function renderBacklinks(text) {
+  if (!text) return '';
+  return esc(text).replace(/\[\[([^\]]+)\]\]/g, (_, inner) => {
+    const q = inner.trim().toLowerCase();
+    let target = null, type = '';
+    const g = state.goals.find(x => x.title.toLowerCase() === q || x.id.toLowerCase() === q);
+    if (g) { target = g; type = 'goal'; }
+    else {
+      const h = state.habits.find(x => x.name.toLowerCase() === q);
+      if (h) { target = h; type = 'habit'; }
+      else {
+        const t = state.tasks.find(x => x.title.toLowerCase() === q);
+        if (t) { target = t; type = 'task'; }
+        else {
+          const n = state.notes.find(x => (x.title || '').toLowerCase() === q);
+          if (n) { target = n; type = 'note'; }
+        }
+      }
+    }
+    if (target) {
+      const label = esc(inner);
+      const title = type === 'goal' ? target.title : type === 'habit' ? target.name : target.title;
+      return `<span class="backlink-pill" data-backlink="${type}:${target.id}" title="${esc(type)}: ${esc(title)}">[[${label}]]</span>`;
+    }
+    return `[[${esc(inner)}]]`;
+  });
 }
 function stripMarkdown(s) {
   return String(s || '').replace(/[#>*_`\[\]()!-]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -1657,6 +1901,33 @@ function renderBrief() {
     }
   }
 
+  // ---- Daily Planning Ritual (Brief commit) ----
+  const overdueTasks = getOverdueTasks();
+  const candidates = getBriefCandidates();
+  const protectHabits = getHabitsToProtect();
+  const committed = isBriefCommittedToday();
+  const ritualCommitBtn = committed
+    ? `<button class="btn btn-ghost" disabled>✅ Committed for today</button>`
+    : `<button class="btn btn-accent" id="brief-commit-btn">✓ Commit Day — ${overdueTasks.length + candidates.length} tasks → Today</button>`;
+  const ritualOverdueHTML = overdueTasks.length
+    ? overdueTasks.slice(0, 5).map(t => `<label class="brief-commit-row overdue"><input type="checkbox" class="brief-commit-check" value="${t.id}" checked> <span class="t-title">${esc(t.title)}</span><span class="due-chip overdue">${fmtShort(t.due)}</span>${linkGraphForTask(t)}</label>`).join('')
+    : '<div class="muted" style="font-size:12px;padding:6px 0">No overdue — nice.</div>';
+  const ritualCandidatesHTML = candidates.length
+    ? candidates.map(t => `<label class="brief-commit-row"><input type="checkbox" class="brief-commit-check" value="${t.id}" checked> <span class="t-title">${esc(t.title)}</span>${t.due ? `<span class="due-chip">${fmtShort(t.due)}</span>` : ''}${t.priority === 'high' ? '<span class="badge priority-high">high</span>' : ''}${linkGraphForTask(t)}</label>`).join('')
+    : '<div class="muted" style="font-size:12px;padding:6px 0">No candidates — add tasks to backlog.</div>';
+  const ritualHabitsHTML = protectHabits.length
+    ? protectHabits.map(h => `<div class="brief-commit-habit" data-habit="${h.id}"><span>${h.emoji}</span> ${esc(h.name)} <span class="muted">· 🔥 ${habitStreak(h)}</span></div>`).join('')
+    : '<div class="muted" style="font-size:12px">All habits protected today.</div>';
+  const ritualHTML = `<div class="card brief-commit ${committed ? 'committed' : ''}" data-dw="brief-commit">
+    <h3 class="card-title"><span>🎯 Commit Your Day</span><span class="muted" style="font-size:11px;font-weight:400">${committed ? 'Soft-nudge — you can still add tasks manually' : 'Soft-nudge — pick what to ship today'}</span></h3>
+    <div class="brief-commit-grid">
+      <div><div class="brief-commit-head">⛔ Overdue (${overdueTasks.length})</div><div class="brief-commit-list">${ritualOverdueHTML}</div></div>
+      <div><div class="brief-commit-head">⭐ Today's candidates (top 5)</div><div class="brief-commit-list">${ritualCandidatesHTML}</div></div>
+      <div><div class="brief-commit-head">🔥 Habits to protect</div><div class="brief-commit-list">${ritualHabitsHTML}</div></div>
+    </div>
+    <div class="brief-commit-foot">${ritualCommitBtn}<span class="muted" style="font-size:12px">Commits move tasks to <b>Today</b> and seeds Focus. Drag-to-order coming soon.</span></div>
+  </div>`;
+
   viewRoot().innerHTML = `
     <div class="card brief-banner">
       <div class="brief-banner-glow"></div>
@@ -1686,6 +1957,7 @@ function renderBrief() {
         <button class="brief-start-btn" data-start="note">📝 First note</button>
       </div>
     </div>` : ''}
+    ${ritualHTML}
     <div class="dash-grid">
       <div class="dash-stack">
         <div class="card">
@@ -1764,6 +2036,16 @@ function renderBrief() {
     else if (kind === 'habit') { location.hash = '#habits'; openHabitModal(); }
     else if (kind === 'note') { location.hash = '#notes'; newNote(); }
   }));
+  // Daily planning ritual — Commit Day
+  const commitBtn = $('#brief-commit-btn');
+  if (commitBtn) commitBtn.addEventListener('click', () => {
+    const checks = [...$$('.brief-commit-check:checked')].map(c => c.value);
+    if (!checks.length) { toast('Select at least one task to commit', 'error'); return; }
+    captureUndo('Commit day');
+    const moved = commitBriefDay(checks);
+    save(); renderBrief();
+    toast(`✅ Committed ${moved} task${moved === 1 ? '' : 's'} to Today — focus queue seeded`);
+  });
   // quick complete a task
   $$('[data-complete]').forEach(b => b.addEventListener('click', e => {
     e.stopPropagation();
@@ -2110,10 +2392,25 @@ function projectsDashboardHTML() {
 }
 
 function teachingDashboardHTML() {
+  if (_teachingMemo && _teachingMemo.rev === _stateRev) { _memoHits.teaching++; return _teachingMemo.html; }
   const students = getStudentsList();
   const activeHw = (state.assignments || []).filter(a => a.status === 'assigned' || a.status === 'submitted');
   const plannedLessons = (state.lessonPlans || []).filter(p => p.status === 'planned');
-  return `<div class="card" data-dw="teaching">
+  const weaveRows = students.slice(0, 3).map(s => {
+    const linkedGoals = state.goals.filter(g => {
+      const q = (s.name + ' ' + (s.level || '') + ' ' + (s.goals || '')).toLowerCase();
+      const gt = g.title.toLowerCase();
+      return q.split(/\s+/).some(w => w.length > 3 && gt.includes(w));
+    }).slice(0, 2);
+    const incFor = (state.income || []).filter(e => e.student === s.name || e.student === s.id);
+    const totalPaid = incFor.reduce((sum, e) => sum + (e.amount || 0), 0);
+    const goalChips = linkedGoals.map(g => `<span class="badge" style="background:${g.color}22;color:${g.color};border:1px solid ${g.color}44;font-size:10px">🎯 ${esc(g.title)} ${goalProgress(g)}%</span>`).join(' ');
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;background:var(--surface2);border-radius:8px;margin-top:6px">
+      <span style="font-size:12px"><b>🎓 ${esc(s.name)}</b> <span class="muted">${esc(s.level || '')}</span></span>
+      <span style="display:flex;gap:4px;align-items:center">${goalChips}${incFor.length ? `<span class="muted" style="font-size:11px">💰 ${incFor.length} · $${totalPaid}</span>` : ''}</span>
+    </div>`;
+  }).join('');
+  const html = `<div class="card" data-dw="teaching">
     <h3 class="card-title"><span>🎓 Teaching Command Hub</span><a class="link-btn" href="#students">All students →</a></h3>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(70px,1fr));gap:8px;margin-bottom:12px">
       <div style="background:var(--surface2);padding:8px 6px;border-radius:8px;text-align:center">
@@ -2133,11 +2430,14 @@ function teachingDashboardHTML() {
         <div class="muted" style="font-size:10.5px">Plans</div>
       </div>
     </div>
+    ${weaveRows ? `<div style="margin-bottom:8px">${weaveRows}</div>` : ''}
     <div style="display:flex;gap:6px">
       <button class="btn btn-sm btn-accent" style="flex:1" id="dash-mark-att">📅 Attendance</button>
       <button class="btn btn-sm btn-ghost" style="flex:1" id="dash-assign-hw">📋 Assign HW</button>
     </div>
   </div>`;
+  _teachingMemo = { rev: _stateRev, html };
+  return html;
 }
 
 function langColor(lang) {
@@ -2297,9 +2597,12 @@ function openProjectModal(project, projId) {
 }
 
 let _dashMemo = null; // { rev, today, html } — dashboard render cache
+let _timeTrackMemo = null; // { rev, html }
+let _teachingMemo = null; // { rev, html }
+let _deadlinesMemo = null;
 let _searchIndex = null; // { rev, tasksHay } — lower-cased haystacks for global search
 function getSearchTasksHay() {
-  if (_searchIndex && _searchIndex.rev === _stateRev) return _searchIndex.tasksHay;
+  if (_searchIndex && _searchIndex.rev === _stateRev) { _memoHits.search++; return _searchIndex.tasksHay; }
   const hay = state.tasks.map(t => ({ t, hay: (t.title + ' ' + (t.tags || []).join(' ') + ' ' + (t.desc || '')).toLowerCase() }));
   _searchIndex = { rev: _stateRev, tasksHay: hay };
   return hay;
@@ -3200,10 +3503,9 @@ function deadlineInfo() {
 }
 const snoozeBtnHTML = it => `<button class="btn-icon dl-snooze" data-goal-id="${it.goalId}" data-kr-id="${it.krId || ''}" title="Snooze this alert">${ic('bell', 15)}</button>`;
 const bumpBtnHTML = it => `<button class="btn-icon dl-bump" data-goal-id="${it.goalId}" data-kr-id="${it.krId || ''}" title="Bump deadline +7 days">${ic('calendar-plus', 15)}</button>`;
-let _deadlinesMemo = null;
 function deadlinesCardHTML() {
   const today = todayISO();
-  if (_deadlinesMemo && _deadlinesMemo.rev === _stateRev && _deadlinesMemo.today === today) return _deadlinesMemo.html;
+  if (_deadlinesMemo && _deadlinesMemo.rev === _stateRev && _deadlinesMemo.today === today) { _memoHits.deadlines++; return _deadlinesMemo.html; }
   const { overdue, upcoming, snoozed } = deadlineInfo();
   const row = (it, canSnooze) => `<div class="dash-task dl-row" data-goal-id="${it.goalId}" data-kr-id="${it.krId || ''}" title="View goals">
     <span class="dl-icon">${it.due < today ? '⛔' : '⏳'}</span>
@@ -3268,10 +3570,13 @@ const snoozePanelHTML = () => `<div class="dl-snooze-panel">
 function dashTaskHTML(t) {
   const goal = state.goals.find(g => g.id === t.goalId);
   const dueCls = t.due && t.due < todayISO() && t.status !== 'done' ? 'overdue' : '';
+  const lg = linkGraphForTask(t);
+  const linkedChip = t.goalId ? `<span class="link-chip small" title="Linked">${lg || '· linked'}</span>` : '';
   return `<div class="dash-task" data-id="${t.id}">
     <button class="check-circle" data-complete="${t.id}">${ic('check', 12)}</button>
     <span class="t-title">${esc(t.title)}</span>
     ${goal ? `<span class="tag" style="color:${goal.color}">${esc(goal.title)}</span>` : ''}
+    ${linkedChip}
     ${t.due ? `<span class="due-chip ${dueCls}">${fmtShort(t.due)}</span>` : ''}
   </div>`;
 }
@@ -3458,6 +3763,7 @@ function openTimeBreakdownModal(taskId) {
 
 /* ============ Time Tracking Dashboard ============ */
 function timeTrackDashboardHTML() {
+  if (_timeTrackMemo && _timeTrackMemo.rev === _stateRev) { _memoHits.timeTrack++; return _timeTrackMemo.html; }
   const tasks = state.tasks;
   // Aggregate by category
   const catTime = {};
@@ -3524,12 +3830,14 @@ function timeTrackDashboardHTML() {
   const weeklyTrend = thisWeek > lastWeek ? '📈' : thisWeek < lastWeek ? '📉' : '➡️';
   const weeklyTxt = lastWeek > 0 ? `${Math.round(((thisWeek - lastWeek) / lastWeek) * 100)}% vs last week` : 'First week of data';
   if (!totalTime && catEntries.length === 0) {
-    return `<div class="card" data-dw="timetrack">
+    const html = `<div class="card" data-dw="timetrack">
       <h3 class="card-title"><span>⏱ Time tracking</span></h3>
       <div class="empty-state"><div class="es-icon">⏱</div>Move tasks to "In Progress" to start tracking time.</div>
     </div>`;
+    _timeTrackMemo = { rev: _stateRev, html };
+    return html;
   }
-  return `<div class="card tt-card" data-dw="timetrack">
+  const html = `<div class="card tt-card" data-dw="timetrack">
     <h3 class="card-title"><span>⏱ Time tracking</span><span class="tt-total">${fmtProgressTimeLong(totalTime)} total</span></h3>
     <div class="tt-summary">
       <div class="tt-stat">
@@ -3548,6 +3856,8 @@ function timeTrackDashboardHTML() {
     ${catBars ? `<div class="tt-section"><div class="tt-section-title">By category</div>${catBars}</div>` : ''}
     ${topRows ? `<div class="tt-section"><div class="tt-section-title">Top tasks</div>${topRows}</div>` : ''}
   </div>`;
+  _timeTrackMemo = { rev: _stateRev, html };
+  return html;
 }
 
 /* ---------- Focus / Pomodoro history ---------- */
@@ -4171,7 +4481,7 @@ function taskCardHTML(t) {
       ${t.student ? `<span class="badge task-student-chip" data-open-student="${esc(t.student)}" style="cursor:pointer;background:rgba(81,141,191,.15);color:#518DBF;border:1px solid rgba(81,141,191,.3);padding:1px 6px;border-radius:10px;font-size:11px" title="🎓 View ${esc(t.student)} dossier">🎓 ${esc(t.student)}</span>` : ''}
       ${catBadge}
       ${goal ? `<span class="goal-chip" style="background:${goal.color}">${esc(goal.title)}</span>` : ''}
-      ${t.krId && goal ? `<span class="tag kr-tag">→ ${esc((goal.keyResults.find(k => k.id === t.krId) || {}).title || 'KR')}</span>` : ''}
+      ${linkGraphForTask(t)}
       ${t.due ? `<span class="due-chip ${overdue ? 'overdue' : ''}">${overdue ? '⚠ ' : ''}${fmtShort(t.due)}</span>` : ''}
       ${recBadge}
       ${subProg}
@@ -4265,6 +4575,13 @@ function renderMatrix() {
   $('#task-clear-filter').addEventListener('click', () => { taskFilter = { q: '', goal: '', tag: '', category: '' }; renderMatrix(); });
   $('#task-new').addEventListener('click', () => openTaskModal());
   $$('[data-more]').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); matrixShowMore(b.dataset.more); }));
+  // IntersectionObserver virtualization: auto-expand when 'Show more' scrolls into view (keeps drag handlers intact)
+  if ('IntersectionObserver' in window) {
+    const io = new IntersectionObserver(entries => {
+      entries.forEach(ent => { if (ent.isIntersecting) { const id = ent.target.dataset.more; if (id) { io.unobserve(ent.target); matrixShowMore(id); } } });
+    }, { root: null, rootMargin: '200px' });
+    $$('[data-more]').forEach(b => io.observe(b));
+  }
   $$('.matrix-task').forEach(el => el.addEventListener('click', e => {
     if (e.target.closest('[data-complete]')) return;
     const t = state.tasks.find(x => x.id === el.dataset.id);
@@ -4434,6 +4751,7 @@ function openTaskModal(task, presetStatus) {
             <button class="btn btn-sm btn-ai" id="f-ai-subtasks">✨ AI Breakdown</button>
           </div>
         </div>
+        ${t.goalId ? `<div class="modal-link-graph">${linkGraphForTask(t)} <span class="muted" style="font-size:11px">· completes → KR auto-advances</span></div>` : ''}
         ${task ? `<div class="modal-pomo-widget" id="f-pomo-widget">
           <label class="field-label">🍅 Focus timer</label>
           <div class="pomo-widget-body">
@@ -4462,6 +4780,7 @@ function openTaskModal(task, presetStatus) {
       </div>
       <div class="modal-foot">
         ${task ? `<button class="btn btn-danger" id="f-delete">Delete</button>` : ''}
+        ${task ? `<button class="btn btn-ghost" id="f-dup" title="Duplicate task">⧉ Duplicate</button><button class="btn btn-ghost" id="f-share" title="Share task">↗ Share</button>` : ''}
         <div style="flex:1"></div>
         <button class="btn btn-ghost" id="f-template" title="Save as template">📋 Template</button>
         <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
@@ -4472,6 +4791,8 @@ function openTaskModal(task, presetStatus) {
     const krSel = $('#f-kr');
     if (krSel) krSel.innerHTML = krOptionsHTML(e.target.value, '');
   });
+  $('#f-dup')?.addEventListener('click', () => { if (task) { duplicateTaskById(task.id); closeModal(); } });
+  $('#f-share')?.addEventListener('click', () => { if (task) shareText(task.title, (task.desc || '') + (task.due ? '\nDue: ' + task.due : '')); });
   // Subtask management
   function bindSubtaskRow(row) {
     const input = row.querySelector('.st-input');
@@ -4648,6 +4969,7 @@ function openTaskModal(task, presetStatus) {
         else { state.settings.pomodoroDate = todayISO(); state.settings.pomodoroCount = 1; }
         save();
         toast('🍅 Focus session complete!', 'success');
+        offerFocusHabitProtect();
         if (currentView() === 'tasks') renderTasks();
         else renderView();
       }
@@ -6032,6 +6354,15 @@ function bindNoteEditor(note) {
         }
       });
     });
+    previewEl.querySelectorAll('.backlink-pill').forEach(pill => {
+      pill.addEventListener('click', () => {
+        const [type, id] = (pill.dataset.backlink || '').split(':');
+        if (type === 'goal') { location.hash = '#goals'; const g = state.goals.find(x => x.id === id); if (g) setTimeout(() => openGoalModal(g), 150); }
+        else if (type === 'habit') { location.hash = '#habits'; }
+        else if (type === 'task') { const t = state.tasks.find(x => x.id === id); if (t) openTaskModal(t); }
+        else if (type === 'note') { selectedNoteId = id; renderNotes(); }
+      });
+    });
   }
 
   // Extract checklist items to Kanban tasks
@@ -6104,7 +6435,10 @@ function bindNoteEditor(note) {
   }
 }
 function newNote() {
-  const n = { id: uid(), title: '', content: '', tags: [], pinned: false, createdAt: Date.now(), updatedAt: Date.now(), audioId: null };
+  const todayStr = todayISO();
+  const todayAlready = state.notes.some(n => isoDate(new Date(n.createdAt)) === todayStr);
+  const defaultContent = todayAlready ? '' : `# ${new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })} — Plan / Notes / Wins\n\n## Plan\n- \n\n## Notes\n- \n\n## Wins\n- `;
+  const n = { id: uid(), title: todayAlready ? '' : new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }), content: defaultContent, tags: [], pinned: false, createdAt: Date.now(), updatedAt: Date.now(), audioId: null };
   state.notes.unshift(n);
   selectedNoteId = n.id;
   notePreview = false;
@@ -6116,11 +6450,35 @@ function newNote() {
 function renderMd(md) {
   const lines = String(md || '').replace(/\r\n/g, '\n').split('\n');
   let html = '', inCode = false, codeLines = [], inList = false;
-  const inline = s => esc(s)
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
-    .replace(/\*([^*]+)\*/g, '<i>$1</i>')
-    .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  const inline = s => {
+    const escaped = esc(s);
+    // backlinks [[Goal Title]] → pill; resolve against goals/habits/tasks/notes titles
+    const withBacklinks = escaped.replace(/\[\[([^\]]+)\]\]/g, (_, inner) => {
+      const q = inner.trim().toLowerCase();
+      let target = null, type = '';
+      const g = state.goals.find(x => x.title.toLowerCase() === q || x.id.toLowerCase() === q);
+      if (g) { target = g; type = 'goal'; }
+      else {
+        const h = state.habits.find(x => x.name.toLowerCase() === q);
+        if (h) { target = h; type = 'habit'; }
+        else {
+          const t = state.tasks.find(x => x.title.toLowerCase() === q);
+          if (t) { target = t; type = 'task'; }
+          else {
+            const n = state.notes.find(x => (x.title || '').toLowerCase() === q);
+            if (n) { target = n; type = 'note'; }
+          }
+        }
+      }
+      if (target) return `<span class="backlink-pill" data-backlink="${type}:${target.id}" title="${type}: ${esc(type === 'goal' ? target.title : type === 'habit' ? target.name : target.title)}">[[${esc(inner)}]]</span>`;
+      return `[[${esc(inner)}]]`;
+    });
+    return withBacklinks
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+      .replace(/\*([^*]+)\*/g, '<i>$1</i>')
+      .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  };
   lines.forEach((raw, lineIdx) => {
     const t = raw.trim();
     if (t.startsWith('```')) {
@@ -6479,9 +6837,11 @@ function bindPomodoro() {
           clearInterval(pomo.timer); pomo.running = false;
           if (state.settings.pomodoroDate === todayISO()) state.settings.pomodoroCount++;
           else { state.settings.pomodoroDate = todayISO(); state.settings.pomodoroCount = 1; }
+          recordPomoSession('_global', pomo.dur, true);
           save();
           playChime('pomo-done');
           toast('🍅 Session complete — take a break!', 'success');
+          offerFocusHabitProtect();
         }
         updatePomoUI();
       }, 1000);
@@ -6497,6 +6857,37 @@ function bindPomodoro() {
     state.settings.pomodoroMin = parseInt(b.dataset.pomoMin, 10);
     save(); updatePomoUI();
   }));
+}
+function offerFocusHabitProtect() {
+  const today = todayISO();
+  const due = state.habits.filter(h => !h.dates[today] && !(h.freezes && h.freezes[today]));
+  if (!due.length) return;
+  const top = [...due].sort((a, b) => habitStreak(b) - habitStreak(a))[0];
+  const root = $('#toast-root');
+  if (!root) return;
+  while (root.children.length >= 5) root.firstChild.remove();
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.style.display = 'flex'; el.style.alignItems = 'center'; el.style.gap = '8px';
+  el.innerHTML = `<span>🍅 Streak protected via focus — freeze ${esc(top.name)}?</span><button class="btn btn-sm btn-accent" style="margin-left:8px">Freeze</button><button class="btn btn-sm btn-ghost">Undo</button>`;
+  root.appendChild(el);
+  const freezeBtn = el.querySelector('.btn-accent');
+  const undoBtn = el.querySelector('.btn-ghost');
+  let frozen = false;
+  freezeBtn.addEventListener('click', () => {
+    toggleHabitFreeze(top, today);
+    logActivity('habit.freeze', top.emoji + ' ' + top.name + ' via focus', 'habit');
+    save();
+    frozen = true;
+    el.innerHTML = `🛡️ ${esc(top.name)} frozen for today`;
+    setTimeout(() => { el.style.animation = 'toastOut .3s ease-in forwards'; setTimeout(() => el.remove(), 320); }, 1800);
+    updateTaskPomoUI(); updatePomoUI();
+  });
+  undoBtn.addEventListener('click', () => {
+    if (frozen) { toggleHabitFreeze(top, today); save(); }
+    el.remove();
+  });
+  setTimeout(() => { if (el.parentNode) { el.style.animation = 'toastOut .3s ease-in forwards'; setTimeout(() => el.remove(), 320); } }, 5000);
 }
 function updatePomoUI() {
   const el = $('#pomo-toggle');
@@ -6596,6 +6987,7 @@ function startTaskPomo(taskId, minutes) {
       save();
       playChime('pomo-done');
       toast('🍅 Focus session complete — great work!', 'success');
+      offerFocusHabitProtect();
     }
     updateTaskPomoUI();
   }, 1000);
@@ -6904,22 +7296,101 @@ function applyMerge(inc, incomingRev) {
   state.attendance = mergeOne(state.attendance, inc.attendance, 'attendance');
   state.assignments = mergeOne(state.assignments, inc.assignments, 'assignments');
   state.lessonPlans = mergeOne(state.lessonPlans, inc.lessonPlans, 'lessonPlans');
-  // Merge income types (union of both)
-  if (Array.isArray(inc.incomeTypes)) {
-    const set = new Set([...(state.incomeTypes || []), ...inc.incomeTypes]);
-    state.incomeTypes = [...set];
-  }
-  // Merge expense categories (union of both)
-  if (Array.isArray(inc.expenseCategories)) {
-    const set = new Set([...(state.expenseCategories || []), ...inc.expenseCategories]);
-    state.expenseCategories = [...set];
-  }
-  // Merge tagColors (newer timestamp wins per tag)
-  if (inc.tagColors) {
+  // Merge income types (per-field timestamp) — deterministic LWW with deletions
+  if (!state._incomeTypesMeta) state._incomeTypesMeta = {};
+  if (!state._expenseCategoriesMeta) state._expenseCategoriesMeta = {};
+  if (!state._tagColorMeta) state._tagColorMeta = {};
+  if (!syncMeta.tombstones) syncMeta.tombstones = { tasks: [], goals: [], habits: [], notes: [], recordings: [] };
+  if (!syncMeta.tombstones.tagColors) syncMeta.tombstones.tagColors = {};
+  if (!syncMeta.tombstones.incomeTypes) syncMeta.tombstones.incomeTypes = {};
+  if (!syncMeta.tombstones.expenseCategories) syncMeta.tombstones.expenseCategories = {};
+  const incTagMeta = inc._tagColorMeta || {};
+  const incIncomeMeta = inc._incomeTypesMeta || {};
+  const incExpenseMeta = inc._expenseCategoriesMeta || {};
+  // tagColors per-key LWW
+  if (inc.tagColors || Object.keys(incTagMeta).length || inc.deleted) {
     if (!state.tagColors) state.tagColors = {};
-    Object.entries(inc.tagColors).forEach(([k, v]) => {
-      if (!state.tagColors[k] || v) state.tagColors[k] = v;
+    const incomingDeletes = (inc.deleted && inc.deleted.tagColors) || incTagMeta._deleted || {};
+    // handle explicit deletions via tombstones
+    const allKeys = new Set([...Object.keys(state.tagColors), ...Object.keys(inc.tagColors || {}), ...Object.keys(incTagMeta), ...Object.keys(syncMeta.tombstones.tagColors || {})]);
+    // also merge incoming deletes
+    Object.entries(incomingDeletes).forEach(([k, ts]) => {
+      const localTs = state._tagColorMeta[k] || 0;
+      const tombTs = syncMeta.tombstones.tagColors[k] || 0;
+      if (ts > localTs && ts > tombTs) { delete state.tagColors[k]; state._tagColorMeta[k] = ts; syncMeta.tombstones.tagColors[k] = ts; }
     });
+    // merge tombstones from inc.deleted.tagColors if it's object map
+    if (inc.deleted && inc.deleted.tagColors && typeof inc.deleted.tagColors === 'object' && !Array.isArray(inc.deleted.tagColors)) {
+      Object.entries(inc.deleted.tagColors).forEach(([k, ts]) => {
+        const cur = syncMeta.tombstones.tagColors[k] || 0;
+        if (ts > cur) syncMeta.tombstones.tagColors[k] = ts;
+        const localTs = state._tagColorMeta[k] || 0;
+        if (ts > localTs) { delete state.tagColors[k]; state._tagColorMeta[k] = ts; }
+      });
+    }
+    Object.entries(inc.tagColors || {}).forEach(([k, v]) => {
+      const incTs = incTagMeta[k] || incomingRev || 0;
+      const localTs = state._tagColorMeta[k] || 0;
+      const tombTs = syncMeta.tombstones.tagColors[k] || 0;
+      if (incTs > localTs && incTs > tombTs) {
+        if (v) { state.tagColors[k] = v; state._tagColorMeta[k] = incTs; delete syncMeta.tombstones.tagColors[k]; }
+        else { delete state.tagColors[k]; state._tagColorMeta[k] = incTs; syncMeta.tombstones.tagColors[k] = incTs; }
+      }
+    });
+    // deletions represented as null in inc.tagColors with timestamp
+    Object.entries(inc.tagColors || {}).forEach(([k, v]) => {
+      if (v == null) {
+        const incTs = incTagMeta[k] || incomingRev || 0;
+        const localTs = state._tagColorMeta[k] || 0;
+        if (incTs > localTs) { delete state.tagColors[k]; state._tagColorMeta[k] = incTs; syncMeta.tombstones.tagColors[k] = incTs; }
+      }
+    });
+  }
+  // incomeTypes per-item LWW (union + deletions via meta)
+  if (Array.isArray(inc.incomeTypes)) {
+    const curSet = new Set(state.incomeTypes || []);
+    inc.incomeTypes.forEach(item => {
+      const incTs = incIncomeMeta[item] || incomingRev || 0;
+      const localTs = state._incomeTypesMeta[item] || 0;
+      const tombTs = syncMeta.tombstones.incomeTypes[item] || 0;
+      if (incTs > localTs && incTs > tombTs) { curSet.add(item); state._incomeTypesMeta[item] = incTs; delete syncMeta.tombstones.incomeTypes[item]; }
+    });
+    // handle deletions: if inc is missing an item that we have but tombstone newer
+    Object.entries(syncMeta.tombstones.incomeTypes).forEach(([item, ts]) => {
+      const localTs = state._incomeTypesMeta[item] || 0;
+      if (ts > localTs) curSet.delete(item);
+    });
+    // also check for explicit deletes in inc.deleted
+    const incDel = (inc.deleted && inc.deleted.incomeTypes) || {};
+    if (typeof incDel === 'object' && !Array.isArray(incDel)) {
+      Object.entries(incDel).forEach(([item, ts]) => {
+        const cur = syncMeta.tombstones.incomeTypes[item] || 0;
+        if (ts > cur) { syncMeta.tombstones.incomeTypes[item] = ts; curSet.delete(item); state._incomeTypesMeta[item] = ts; }
+      });
+    }
+    state.incomeTypes = [...curSet];
+  }
+  // expenseCategories per-item LWW
+  if (Array.isArray(inc.expenseCategories)) {
+    const curSet = new Set(state.expenseCategories || []);
+    inc.expenseCategories.forEach(item => {
+      const incTs = incExpenseMeta[item] || incomingRev || 0;
+      const localTs = state._expenseCategoriesMeta[item] || 0;
+      const tombTs = syncMeta.tombstones.expenseCategories[item] || 0;
+      if (incTs > localTs && incTs > tombTs) { curSet.add(item); state._expenseCategoriesMeta[item] = incTs; delete syncMeta.tombstones.expenseCategories[item]; }
+    });
+    Object.entries(syncMeta.tombstones.expenseCategories).forEach(([item, ts]) => {
+      const localTs = state._expenseCategoriesMeta[item] || 0;
+      if (ts > localTs) curSet.delete(item);
+    });
+    const incDel2 = (inc.deleted && inc.deleted.expenseCategories) || {};
+    if (typeof incDel2 === 'object' && !Array.isArray(incDel2)) {
+      Object.entries(incDel2).forEach(([item, ts]) => {
+        const cur = syncMeta.tombstones.expenseCategories[item] || 0;
+        if (ts > cur) { syncMeta.tombstones.expenseCategories[item] = ts; curSet.delete(item); state._expenseCategoriesMeta[item] = ts; }
+      });
+    }
+    state.expenseCategories = [...curSet];
   }
   state.achievements = Object.assign({}, state.achievements || {});
   Object.keys(inc.achievements || {}).forEach(k => {
@@ -6947,7 +7418,7 @@ function pushState() {
       name: syncMeta.deviceName,
       data: {
         tasks: state.tasks, goals: state.goals, habits: state.habits, notes: state.notes, recordings: state.recordings,
-        projects: state.projects, krHistory: state.krHistory, tagColors: state.tagColors,
+        projects: state.projects, krHistory: state.krHistory, tagColors: state.tagColors, _tagColorMeta: state._tagColorMeta, _incomeTypesMeta: state._incomeTypesMeta, _expenseCategoriesMeta: state._expenseCategoriesMeta,
         achievements: state.achievements, income: state.income, expenses: state.expenses,
         expectedIncome: state.expectedIncome, expectedExpenses: state.expectedExpenses, incomeTypes: state.incomeTypes, expenseCategories: state.expenseCategories,
         students: state.students, attendance: state.attendance, assignments: state.assignments, lessonPlans: state.lessonPlans,
@@ -6983,6 +7454,7 @@ function enqueueSyncSnapshot() {
       notes: state.notes, recordings: state.recordings,
       achievements: state.achievements, income: state.income, expenses: state.expenses,
       expectedIncome: state.expectedIncome, expectedExpenses: state.expectedExpenses, incomeTypes: state.incomeTypes, expenseCategories: state.expenseCategories,
+      _tagColorMeta: state._tagColorMeta, _incomeTypesMeta: state._incomeTypesMeta, _expenseCategoriesMeta: state._expenseCategoriesMeta,
       students: state.students,
       deleted: syncMeta.tombstones
     }
@@ -7409,6 +7881,17 @@ function renderAnalytics() {
     <td>${s.total}</td>
     <td><div class="analytics-rate-bar"><div class="analytics-rate-fill" style="width:${s.rate30}%;background:${s.rate30 >= 70 ? '#34d399' : s.rate30 >= 40 ? '#ffb020' : '#ff5d6c'}"></div><span>${s.rate30}%</span></div></td>
   </tr>`).join('') || '<tr><td colspan="5" class="muted" style="padding:12px">No habits yet.</td></tr>';
+  // Decay warning: habits with 2 misses in last 7 days
+  const decayHabits = habits.filter(h => {
+    let misses = 0;
+    for (let i = 0; i < 7; i++) {
+      const d = isoDate(shiftDays(-i));
+      if (d > today) continue;
+      if (!h.dates[d] && !(h.freezes && h.freezes[d])) misses++;
+    }
+    return misses >= 2;
+  });
+  const decayBanner = decayHabits.length ? `<div class="card" style="border:1px solid #ffb020;background:rgba(255,176,32,.08)"><h3 class="card-title" style="color:#ffb020">⚠️ Decay warning — ${decayHabits.length} habit${decayHabits.length === 1 ? '' : 's'} slipping</h3><div style="display:flex;gap:6px;flex-wrap:wrap">${decayHabits.map(h => `<span class="badge" style="background:#ffb02022;color:#ffb020;border:1px solid #ffb02044">${h.emoji} ${esc(h.name)} — 2+ misses in 7d</span>`).join('')}</div><div class="muted" style="font-size:12px;margin-top:8px">Focus sessions protect streaks — try a 25m focus to freeze one.</div></div>` : '';
 
   // ===== Activity feed summary =====
   const todayActivity = activity.filter(e => e.at >= Date.now() - 86400000).length;
@@ -7569,6 +8052,7 @@ function renderAnalytics() {
         <div class="vd-sub-wrap"><div class="vd-sub-bar"><div class="vd-sub-fill" style="width:${utilPct}%;background:linear-gradient(90deg,#7c6cf6,#4f8cff)"></div></div><span class="vd-sub-pct">${filledSlots}/${totalSlots} slots (${utilPct}%)</span></div>
       </div>
 
+      ${decayBanner}
       <!-- Per-habit table -->
       ${habits.length ? `<div class="card vd-card-wide">
         <h3 class="card-title">📋 Per-habit breakdown</h3>
@@ -9800,13 +10284,19 @@ function openIncomeTypeModal() {
     if (!v) return;
     if (state.incomeTypes.includes(v)) { toast('Type already exists', 'error'); return; }
     captureUndo('Add income type');
-    state.incomeTypes.push(v);
+    if (!state._incomeTypesMeta) state._incomeTypesMeta = {};
+    state.incomeTypes.push(v); state._incomeTypesMeta[v] = Date.now();
     save(); closeModal(); openIncomeTypeModal();
     toast('Type added');
   });
   $$('.fin-type-del').forEach(b => b.addEventListener('click', () => {
     const idx = parseInt(b.dataset.delType, 10);
+    const removed = state.incomeTypes[idx];
     captureUndo('Remove income type');
+    if (!state._incomeTypesMeta) state._incomeTypesMeta = {};
+    if (!syncMeta.tombstones.incomeTypes) syncMeta.tombstones.incomeTypes = {};
+    const ts = Date.now();
+    if (removed) { state._incomeTypesMeta[removed] = ts; syncMeta.tombstones.incomeTypes[removed] = ts; saveSyncMeta(); }
     state.incomeTypes.splice(idx, 1);
     save(); closeModal(); openIncomeTypeModal();
     toast('Type removed');
@@ -9840,13 +10330,19 @@ function openExpenseCategoryModal() {
     if (!v) return;
     if (state.expenseCategories.includes(v)) { toast('Category already exists', 'error'); return; }
     captureUndo('Add expense category');
-    state.expenseCategories.push(v);
+    if (!state._expenseCategoriesMeta) state._expenseCategoriesMeta = {};
+    state.expenseCategories.push(v); state._expenseCategoriesMeta[v] = Date.now();
     save(); closeModal(); openExpenseCategoryModal();
     toast('Category added');
   });
   $$('.fin-cat-del').forEach(b => b.addEventListener('click', () => {
     const idx = parseInt(b.dataset.delCat, 10);
+    const removed = state.expenseCategories[idx];
     captureUndo('Remove expense category');
+    if (!state._expenseCategoriesMeta) state._expenseCategoriesMeta = {};
+    if (!syncMeta.tombstones.expenseCategories) syncMeta.tombstones.expenseCategories = {};
+    const ts = Date.now();
+    if (removed) { state._expenseCategoriesMeta[removed] = ts; syncMeta.tombstones.expenseCategories[removed] = ts; saveSyncMeta(); }
     state.expenseCategories.splice(idx, 1);
     save(); closeModal(); openExpenseCategoryModal();
     toast('Category removed');
@@ -9862,12 +10358,31 @@ function updateOnlineStatus() {
     badge.className = 'offline-badge hidden';
     document.querySelector('.topbar-right')?.prepend(badge);
   }
+  let syncBadge = $('#sync-queue-badge');
+  if (!syncBadge) {
+    syncBadge = document.createElement('div');
+    syncBadge.id = 'sync-queue-badge';
+    syncBadge.className = 'offline-badge hidden';
+    syncBadge.style.background = 'rgba(96,93,255,.18)';
+    syncBadge.style.color = 'var(--accent)';
+    syncBadge.style.border = '1px solid rgba(96,93,255,.3)';
+    document.querySelector('.topbar-right')?.prepend(syncBadge);
+  }
+  const q = (syncMeta.syncQueue || []).length;
+  if (q) {
+    syncBadge.classList.remove('hidden');
+    syncBadge.textContent = `📤 ${q} queued`;
+    syncBadge.title = `${q} offline change${q===1?'':'s'} queued — will sync when online`;
+  } else {
+    syncBadge.classList.add('hidden');
+  }
   if (navigator.onLine) {
     badge.classList.add('hidden');
   } else {
     badge.classList.remove('hidden');
-    badge.textContent = '📶 Offline';
+    badge.textContent = '📶 Offline' + (q ? ` · ${q} queued` : '');
   }
+  if (_debugVisible) updateDebugOverlay();
 }
 
 let perfActiveTab = 'velocity';
@@ -10677,6 +11192,14 @@ function renderSettings() {
           </div>
         </div>
         <div class="set-row">
+          <span class="stat-inline">Encrypted auto-backup <span class="muted" style="font-size:11px">opt-in, 3 rotating IDB slots</span></span>
+          <div style="display:flex;gap:6px;align-items:center">
+            <label style="display:flex;gap:6px;align-items:center;font-size:13px"><input type="checkbox" id="set-auto-backup" ${state.settings.autoBackup ? 'checked' : ''}> Auto-backup</label>
+            <input type="password" id="set-auto-backup-pwd" placeholder="Vault password" value="${esc(state.settings.autoBackupPassword || '')}" style="width:140px;padding:5px 8px;font-size:12px">
+            <button class="btn btn-sm btn-ghost" id="set-auto-backup-restore" title="Restore from latest auto vault">↩ Restore</button>
+          </div>
+        </div>
+        <div class="set-row">
           <span class="stat-inline">Import tasks (CSV / Markdown)</span>
           <button class="btn btn-sm" id="set-import-tasks">${ic('file-text', 13)} Import CSV/MD</button>
         </div>
@@ -11077,6 +11600,29 @@ function renderSettings() {
       renderView(); toast('All data cleared');
     }
   });
+  // Encrypted auto-backup toggle
+  const autoCb = $('#set-auto-backup');
+  const autoPwd = $('#set-auto-backup-pwd');
+  if (autoCb) autoCb.addEventListener('change', e => { state.settings.autoBackup = e.target.checked; save(); toast(e.target.checked ? '🔐 Auto-backup enabled' : 'Auto-backup disabled'); });
+  if (autoPwd) autoPwd.addEventListener('change', e => { state.settings.autoBackupPassword = e.target.value; save(); if (state.settings.autoBackup) toast('Vault password saved for auto-backup'); });
+  const restoreBtn = $('#set-auto-backup-restore');
+  if (restoreBtn) restoreBtn.addEventListener('click', async () => {
+    const pwd = (state.settings.autoBackupPassword || state.settings.geminiApiKey || '');
+    if (!pwd) { toast('Set vault password first', 'error'); return; }
+    const slots = await autoVaultList();
+    if (!slots.length) { toast('No auto-backup found', 'error'); return; }
+    const latest = slots[slots.length - 1];
+    try {
+      const parsed = JSON.parse(latest);
+      const dec = await decryptVaultBackup(parsed, pwd);
+      const data = JSON.parse(dec);
+      if (!data || !Array.isArray(data.tasks)) throw new Error('bad');
+      if (confirm('Restore from latest auto-backup? Current state will be replaced.')) {
+        await restoreDataPayload(data);
+        toast('♻️ Restored from auto-backup!', 'success');
+      }
+    } catch (err) { toast('Restore failed: ' + err.message, 'error'); }
+  });
   // Template handlers
   $$('[data-tpl-use]').forEach(b => b.addEventListener('click', () => {
     const idx = parseInt(b.dataset.tplUse, 10);
@@ -11200,6 +11746,32 @@ function buildSearchRows(results) {
 let searchCat = '';
 let searchDateFrom = '';
 let searchDateTo = '';
+const RECENT_CMD_KEY = 'lumen.recent.cmds';
+function getRecentCmds() { try { return JSON.parse(localStorage.getItem(RECENT_CMD_KEY) || '[]'); } catch (_) { return []; } }
+function pushRecentCmd(cmd) {
+  try {
+    let arr = getRecentCmds().filter(c => c !== cmd);
+    arr.unshift(cmd);
+    arr = arr.slice(0, 5);
+    localStorage.setItem(RECENT_CMD_KEY, JSON.stringify(arr));
+  } catch (_) {}
+}
+function fuzzyScore(name, label, q) {
+  const n = name.toLowerCase(), l = label.toLowerCase();
+  if (n === q) return 100;
+  if (n.startsWith(q)) return 90;
+  if (l.toLowerCase().startsWith(q)) return 80;
+  if (n.includes(q)) return 60;
+  if (l.includes(q)) return 50;
+  // subsequence fuzzy
+  let i = 0, j = 0;
+  while (i < n.length && j < q.length) { if (n[i] === q[j]) j++; i++; }
+  if (j === q.length) return 30;
+  i = 0; j = 0;
+  while (i < l.length && j < q.length) { if (l[i] === q[j]) j++; i++; }
+  if (j === q.length) return 20;
+  return 0;
+}
 function openSearch() {
   searchCat = '';
   searchDateFrom = '';
@@ -11228,55 +11800,104 @@ function openSearch() {
     // ---- Command palette: > prefix creates items ----
     if (raw.startsWith('>')) {
       const cmd = raw.slice(1).trim().toLowerCase();
+      const rawCmd = raw.slice(1).trim();
       const commands = [
-        { name: 'task', icon: 'check-square', label: 'New task', act: () => { closeSearch(); openTaskModal(); } },
-        { name: 'student', icon: 'users', label: 'New student profile', act: () => { closeSearch(); openStudentEditModal(); } },
-        { name: 'students', icon: 'users', label: 'View students roster', act: () => { closeSearch(); location.hash = '#students'; } },
-        { name: 'goal', icon: 'target', label: 'New goal', act: () => { closeSearch(); openGoalModal(); } },
-        { name: 'habit', icon: 'flame', label: 'New habit', act: () => { closeSearch(); openHabitModal(); } },
-        { name: 'note', icon: 'file-text', label: 'New note', act: () => { closeSearch(); newNote(); location.hash = '#notes'; } },
-        { name: 'project', icon: 'folder', label: 'New project', act: () => { closeSearch(); location.hash = '#projects'; openProjectModal(null); } },
-        { name: 'tag', icon: 'tag', label: 'Manage tags', act: () => { closeSearch(); location.hash = '#tags'; } },
-        { name: 'schedule', icon: 'calendar-plus', label: 'View schedule', act: () => { closeSearch(); location.hash = '#schedule'; } },
-        { name: 'voice', icon: 'mic', label: 'Record voice memo', act: () => { closeSearch(); toggleCapture(); } },
-        { name: 'ics', icon: 'calendar', label: 'Export tasks to .ics calendar', act: () => { closeSearch(); exportICS(); } },
-        { name: 'analytics', icon: 'bar-chart', label: 'View habit analytics', act: () => { closeSearch(); location.hash = '#analytics'; } },
-        { name: 'finance', icon: 'dollar-sign', label: 'Open finance tracker', act: () => { closeSearch(); location.hash = '#finance'; } },
-        { name: 'income', icon: 'dollar-sign', label: 'Log income', act: () => { closeSearch(); location.hash = '#finance'; openFinanceModal('income'); } },
-        { name: 'expense', icon: 'dollar-sign', label: 'Log expense', act: () => { closeSearch(); location.hash = '#finance'; openFinanceModal('expense'); } },
-        { name: 'backup', icon: 'download', label: 'Export backup (JSON)', act: () => { closeSearch(); $('#set-export')?.click(); } },
-        { name: 'undo', icon: 'zap', label: 'Undo last action', act: () => { closeSearch(); performUndo(); } },
-        { name: 'redo', icon: 'zap', label: 'Redo last action', act: () => { closeSearch(); performRedo(); } },
+        { name: 'task', icon: 'check-square', label: 'New task', act: () => { pushRecentCmd('task'); closeSearch(); openTaskModal(); } },
+        { name: 'student', icon: 'users', label: 'New student profile', act: () => { pushRecentCmd('student'); closeSearch(); openStudentEditModal(); } },
+        { name: 'students', icon: 'users', label: 'View students roster', act: () => { pushRecentCmd('students'); closeSearch(); location.hash = '#students'; } },
+        { name: 'goal', icon: 'target', label: 'New goal', act: () => { pushRecentCmd('goal'); closeSearch(); openGoalModal(); } },
+        { name: 'habit', icon: 'flame', label: 'New habit', act: () => { pushRecentCmd('habit'); closeSearch(); openHabitModal(); } },
+        { name: 'note', icon: 'file-text', label: 'New note', act: () => { pushRecentCmd('note'); closeSearch(); newNote(); location.hash = '#notes'; } },
+        { name: 'project', icon: 'folder', label: 'New project', act: () => { pushRecentCmd('project'); closeSearch(); location.hash = '#projects'; openProjectModal(null); } },
+        { name: 'tag', icon: 'tag', label: 'Manage tags', act: () => { pushRecentCmd('tag'); closeSearch(); location.hash = '#tags'; } },
+        { name: 'schedule', icon: 'calendar-plus', label: 'View schedule', act: () => { pushRecentCmd('schedule'); closeSearch(); location.hash = '#schedule'; } },
+        { name: 'voice', icon: 'mic', label: 'Record voice memo', act: () => { pushRecentCmd('voice'); closeSearch(); toggleCapture(); } },
+        { name: 'focus', icon: 'clock', label: 'Start focus timer (25m)', act: () => { pushRecentCmd('focus'); closeSearch(); location.hash = '#dashboard'; setTimeout(() => $('#pomo-toggle')?.click(), 300); } },
+        { name: 'ics', icon: 'calendar', label: 'Export tasks to .ics calendar', act: () => { pushRecentCmd('ics'); closeSearch(); exportICS(); } },
+        { name: 'analytics', icon: 'bar-chart', label: 'View habit analytics', act: () => { pushRecentCmd('analytics'); closeSearch(); location.hash = '#analytics'; } },
+        { name: 'finance', icon: 'dollar-sign', label: 'Open finance tracker', act: () => { pushRecentCmd('finance'); closeSearch(); location.hash = '#finance'; } },
+        { name: 'income', icon: 'dollar-sign', label: 'Log income', act: () => { pushRecentCmd('income'); closeSearch(); location.hash = '#finance'; openFinanceModal('income'); } },
+        { name: 'expense', icon: 'dollar-sign', label: 'Log expense', act: () => { pushRecentCmd('expense'); closeSearch(); location.hash = '#finance'; openFinanceModal('expense'); } },
+        { name: 'backup', icon: 'download', label: 'Export backup (JSON)', act: () => { pushRecentCmd('backup'); closeSearch(); $('#set-export')?.click(); } },
+        { name: 'undo', icon: 'zap', label: 'Undo last action', act: () => { pushRecentCmd('undo'); closeSearch(); performUndo(); } },
+        { name: 'redo', icon: 'zap', label: 'Redo last action', act: () => { pushRecentCmd('redo'); closeSearch(); performRedo(); } },
       ];
-      let quickAdd = null;
+      let quickAdds = [];
       if (cmd.startsWith('task ') && cmd.length > 5) {
-        const taskText = raw.slice(1).replace(/^task\s+/i, '');
+        const taskText = rawCmd.replace(/^task\s+/i, '');
         const parsed = parseNaturalLanguageTask(taskText);
         if (parsed) {
-          quickAdd = {
+          quickAdds.push({
             type: 'Command', icon: 'plus',
             title: `⚡ Quick add: “${parsed.title}”${parsed.due ? ' · 📅 ' + fmtShort(parsed.due) : ''}${parsed.priority !== 'med' ? ' · !' + parsed.priority : ''}`,
             sub: '>task',
             act: () => {
+              pushRecentCmd('task ' + parsed.title);
               closeSearch();
               state.tasks.push(Object.assign({ id: uid(), desc: '', recurrence: '', subtasks: [], createdAt: Date.now(), updatedAt: Date.now() }, parsed));
               save();
               renderView();
               toast(`Task added: ${parsed.title} ✅`);
             }
-          };
+          });
         }
+      } else if (cmd.startsWith('habit ') && cmd.length > 6) {
+        const habitName = rawCmd.replace(/^habit\s+/i, '').trim();
+        if (habitName) {
+          quickAdds.push({
+            type: 'Command', icon: 'flame',
+            title: `⚡ Quick add habit: “${habitName}”`,
+            sub: '>habit',
+            act: () => {
+              pushRecentCmd('habit ' + habitName);
+              closeSearch();
+              state.habits.push({ id: uid(), name: habitName, emoji: '🌱', color: COLORS[1], freqType: 'daily', weeklyTarget: 7, dates: {}, freezes: {}, updatedAt: Date.now() });
+              save(); location.hash = '#habits'; renderHabits(); toast(`Habit added: ${habitName} 🌱`);
+            }
+          });
+        }
+      } else if (cmd.startsWith('note ') && cmd.length > 5) {
+        const noteText = rawCmd.replace(/^note\s+/i, '').trim();
+        if (noteText) {
+          quickAdds.push({
+            type: 'Command', icon: 'file-text',
+            title: `⚡ Quick add note: “${noteText.slice(0, 40)}”`,
+            sub: '>note',
+            act: () => {
+              pushRecentCmd('note ' + noteText);
+              closeSearch();
+              const n = { id: uid(), title: noteText.slice(0, 40), content: noteText, tags: [], pinned: false, createdAt: Date.now(), updatedAt: Date.now(), audioId: null };
+              state.notes.unshift(n); selectedNoteId = n.id; save(); location.hash = '#notes'; toast('Note added 📝');
+            }
+          });
+        }
+      } else if (cmd.startsWith('focus')) {
+        const m = rawCmd.replace(/^focus\s*/i, '').trim();
+        const mins = parseInt(m, 10) || 25;
+        quickAdds.push({
+          type: 'Command', icon: 'clock',
+          title: `⚡ Start focus: ${mins} min`,
+          sub: '>focus',
+          act: () => { pushRecentCmd('focus ' + mins); closeSearch(); location.hash = '#dashboard'; setTimeout(() => { pomo.dur = mins * 60; pomo.remain = pomo.dur; $('#pomo-toggle')?.click(); }, 300); }
+        });
       }
-      // Match base commands by the leading command word only, so ">task buy milk"
-      // still lists them alongside the parsed quick-add suggestion.
-      const cmdWord = cmd.split(/\s+/)[0];
-      const filtered = commands.filter(c => c.name.includes(cmdWord) || c.label.toLowerCase().includes(cmdWord));
-      const results = (quickAdd ? [quickAdd] : []).concat(filtered.map(c => ({ type: 'Command', icon: c.icon, title: c.label, sub: '>' + c.name, act: c.act })));
-      searchResults = results;
-      searchRows = buildSearchRows(results);
-      searchVirt.setItems(searchRows, searchRowHTML, 'cmd|' + results.length);
+      const cmdWord = cmd.split(/\s+/)[0] || '';
+      // fuzzy ranking
+      let scored = commands.map(c => ({ c, score: cmdWord ? fuzzyScore(c.name, c.label, cmdWord) : 10 })).filter(x => x.score > 0).sort((a, b) => b.score - a.score);
+      // if empty query, show recent first
+      if (!cmdWord) {
+        const recents = getRecentCmds();
+        const recentSet = new Set(recents);
+        scored = commands.map(c => ({ c, score: recentSet.has(c.name) ? 70 + (5 - recents.indexOf(c.name)) : 10 })).sort((a, b) => b.score - a.score);
+        // surface recent as group hint: push them to top via high score already
+      }
+      const filtered = scored.map(x => x.c);
+      const results = quickAdds.concat(filtered.map(c => ({ type: 'Command', icon: c.icon, title: c.label, sub: '>' + c.name, act: c.act })));
+      searchResults = results.slice(0, 50);
+      searchRows = buildSearchRows(searchResults);
+      searchVirt.setItems(searchRows, searchRowHTML, 'cmd|' + searchResults.length + '|' + cmd);
       searchVirt.render();
-      if (!results.length) $('#search-results').innerHTML = '<div class="search-empty">No commands matching “' + esc(raw) + '”. Try >task, >goal, >habit…</div>';
+      if (!searchResults.length) $('#search-results').innerHTML = '<div class="search-empty">No commands matching “' + esc(raw) + '”. Try >task, >goal, >habit…</div>';
       return;
     }
     // ---- Normal search ----
@@ -11319,12 +11940,30 @@ function openSearch() {
         }));
       // Guard the status lookup: legacy/imported tasks can carry a status that is no
       // longer in STATUSES — one throw here used to abort the whole search run.
-      getSearchTasksHay().filter(e => !q || e.hay.includes(q)).map(e => e.t).filter(t => {
+      // Fuzzy ranking: exact title > tag > due proximity
+      const taskHits = getSearchTasksHay().filter(e => !q || e.hay.includes(q)).map(e => e.t).filter(t => {
         if (searchCat && t.category !== searchCat) return false;
         if (searchDateFrom && t.due && t.due < searchDateFrom) return false;
         if (searchDateTo && t.due && t.due > searchDateTo) return false;
         return true;
-      }).forEach(t => push({ type: 'Task', icon: 'check-square', title: t.title, sub: (STATUSES.find(s => s.id === t.status) || {}).title || t.status || 'Task', act: () => { openTaskModal(t); } }));
+      });
+      if (q) {
+        taskHits.sort((a, b) => {
+          const aTitle = a.title.toLowerCase(), bTitle = b.title.toLowerCase();
+          const aExact = aTitle === q ? 3 : aTitle.startsWith(q) ? 2 : aTitle.includes(q) ? 1 : 0;
+          const bExact = bTitle === q ? 3 : bTitle.startsWith(q) ? 2 : bTitle.includes(q) ? 1 : 0;
+          if (bExact !== aExact) return bExact - aExact;
+          const aTag = (a.tags || []).some(t => t.toLowerCase().includes(q)) ? 1 : 0;
+          const bTag = (b.tags || []).some(t => t.toLowerCase().includes(q)) ? 1 : 0;
+          if (bTag !== aTag) return bTag - aTag;
+          // due proximity: sooner due first
+          if (a.due && b.due) return a.due.localeCompare(b.due);
+          if (a.due && !b.due) return -1;
+          if (!a.due && b.due) return 1;
+          return 0;
+        });
+      }
+      taskHits.forEach(t => push({ type: 'Task', icon: 'check-square', title: t.title, sub: (STATUSES.find(s => s.id === t.status) || {}).title || t.status || 'Task', act: () => { openTaskModal(t); } }));
       state.notes.filter(n => matches(n.title + ' ' + n.content + ' ' + (n.tags || []).join(' ')))
         .forEach(n => push({ type: 'Note', icon: 'file-text', title: n.title || 'Untitled', sub: n.audioId ? 'Voice memo' : 'Note', act: () => { selectedNoteId = n.id; location.hash = '#notes'; } }));
       const goalHits = state.goals.filter(g => matches(g.title + ' ' + (g.desc || '') + ' ' + (g.tags || []).join(' ')))
@@ -11480,6 +12119,10 @@ function onKey(e) {
     const active = document.activeElement;
     if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return;
     if (!$('#modal-root').innerHTML && !$('#search-root').innerHTML) { showShortcutsOverlay(); return; }
+  }
+  // Debug overlay: Ctrl+Shift+D
+  if (e.key.toLowerCase() === 'd' && (e.ctrlKey || e.metaKey) && e.shiftKey) {
+    e.preventDefault(); toggleDebugOverlay(); return;
   }
   // F key — toggle focus mode
   if (e.key.toLowerCase() === 'f' && !e.metaKey && !e.ctrlKey && !e.altKey) {
@@ -11661,5 +12304,34 @@ function init() {
   window.addEventListener('online', updateOnlineStatus);
   window.addEventListener('offline', updateOnlineStatus);
   renderView();
+  // Fast loading — idle warm-up: preload themes, peerjs, and memo caches without blocking first paint
+  _whenIdle(() => {
+    ensureThemesCSS();
+    // warm memo caches for next dashboard visit
+    if (state.tasks.length > 20) {
+      _whenIdle(() => { try { getSearchTasksHay(); deadlinesCardHTML(); if (state.tasks.length < 500) { timeTrackDashboardHTML(); teachingDashboardHTML(); } } catch (_) {} });
+    }
+    // mark first paint
+    if (!_firstPaintDone) {
+      _firstPaintDone = true;
+      const ms = Math.round(performance.now() - _bootStart);
+      // eslint-disable-next-line no-console
+      console.log(`[Lumen] first paint ${ms}ms · tasks:${state.tasks.length} · ${navigator.onLine ? 'online' : 'offline'}`);
+      if (ms > 800) console.warn(`[Lumen] slow boot ${ms}ms — consider clearing old data`);
+      try { if (performance.mark) performance.mark('lumen-first-paint'); } catch (_) {}
+      if (_debugVisible) updateDebugOverlay();
+      // SW update toast
+      if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+        navigator.serviceWorker.addEventListener('controllerchange', () => toast('🔄 Lumen updated — reload to get latest', 'success'));
+      }
+    }
+  });
+  // Watch state size budget (warn at 4MB)
+  _whenIdle(() => {
+    try {
+      const sz = JSON.stringify(state).length;
+      if (sz > 4 * 1024 * 1024) toast(`⚠️ State is ${(sz/1024/1024).toFixed(1)}MB — consider archiving tasks`, 'error');
+    } catch (_) {}
+  });
 }
 document.addEventListener('DOMContentLoaded', init);

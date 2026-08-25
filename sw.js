@@ -2,11 +2,12 @@
    Versioning: bump VERSION alone to ship a new build. Asset requests carry a ?v=
    cache-buster, but matching and caching below normalize it away (ignoreSearch),
    so index.html query params never need manual coordination with this file. */
-const VERSION = 'lumen-cache-v97';
+const VERSION = 'lumen-cache-v99';
 const SHELL = [
   './',
   './index.html',
   './styles.css',
+  './themes.css',
   './app.js',
   './peerjs.min.js',
   './manifest.webmanifest',
@@ -39,9 +40,14 @@ self.addEventListener('install', (e) => {
 
 self.addEventListener('activate', (e) => {
   e.waitUntil(
-    caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k))))
-      .then(() => self.clients.claim())
+    (async () => {
+      if (self.registration.navigationPreload) {
+        try { await self.registration.navigationPreload.enable(); } catch (_) {}
+      }
+      const keys = await caches.keys();
+      await Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k)));
+      await self.clients.claim();
+    })()
   );
 });
 
@@ -51,21 +57,32 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return; // let the network handle cross-origin
 
-  // Navigations: network-first, fall back to cached shell when offline
+  // Navigations: network-first with navigationPreload, fall back to cached shell when offline
   // or when the network returns an error (captive portals, proxies, 5xx).
   // The refreshed copy is stored under './' — the clean, un-redirected URL.
   if (req.mode === 'navigate') {
     e.respondWith(
-      fetch(req)
-        .then((res) => {
+      (async () => {
+        try {
+          const preload = await e.preloadResponse;
+          if (preload && usable(preload)) {
+            const copy = preload.clone();
+            caches.open(VERSION).then((c) => c.put('./', copy));
+            return preload;
+          }
+        } catch (_) {}
+        try {
+          const res = await fetch(req);
           if (res.ok) {
             const copy = res.clone();
             caches.open(VERSION).then((c) => c.put('./', copy));
             return res;
           }
+          return (await matchShell()) || res;
+        } catch (_) {
           return matchShell();
-        })
-        .catch(() => matchShell())
+        }
+      })()
     );
     return;
   }

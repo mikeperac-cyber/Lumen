@@ -41,109 +41,7 @@ html[data-theme="light"] {
   --shadow: 0 8px 24px rgba(54, 60, 77, .12);
 }
 
-/* ---- Theme Palettes ---- */
-html[data-theme="cyberpunk"] {
-  color-scheme: dark;
-  --bg: #090a15;
-  --bg2: #0e1022;
-  --surface: #141730;
-  --surface2: #1b1f40;
-  --surface3: #262c58;
-  --border: #2c3365;
-  --text: #f0f2ff;
-  --text-strong: #00f0ff;
-  --muted: #848fc7;
-  --accent: #00f0ff;
-  --accent2: #ff007f;
-  --grad: linear-gradient(135deg, #00f0ff, #ff007f);
-  --green: #00ff9f;
-  --red: #ff0055;
-  --amber: #ffe600;
-  --pink: #ff007f;
-  --shadow: 0 8px 30px rgba(0, 240, 255, .15);
-}
-
-html[data-theme="nord"] {
-  --bg: #242933;
-  --bg2: #2e3440;
-  --surface: #3b4252;
-  --surface2: #434c5e;
-  --surface3: #4c566a;
-  --border: #4c566a;
-  --text: #eceff4;
-  --text-strong: #88c0d0;
-  --muted: #d8dee9;
-  --accent: #88c0d0;
-  --accent2: #81a1c1;
-  --grad: linear-gradient(135deg, #88c0d0, #5e81ac);
-  --green: #a3be8c;
-  --red: #bf616a;
-  --amber: #ebcb8b;
-  --pink: #b48ead;
-  --shadow: 0 8px 24px rgba(0, 0, 0, .35);
-}
-
-html[data-theme="sepia"] {
-  color-scheme: light;
-  --bg: #fbf0d9;
-  --bg2: #f2e3c6;
-  --surface: #fff8eb;
-  --surface2: #eedcc0;
-  --surface3: #e3cca7;
-  --border: #d4bc94;
-  --text: #433422;
-  --text-strong: #2c1d0c;
-  --muted: #7d6b56;
-  --accent: #b8621b;
-  --accent2: #8f460a;
-  --grad: linear-gradient(135deg, #b8621b, #8f460a);
-  --green: #487e4f;
-  --red: #c0392b;
-  --amber: #d35400;
-  --pink: #a0407a;
-  --shadow: 0 8px 24px rgba(67, 52, 34, .12);
-}
-
-html[data-theme="forest"] {
-  --bg: #0d1a14;
-  --bg2: #12241c;
-  --surface: #172e24;
-  --surface2: #1e3b2e;
-  --surface3: #274d3c;
-  --border: #2d5845;
-  --text: #e1f5eb;
-  --text-strong: #52e396;
-  --muted: #8bbfa6;
-  --accent: #10b981;
-  --accent2: #059669;
-  --grad: linear-gradient(135deg, #10b981, #059669);
-  --green: #34d399;
-  --red: #f87171;
-  --amber: #fbbf24;
-  --pink: #f472b6;
-  --shadow: 0 8px 26px rgba(0, 0, 0, .4);
-}
-
-html[data-theme="sunset"] {
-  --bg: #18111e;
-  --bg2: #21162a;
-  --surface: #2b1d37;
-  --surface2: #382547;
-  --surface3: #49305c;
-  --border: #56396e;
-  --text: #faebf8;
-  --text-strong: #f472b6;
-  --muted: #be9bbd;
-  --accent: #ec4899;
-  --accent2: #8b5cf6;
-  --grad: linear-gradient(135deg, #ec4899, #8b5cf6);
-  --green: #34d399;
-  --red: #fb7185;
-  --amber: #fbbf24;
-  --pink: #f472b6;
-  --shadow: 0 8px 26px rgba(236, 72, 153, .18);
-}
-
+/* ---- Theme Palettes — critical (dark+light) only; rest lazy-loaded via themes.css ---- */
 html[data-theme="dracula"] {
   --bg: #1e1f29;
   --bg2: #242633;
@@ -162,47 +60,6 @@ html[data-theme="dracula"] {
   --amber: #f1fa8c;
   --pink: #ff79c6;
   --shadow: 0 8px 26px rgba(0, 0, 0, .45);
-}
-
-html[data-theme="cerulean"] {
-  --bg: #0d131a;
-  --bg2: #121a24;
-  --surface: #182230;
-  --surface2: #1f2d3f;
-  --surface3: #283a52;
-  --border: #354c6b;
-  --text: #ecf4fa;
-  --text-strong: #ffffff;
-  --muted: #8fa8c4;
-  --accent: #518DBF;
-  --accent2: #3a75a6;
-  --grad: linear-gradient(135deg, #518DBF, #3a75a6);
-  --green: #34d399;
-  --red: #f87171;
-  --amber: #f59e0b;
-  --pink: #ff79c6;
-  --shadow: 0 8px 28px rgba(81, 141, 191, .25);
-}
-
-html[data-theme="coral-dawn"] {
-  color-scheme: light;
-  --bg: #fcf7f4;
-  --bg2: #f5ece6;
-  --surface: #ffffff;
-  --surface2: #fdf4ee;
-  --surface3: #fae7dc;
-  --border: #e8d6cb;
-  --text: #2e2320;
-  --text-strong: #1f1614;
-  --muted: rgba(46, 35, 32, .65);
-  --accent: #E05338;
-  --accent2: #C83E24;
-  --grad: linear-gradient(135deg, #E05338, #C83E24);
-  --green: #1f9d61;
-  --red: #e44d5d;
-  --amber: #d97706;
-  --pink: #518DBF;
-  --shadow: 0 8px 24px rgba(224, 83, 56, .12);
 }
 
 /* ---- Custom Accent Color Overrides ---- */
@@ -2936,6 +2793,33 @@ html.focus-mode .topbar { justify-content: center; }
   .dw-body { transition: none; }
 }
 
+/* ---- Daily Planning Ritual (Brief Commit) ---- */
+.brief-commit { border: 1px solid rgba(96,93,255,.18); background: linear-gradient(135deg, rgba(96,93,255,.08), rgba(79,140,255,.06)); }
+.brief-commit-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; margin: 12px 0; }
+@media (max-width: 860px) { .brief-commit-grid { grid-template-columns: 1fr; } }
+.brief-commit-head { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 6px; }
+.brief-commit-list { display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto; padding-right: 4px; }
+.brief-commit-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; font-size: 12.5px; }
+.brief-commit-row.overdue { border-color: rgba(255,93,108,.35); background: rgba(255,93,108,.06); }
+.brief-commit-row input[type="checkbox"] { width: 14px; height: 14px; }
+.brief-commit-row .t-title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.brief-commit-habit { display: flex; align-items: center; gap: 6px; padding: 6px 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; font-size: 12px; }
+.brief-commit-foot { display: flex; align-items: center; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+.brief-commit.committed { opacity: .92; }
+.link-chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px; border-radius: 10px; background: rgba(96,93,255,.12); color: var(--accent); border: 1px solid rgba(96,93,255,.2); font-size: 11px; font-weight: 600; }
+.link-chip.small { padding: 0 5px; font-size: 10px; }
+.backlink-pill { display: inline-flex; align-items: center; padding: 0 6px; border-radius: 6px; background: rgba(96,93,255,.12); color: var(--accent); border: 1px solid rgba(96,93,255,.25); cursor: pointer; font-weight: 600; font-size: 12px; }
+.backlink-pill:hover { background: rgba(96,93,255,.18); }
+.modal-link-graph { padding: 8px 10px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 12px; font-size: 12px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
 /* Perf: offscreen cards skip rendering until scrolled into view */
 .card, .task-card, .habit-card { content-visibility: auto; contain-intrinsic-size: auto 280px; }
 .matrix-quad-body { content-visibility: auto; contain-intrinsic-size: auto 400px; }
+/* Debug overlay */
+#debug-overlay { position: fixed; top: 12px; right: 12px; width: 360px; max-height: 70vh; background: rgba(14,16,19,.96); color: #e8ebf2; border: 1px solid #2a3140; border-radius: 12px; box-shadow: 0 12px 32px rgba(0,0,0,.45); z-index: 9999; display: flex; flex-direction: column; overflow: hidden; font-size: 12px; backdrop-filter: blur(8px); }
+.debug-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-bottom: 1px solid #2a3140; background: rgba(96,93,255,.12); font-weight: 700; }
+.debug-body { padding: 8px 10px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+.debug-row { display: flex; justify-content: space-between; gap: 8px; padding: 4px 6px; background: rgba(255,255,255,.04); border-radius: 6px; }
+.debug-row span { color: #8b93a7; font-weight: 600; }
+.debug-foot { display: flex; gap: 6px; padding: 8px 10px; border-top: 1px solid #2a3140; }
+#debug-overlay .btn { font-size: 11px; padding: 4px 8px; }
