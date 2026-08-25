@@ -788,11 +788,15 @@ function load() {
 let saveTimer = 0;
 let saveDirty = false;
 let lastSavedJson = '';
+let _stateRev = 0; // bumped on every mutation — drives dashboard/derived-data memoization
 function save() {
   // Debounced persistence: mutations queue one write ~150ms after the last change instead
   // of paying a synchronous JSON.stringify+localStorage write on every tap (2MB state ≈ 45ms).
   // flushSave also fires on tab hide/close so nothing is lost on navigation away.
   reviewWeekCache.clear(); // review per-week data derives from state — drop it on any mutation
+  _stateRev++;
+  _dashMemo = null; // invalidate dashboard memo
+  _searchIndex = null; // invalidate search index
   saveDirty = true;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(flushSave, 150);
@@ -805,9 +809,12 @@ function flushSave() {
   // Skip write if state hasn't changed (avoids IDB churn)
   if (json === lastSavedJson) return;
   lastSavedJson = json;
-  // Dual-write: IDB (async, quota-safe) + localStorage (sync fallback for pagehide)
+  // Dual-write: LS needs the string; IDB can store the structured object directly
+  // (avoids a second stringify and lets IDB handle cloning).
   try { localStorage.setItem(KEY, json); } catch (e) { console.warn('localStorage quota exceeded — IDB is primary', e); }
-  stateDbPut(json).catch(() => {});
+  let toStore = state;
+  try { toStore = typeof structuredClone === 'function' ? structuredClone(state) : JSON.parse(json); } catch (_) { toStore = state; }
+  stateDbPut(toStore).catch(() => {});
   maybeAutoSync();
   checkOverdueNotifications();
 }
@@ -2289,6 +2296,14 @@ function openProjectModal(project, projId) {
   });
 }
 
+let _dashMemo = null; // { rev, today, html } — dashboard render cache
+let _searchIndex = null; // { rev, tasksHay } — lower-cased haystacks for global search
+function getSearchTasksHay() {
+  if (_searchIndex && _searchIndex.rev === _stateRev) return _searchIndex.tasksHay;
+  const hay = state.tasks.map(t => ({ t, hay: (t.title + ' ' + (t.tags || []).join(' ') + ' ' + (t.desc || '')).toLowerCase() }));
+  _searchIndex = { rev: _stateRev, tasksHay: hay };
+  return hay;
+}
 /* ============ Dashboard ============ */
 /* ---- Pinnable dashboard widgets ----
    Every major dashboard card carries data-dw="<id>". After each render,
@@ -3185,9 +3200,11 @@ function deadlineInfo() {
 }
 const snoozeBtnHTML = it => `<button class="btn-icon dl-snooze" data-goal-id="${it.goalId}" data-kr-id="${it.krId || ''}" title="Snooze this alert">${ic('bell', 15)}</button>`;
 const bumpBtnHTML = it => `<button class="btn-icon dl-bump" data-goal-id="${it.goalId}" data-kr-id="${it.krId || ''}" title="Bump deadline +7 days">${ic('calendar-plus', 15)}</button>`;
+let _deadlinesMemo = null;
 function deadlinesCardHTML() {
-  const { overdue, upcoming, snoozed } = deadlineInfo();
   const today = todayISO();
+  if (_deadlinesMemo && _deadlinesMemo.rev === _stateRev && _deadlinesMemo.today === today) return _deadlinesMemo.html;
+  const { overdue, upcoming, snoozed } = deadlineInfo();
   const row = (it, canSnooze) => `<div class="dash-task dl-row" data-goal-id="${it.goalId}" data-kr-id="${it.krId || ''}" title="View goals">
     <span class="dl-icon">${it.due < today ? '⛔' : '⏳'}</span>
     <span class="t-title">${esc(it.label)}</span>
@@ -3206,12 +3223,14 @@ function deadlinesCardHTML() {
   </div>`;
   const total = overdue.length + upcoming.length + snoozed.length;
   if (!total) {
-    return `<div class="card dl-card" data-dw="deadlines">
+    const html = `<div class="card dl-card" data-dw="deadlines">
       <h3 class="card-title"><span>⏰ Deadlines</span></h3>
       <div class="empty-state" style="padding:14px 0 6px"><div class="es-icon">🎉</div>No overdue, upcoming, or snoozed deadlines.</div>
     </div>`;
+    _deadlinesMemo = { rev: _stateRev, today, html };
+    return html;
   }
-  return `<div class="card dl-card" data-dw="deadlines">
+  const html = `<div class="card dl-card" data-dw="deadlines">
     <h3 class="card-title"><span>⏰ Deadlines</span>
       <span class="dl-counts">
         ${overdue.length ? `<span class="badge priority-high">${overdue.length} overdue</span>` : ''}
@@ -3223,6 +3242,8 @@ function deadlinesCardHTML() {
     ${upcoming.map(r => row(r, false)).join('')}
     ${snoozed.map(srow).join('')}
   </div>`;
+  _deadlinesMemo = { rev: _stateRev, today, html };
+  return html;
 }
 function snoozeItem(goalId, krId, until) {
   const g = state.goals.find(x => x.id === goalId);
@@ -3601,6 +3622,11 @@ let taskHiddenRiskPrev = {}; // previous render's hidden-risk counts (for pulse 
 let taskFilterSig = ''; // last-rendered filter signature
 let taskDragging = false;
 let taskViewMode = 'kanban'; // 'kanban' or 'matrix'
+const MATRIX_PAGE = 60; // per-quadrant window — keeps initial matrix DOM ~4×60 instead of 4×500
+let _matrixVisible = { do: MATRIX_PAGE, schedule: MATRIX_PAGE, delegate: MATRIX_PAGE, eliminate: MATRIX_PAGE };
+let _matrixFilterSig = '';
+function matrixVisibleCount(id) { return _matrixVisible[id] || MATRIX_PAGE; }
+function matrixShowMore(id) { _matrixVisible[id] = Math.min((_matrixVisible[id] || MATRIX_PAGE) + MATRIX_PAGE, 1000); renderMatrix(); }
 let taskSelectMode = false;
 let taskSelected = new Set();
 let lastSelectedId = null;
@@ -4159,6 +4185,8 @@ function taskCardHTML(t) {
 
 /* ============ Eisenhower Matrix View ============ */
 function renderMatrix() {
+  const sig = JSON.stringify(taskFilter);
+  if (sig !== _matrixFilterSig) { _matrixFilterSig = sig; _matrixVisible = { do: MATRIX_PAGE, schedule: MATRIX_PAGE, delegate: MATRIX_PAGE, eliminate: MATRIX_PAGE }; }
   const filtered = state.tasks.filter(t => {
     if (taskFilter.goal && t.goalId !== taskFilter.goal) return false;
     if (taskFilter.tag) {
@@ -4211,15 +4239,21 @@ function renderMatrix() {
       <button class="btn btn-ghost" id="task-view-toggle">${ic('check-square', 14)} Kanban</button>
       <button class="btn btn-accent" id="task-new">${ic('plus', 15)} New task</button>
     </div>
-    <div class="matrix-grid">
-      ${quadrants.map(q => `<div class="matrix-quadrant">
+     <div class="matrix-grid">
+      ${quadrants.map(q => {
+        const lim = matrixVisibleCount(q.id);
+        const vis = q.tasks.slice(0, lim);
+        const more = q.tasks.length - vis.length;
+        const moreBtn = more > 0 ? `<button class="btn btn-ghost matrix-more" data-more="${q.id}">Show ${Math.min(MATRIX_PAGE, more)} more (${more} remaining)</button>` : '';
+        return `<div class="matrix-quadrant">
         <div class="matrix-quad-head" style="border-color:${q.color}">
           <span>${q.title}</span>
           <span class="matrix-quad-count" style="color:${q.color}">${q.tasks.length}</span>
         </div>
         <div class="matrix-quad-sub">${q.sub}</div>
-        <div class="matrix-quad-body" data-quad="${q.id}">${q.tasks.map(matrixTaskHTML).join('') || '<div class="matrix-quad-empty">Drop tasks here</div>'}</div>
-      </div>`).join('')}
+        <div class="matrix-quad-body" data-quad="${q.id}">${vis.map(matrixTaskHTML).join('') + moreBtn || '<div class="matrix-quad-empty">Drop tasks here</div>'}</div>
+      </div>`;
+      }).join('')}
     </div>`;
   // Bind
   $('#task-view-toggle').addEventListener('click', () => { taskViewMode = 'kanban'; renderTasks(); });
@@ -4230,6 +4264,7 @@ function renderMatrix() {
   if (tc) tc.addEventListener('click', () => { taskFilter.tag = ''; renderMatrix(); });
   $('#task-clear-filter').addEventListener('click', () => { taskFilter = { q: '', goal: '', tag: '', category: '' }; renderMatrix(); });
   $('#task-new').addEventListener('click', () => openTaskModal());
+  $$('[data-more]').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); matrixShowMore(b.dataset.more); }));
   $$('.matrix-task').forEach(el => el.addEventListener('click', e => {
     if (e.target.closest('[data-complete]')) return;
     const t = state.tasks.find(x => x.id === el.dataset.id);
@@ -11284,8 +11319,7 @@ function openSearch() {
         }));
       // Guard the status lookup: legacy/imported tasks can carry a status that is no
       // longer in STATUSES — one throw here used to abort the whole search run.
-      state.tasks.filter(t => {
-        if (!matches(t.title + ' ' + (t.tags || []).join(' '))) return false;
+      getSearchTasksHay().filter(e => !q || e.hay.includes(q)).map(e => e.t).filter(t => {
         if (searchCat && t.category !== searchCat) return false;
         if (searchDateFrom && t.due && t.due < searchDateFrom) return false;
         if (searchDateTo && t.due && t.due > searchDateTo) return false;
@@ -11307,6 +11341,7 @@ function openSearch() {
       searchVirt.setItems([], searchRowHTML, q + '|0');
       return;
     }
+    if (results.length > 50) results = results.slice(0, 50);
     searchResults = results;
     searchRows = buildSearchRows(results);
     searchVirt.setItems(searchRows, searchRowHTML, q + '|' + results.length);

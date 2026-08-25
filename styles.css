@@ -2935,3 +2935,7 @@ html.focus-mode .topbar { justify-content: center; }
 @media (prefers-reduced-motion: reduce) {
   .dw-body { transition: none; }
 }
+
+/* Perf: offscreen cards skip rendering until scrolled into view */
+.card, .task-card, .habit-card { content-visibility: auto; contain-intrinsic-size: auto 280px; }
+.matrix-quad-body { content-visibility: auto; contain-intrinsic-size: auto 400px; }
