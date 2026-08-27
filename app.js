@@ -851,7 +851,7 @@ function load() {
   // An async IDB read follows and migrates / upgrades if needed.
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) normalizeState(JSON.parse(raw));
+    if (raw) { normalizeState(JSON.parse(raw)); PERIODS = getPeriods(); }
   } catch (e) { console.warn('Failed to load state from localStorage', e); }
   // Async upgrade: read from IndexedDB, migrate if newer or if localStorage was empty.
   stateDbGet().then(idbState => {
@@ -863,6 +863,7 @@ function load() {
       // and the full-vault stringify+write this used to do on every single boot.
       if (idbStr !== lsRaw) {
         normalizeState(JSON.parse(idbStr));
+        PERIODS = getPeriods();
         try { localStorage.setItem(KEY, idbStr); } catch (_) {}
       }
     } else if (lsRaw) {
@@ -1090,7 +1091,7 @@ const DAYS = [
   { id: 'mon', label: 'Mon' }, { id: 'tue', label: 'Tue' }, { id: 'wed', label: 'Wed' },
   { id: 'thu', label: 'Thu' }, { id: 'fri', label: 'Fri' }, { id: 'sat', label: 'Sat' }, { id: 'sun', label: 'Sun' }
 ];
-const PERIODS = [
+const DEFAULT_PERIODS = [
   { id: 'p1', label: 'Period 1', time: '08:00 – 08:45', start: '08:00', end: '08:45' },
   { id: 'p2', label: 'Period 2', time: '09:00 – 09:45', start: '09:00', end: '09:45' },
   { id: 'p3', label: 'Period 3', time: '10:00 – 10:45', start: '10:00', end: '10:45' },
@@ -1104,6 +1105,162 @@ const PERIODS = [
   { id: 'mtg', label: 'Meetings', time: '18:00 – 18:45', start: '18:00', end: '18:45' },
   { id: 'after', label: 'After School', time: '19:00 – 20:00', start: '19:00', end: '20:00' }
 ];
+let PERIODS = DEFAULT_PERIODS.slice(); // mutable, replaced by personal schedule when customized
+const PERSONAL_SCHEDULE_KEY = 'lumen.personalSchedule';
+function getPeriods() {
+  if (Array.isArray(state.schedulePeriods) && state.schedulePeriods.length) return state.schedulePeriods;
+  // also support legacy state.settings.personalSchedule
+  if (state.settings && Array.isArray(state.settings.personalSchedule) && state.settings.personalSchedule.length) return state.settings.personalSchedule;
+  return PERIODS;
+}
+function getScheduleConfig() {
+  // derive config from current periods if no explicit config stored
+  const cfg = (state.settings && state.settings.scheduleConfig) || {};
+  return {
+    start: cfg.start || '08:00',
+    end: cfg.end || '20:00',
+    interval: cfg.interval || 60,
+    breaks: cfg.breaks || []
+  };
+}
+function timeToMin(t) { const [h,m]=t.split(':').map(Number); return h*60+m; }
+function minToTime(min) { const h=Math.floor(min/60)%24, m=min%60; return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0'); }
+function generatePeriods(start, end, interval, breaks) {
+  const sMin = timeToMin(start), eMin = timeToMin(end);
+  if (eMin <= sMin || interval < 5 || interval > 240) return null;
+  const out = []; let cur = sMin, idx=1;
+  while (cur + interval <= eMin) {
+    const st = minToTime(cur), en = minToTime(cur+interval);
+    // skip if overlaps a break (e.g., lunch)
+    let isBreak = false, breakLabel = '';
+    for (const b of (breaks||[])) {
+      const bS=timeToMin(b.start), bE=timeToMin(b.end);
+      if (cur >= bS && cur < bE) { isBreak=true; breakLabel=b.label||'Break'; break; }
+    }
+    if (isBreak) { cur += interval; continue; }
+    const id = 'p'+idx;
+    out.push({ id, label: 'Block '+idx, time: st+' – '+en, start: st, end: en });
+    idx++; cur += interval;
+  }
+  return out.length ? out : null;
+}
+function savePersonalSchedule(periods, config) {
+  if (periods && periods.length) {
+    state.schedulePeriods = periods;
+    if (!state.settings) state.settings={};
+    state.settings.personalSchedule = periods;
+    if (config) state.settings.scheduleConfig = config;
+    else { state.settings.scheduleConfig = { start: periods[0].start, end: periods[periods.length-1].end, interval: timeToMin(periods[0].end)-timeToMin(periods[0].start) }; }
+    // keep PERIODS in sync for legacy code that still reads const (now let)
+    PERIODS = periods.slice();
+    save();
+  }
+}
+function resetPersonalSchedule() {
+  state.schedulePeriods = null;
+  if (state.settings) { delete state.settings.personalSchedule; delete state.settings.scheduleConfig; }
+  PERIODS = DEFAULT_PERIODS.slice();
+  save(); renderSchedule();
+  toast('Personal schedule reset to default');
+}
+function openScheduleIntervalsModal() {
+  const cfg = getScheduleConfig();
+  const current = getPeriods();
+  const intervals = [15,30,45,60,90,120];
+  const intervalsOpts = intervals.map(m=>`<option value="${m}" ${m===cfg.interval?'selected':''}>${m} min</option>`).join('');
+  const preview = (start,end,interval) => {
+    const gen = generatePeriods(start,end,interval);
+    if (!gen) return '<div class="muted" style="font-size:12px;color:var(--red)">Invalid range — end must be after start</div>';
+    return `<div style="display:flex;flex-direction:column;gap:6px;max-height:220px;overflow-y:auto;margin-top:10px">${gen.map(p=>`<div style="display:flex;gap:8px;align-items:center;padding:6px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:8px"><span style="font-weight:700;min-width:70px">${esc(p.label)}</span><span class="muted" style="font-size:12px">${p.time}</span><span style="flex:1"></span><span class="muted" style="font-size:11px">${p.id}</span></div>`).join('')}</div><div class="muted" style="font-size:11px;margin-top:6px">${gen.length} intervals · ${start} – ${end}</div>`;
+  };
+  const modalHTML = `<div class="modal" style="max-width:560px">
+    <div class="modal-head"><h3>⚙️ Personal Schedule Intervals</h3><button class="btn-icon" onclick="closeModal()">${ic('x',16)}</button></div>
+    <div class="modal-body">
+      <div class="muted" style="font-size:12.5px;margin-bottom:12px">Customize your daily timeboxes. Changing intervals keeps your tasks — cards with old interval ids move to unplaced for re-timeboxing.</div>
+      <div class="field-row">
+        <div class="field"><label class="field-label">Day start</label><input id="ps-start" type="time" value="${cfg.start}"></div>
+        <div class="field"><label class="field-label">Day end</label><input id="ps-end" type="time" value="${cfg.end}"></div>
+        <div class="field"><label class="field-label">Interval</label><select id="ps-interval">${intervalsOpts}<option value="custom" ${!intervals.includes(cfg.interval)?'selected':''}>Custom</option></select></div>
+      </div>
+      <div id="ps-custom-interval" class="field ${intervals.includes(cfg.interval)?'hidden':''}"><label class="field-label">Custom minutes (5–240)</label><input id="ps-custom-val" type="number" min="5" max="240" value="${cfg.interval}"></div>
+      <div class="field"><label class="field-label">Preview</label><div id="ps-preview">${preview(cfg.start,cfg.end,cfg.interval)}</div></div>
+      <details style="margin-top:10px"><summary class="muted" style="cursor:pointer;font-size:12px">Advanced — edit current intervals individually</summary>
+        <div id="ps-advanced-list" style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
+          ${current.map(p=>`<div class="field-row" data-period-id="${p.id}"><div class="field"><label class="field-label">Label</label><input data-edit-label value="${esc(p.label)}"></div><div class="field"><label class="field-label">Start</label><input type="time" data-edit-start value="${p.start}"></div><div class="field"><label class="field-label">End</label><input type="time" data-edit-end value="${p.end}"></div><button class="btn btn-sm btn-ghost" data-del-period="${p.id}">✕</button></div>`).join('')}
+        </div>
+        <button class="btn btn-sm btn-ghost" id="ps-add-period" style="margin-top:8px">+ Add interval</button>
+      </details>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" id="ps-reset">Reset to default</button>
+      <div style="flex:1"></div>
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-accent" id="ps-save">Save intervals</button>
+    </div>
+  </div>`;
+  openModal(modalHTML);
+  const startEl=$('#ps-start'), endEl=$('#ps-end'), intervalEl=$('#ps-interval'), customWrap=$('#ps-custom-interval'), customVal=$('#ps-custom-val'), previewEl=$('#ps-preview');
+  const updatePreview = () => {
+    let iv = parseInt(intervalEl.value,10);
+    if (intervalEl.value==='custom') iv = parseInt(customVal.value,10) || 60;
+    previewEl.innerHTML = preview(startEl.value, endEl.value, iv);
+    customWrap.classList.toggle('hidden', intervalEl.value!=='custom');
+  };
+  [startEl,endEl,intervalEl,customVal].forEach(el=> el && el.addEventListener('input', updatePreview));
+  intervalEl.addEventListener('change', updatePreview);
+  $('#ps-add-period')?.addEventListener('click', ()=>{
+    const list=$('#ps-advanced-list');
+    const id='p'+(Date.now()%100000);
+    list.insertAdjacentHTML('beforeend', `<div class="field-row" data-period-id="${id}"><div class="field"><label class="field-label">Label</label><input data-edit-label value="Block ${list.children.length+1}"></div><div class="field"><label class="field-label">Start</label><input type="time" data-edit-start value="09:00"></div><div class="field"><label class="field-label">End</label><input type="time" data-edit-end value="10:00"></div><button class="btn btn-sm btn-ghost" data-del-period="${id}">✕</button></div>`);
+  });
+  $('#ps-advanced-list')?.addEventListener('click', e=>{
+    const btn=e.target.closest('[data-del-period]'); if(!btn) return;
+    btn.closest('.field-row').remove();
+  });
+  $('#ps-reset')?.addEventListener('click', ()=>{ closeModal(); resetPersonalSchedule(); });
+  $('#ps-save')?.addEventListener('click', ()=>{
+    // if advanced list has edits, use those as source of truth
+    const advRows=[...document.querySelectorAll('#ps-advanced-list .field-row')];
+    let periods;
+    let config;
+    if (advRows.length && advRows.some(r=> r.querySelector('[data-edit-label]').value.trim() !== current.find(p=>p.id===r.dataset.periodId)?.label || r.querySelector('[data-edit-start]').value !== current.find(p=>p.id===r.dataset.periodId)?.start)) {
+      // advanced edited — use individual rows
+      periods = advRows.map(r=> {
+        const id=r.dataset.periodId;
+        const label=r.querySelector('[data-edit-label]').value.trim() || id;
+        const start=r.querySelector('[data-edit-start]').value || '08:00';
+        const end=r.querySelector('[data-edit-end]').value || '09:00';
+        return { id, label, time: start+' – '+end, start, end };
+      });
+      // derive config from first/last
+      const sMin=Math.min(...periods.map(p=>timeToMin(p.start))), eMin=Math.max(...periods.map(p=>timeToMin(p.end)));
+      config={ start: minToTime(sMin), end: minToTime(eMin), interval: 60 };
+    } else {
+      let iv = parseInt(intervalEl.value,10);
+      if (intervalEl.value==='custom') iv = parseInt(customVal.value,10) || 60;
+      const gen=generatePeriods(startEl.value, endEl.value, iv);
+      if (!gen) { toast('Invalid interval range', 'error'); return; }
+      periods=gen;
+      config={ start: startEl.value, end: endEl.value, interval: iv };
+    }
+    // migrate tasks with stale period ids → unplaced (so they reappear in tray)
+    const newIds=new Set(periods.map(p=>p.id));
+    let migrated=0;
+    state.tasks.forEach(t=>{
+      if (t.schedulePeriod && !newIds.has(t.schedulePeriod)) { t.scheduleDay=''; t.schedulePeriod=''; t.startTime=''; t.endTime=''; t.updatedAt=Date.now(); migrated++; }
+      // also auto-fill start/end from new period if task had period
+      else if (t.schedulePeriod) {
+        const p=periods.find(x=>x.id===t.schedulePeriod);
+        if(p){ t.startTime=p.start; t.endTime=p.end; }
+      }
+    });
+    captureUndo('Update personal intervals');
+    savePersonalSchedule(periods, config);
+    if (migrated) toast(`Updated intervals — ${migrated} cards moved to unplaced for re-timeboxing`);
+    else toast(`Personal intervals saved — ${periods.length} blocks`);
+    closeModal(); renderSchedule();
+  });
+}
 const COLORS = ['#7c6cf6', '#4f8cff', '#34d399', '#ffb020', '#ff5d6c', '#f472b6', '#22d3ee', '#a3e635'];
 const EMOJIS = ['💧', '🏋️', '📚', '🧘', '🥗', '✍️', '🌅', '💪', '🎸', '🌱', '🧠', '🚶'];
 const TITLES = {
@@ -1119,7 +1276,7 @@ const TITLES = {
   notes: ['Notes', 'Capture and organize your thoughts'],
   voice: ['Voice', 'Record, transcribe, and save ideas'],
   activity: ['Activity', 'Track every change in your workspace'],
-  schedule: ['Schedule', 'Your weekly teaching timetable'],
+  schedule: ['Personal Schedule', 'Your personal daily intervals — customizable timeboxes'],
   settings: ['Settings', 'Theme, data & shortcuts'],
   perf: ['Performance', 'Render times & slow view alerts'],
   analytics: ['Habit Analytics', 'Day-of-week patterns & cross-habit insights'],
@@ -1127,7 +1284,7 @@ const TITLES = {
   students: ['Students', 'Teaching roster, lesson dossiers & student progress']
 };
 const NAV = {
-  brief: ['sparkles', 'Brief'], dashboard: ['dashboard', 'Dashboard'], students: ['graduation-cap', 'Students'], review: ['calendar', 'Weekly review'], tasks: ['check-square', 'Tasks'], projects: ['folder', 'Projects'], schedule: ['calendar-plus', 'Schedule'], tags: ['tag', 'Tags'], goals: ['target', 'Goals'],
+  brief: ['sparkles', 'Brief'], dashboard: ['dashboard', 'Dashboard'], students: ['graduation-cap', 'Students'], review: ['calendar', 'Weekly review'], tasks: ['check-square', 'Tasks'], projects: ['folder', 'Projects'], schedule: ['calendar-plus', 'Personal Schedule'], tags: ['tag', 'Tags'], goals: ['target', 'Goals'],
   habits: ['flame', 'Habits'], achievements: ['trophy', 'Achievements'], notes: ['file-text', 'Notes'], voice: ['mic', 'Voice'], activity: ['activity', 'Activity'], perf: ['zap', 'Performance'],  analytics: ['bar-chart', 'Analytics'], finance: ['dollar-sign', 'Finance'], settings: ['settings', 'Settings']
 };
 const MAIN_VIEWS = new Set(['brief', 'dashboard', 'students', 'tasks', 'projects', 'schedule', 'habits', 'notes', 'voice', 'finance', 'more']);
@@ -1442,7 +1599,7 @@ function updateDebugOverlay() {
     <div class="debug-row"><span>Memo hits</span><b>${hitTotal} (dl:${_memoHits.deadlines} tt:${_memoHits.timeTrack} teach:${_memoHits.teaching} srch:${_memoHits.search})</b></div>
     <div class="debug-row"><span>Perf</span><b>${perfLog.length} logs · ${slow} slow >${PERF_SLOW_MS}ms</b></div>
     <div class="debug-row"><span>Sync</span><b>${peerStatus} · Q ${(syncMeta.syncQueue||[]).length} · rev ${syncMeta.rev||0}</b></div>
-    <div class="debug-row"><span>SW</span><b>${navigator.serviceWorker ? (navigator.serviceWorker.controller ? 'controlled' : 'registered') : 'n/a'} · v101</b></div>
+    <div class="debug-row"><span>SW</span><b>${navigator.serviceWorker ? (navigator.serviceWorker.controller ? 'controlled' : 'registered') : 'n/a'} · v102</b></div>
     <div class="debug-row"><span>Flags</span><b>offline:${!navigator.onLine} · focus:${pomo.running||taskPomo.running}</b></div>
   `;
 }
@@ -1609,7 +1766,7 @@ function ensureThemesCSS() {
   if (_themesLoaded || document.querySelector('link[href="themes.css"]')) { _themesLoaded = true; return; }
   const link = document.createElement('link');
   link.rel = 'stylesheet';
-  link.href = 'themes.css?v=101';
+  link.href = 'themes.css?v=102';
   link.onload = () => { _themesLoaded = true; };
   document.head.appendChild(link);
 }
@@ -4948,7 +5105,7 @@ function openTaskModal(task, presetStatus) {
         </div>
         <div class="field-row">
           <div class="field"><label class="field-label">Schedule day</label><select id="f-sched-day"><option value="">— None —</option>${DAYS.map(d => `<option value="${d.id}" ${d.id === (t.scheduleDay || '') ? 'selected' : ''}>${d.label}</option>`).join('')}</select></div>
-          <div class="field"><label class="field-label">Period</label><select id="f-sched-period"><option value="">— None —</option>${PERIODS.map(p => `<option value="${p.id}" ${p.id === (t.schedulePeriod || '') ? 'selected' : ''}>${p.label}</option>`).join('')}</select></div>
+          <div class="field"><label class="field-label">Period</label><select id="f-sched-period"><option value="">— None —</option>${getPeriods().map(p => `<option value="${p.id}" ${p.id === (t.schedulePeriod || '') ? 'selected' : ''}>${esc(p.label)} — ${p.time}</option>`).join('')}</select></div>
         </div>
         <div class="field-row">
           <div class="field"><label class="field-label">Start time</label><input id="f-start-time" type="time" value="${t.startTime || ''}"></div>
@@ -7089,7 +7246,7 @@ function pomodoroHTML() {
   const isIdle = !pomo.running && pomo.remain === pomo.dur && !taskPomo.taskId;
   const firstCommitted = isIdle ? getFirstCommittedTask() : null;
   const focusHint = firstCommitted ? (() => {
-    const sched = firstCommitted.scheduleDay ? `${DAYS.find(d=>d.id===firstCommitted.scheduleDay)?.label || firstCommitted.scheduleDay} ${PERIODS.find(p=>p.id===firstCommitted.schedulePeriod)?.label || firstCommitted.schedulePeriod || ''}` : 'unplaced — drop in Schedule';
+    const sched = firstCommitted.scheduleDay ? `${DAYS.find(d=>d.id===firstCommitted.scheduleDay)?.label || firstCommitted.scheduleDay} ${getPeriods().find(p=>p.id===firstCommitted.schedulePeriod)?.label || firstCommitted.schedulePeriod || ''}` : 'unplaced — drop in Schedule';
     return `<div class="pomo-focus-hint" data-focus-task="${firstCommitted.id}" data-testid="focus-hint" style="margin-top:10px;padding:8px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;gap:8px;cursor:pointer" title="Click to open">
       <span style="font-size:11px;font-weight:700;color:var(--accent)">🎯 Next up</span>
       <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:12.5px;font-weight:600" class="pomo-focus-title">${esc(firstCommitted.title)}</span>
@@ -8260,7 +8417,7 @@ function renderAnalytics() {
 
   // ===== Schedule utilization =====
   const schedTasks = tasks.filter(t => t.scheduleDay && t.schedulePeriod);
-  const totalSlots = DAYS.length * PERIODS.length;
+  const totalSlots = DAYS.length * getPeriods().length;
   const filledSlots = new Set(schedTasks.map(t => t.scheduleDay + '|' + t.schedulePeriod)).size;
   const utilPct = totalSlots ? Math.round(filledSlots / totalSlots * 100) : 0;
 
@@ -10910,6 +11067,8 @@ let _schedWeekOffset = 0;
 let _schedMonthOffset = 0;
 
 function renderSchedule() {
+  // personal schedule: dynamic intervals (customizable)
+  PERIODS = getPeriods();
   const today = todayISO();
   const dow = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
   const todayDow = dow[new Date().getDay()];
@@ -11118,8 +11277,9 @@ function renderSchedule() {
         </div>
       </div>
       <div class="sched-controls-right">
-        <div class="sched-info">📋 ${scheduledTasks.length} scheduled · ${unscheduled.length} unscheduled${committedUnplaced.length?` · 🎯 ${committedUnplaced.length} committed unplaced`:''}</div>
+        <div class="sched-info">📋 ${scheduledTasks.length} scheduled · ${unscheduled.length} unscheduled${committedUnplaced.length?` · 🎯 ${committedUnplaced.length} committed unplaced`:''} · ⏱ ${getPeriods().length} intervals</div>
         ${overlapIds.size ? `<div class="sched-overlap-banner">⚠ ${overlapIds.size} overlap${overlapIds.size !== 1 ? 's' : ''}</div>` : ''}
+        <button class="btn btn-sm btn-ghost" id="sched-intervals" title="Customize personal intervals — start, end, duration">⚙️ Intervals</button>
         <button class="btn btn-sm btn-ai" id="sched-ai-plan" title="Auto-schedule tasks with AI timeboxing">✨ AI Day Plan</button>
         <button class="btn btn-accent" id="sched-new">${ic('plus', 15)} New task</button>
       </div>
@@ -11171,7 +11331,7 @@ function renderSchedule() {
       if (e.target.closest('.sched-task')) return;
       const day = cell.dataset.day;
       const period = cell.dataset.period;
-      const pObj = PERIODS.find(p => p.id === period);
+      const pObj = getPeriods().find(p => p.id === period);
       openTaskModal({
         scheduleDay: day,
         schedulePeriod: period,
@@ -11193,13 +11353,14 @@ function renderSchedule() {
 
   // Bind new task + commit tray auto-place (reuses AI timeboxing path without Gemini for committed unplaced)
   $('#sched-new').addEventListener('click', () => openTaskModal());
+  $('#sched-intervals')?.addEventListener('click', openScheduleIntervalsModal);
   $('#sched-commit-ai')?.addEventListener('click', () => {
     const todayDowInner = DAYS[new Date().getDay()===0?6:new Date().getDay()-1].id; // map today
     const toPlace = state.tasks.filter(t=>t.status==='today' && !t.scheduleDay && !t.schedulePeriod && !isArchivedTask(t));
     if (!toPlace.length) { toast('Nothing committed to place'); return; }
     captureUndo('Auto-place committed');
     // reuse AI path logic but local round-robin: distribute across today's periods sequentially
-    const periodsToday = PERIODS.filter(p=>!['lunch'].includes(p.id)); // skip lunch
+    const periodsToday = getPeriods().filter(p=>!['lunch'].includes(p.id)); // skip lunch
     toPlace.forEach((t,i)=>{
       const p = periodsToday[i % periodsToday.length];
       t.scheduleDay = todayDowInner;
@@ -11224,9 +11385,12 @@ function renderSchedule() {
       aiPlanBtn.textContent = '✨ Planning…';
       try {
         const payload = toPlan.slice(0, 8).map(t => ({ id: t.id, title: t.title, priority: t.priority }));
-        const prompt = `You are an expert timeboxing planner. Schedule these tasks across periods p1 (Morning 9-12), p2 (Midday 12-3), p3 (Afternoon 3-6), p4 (Evening 6-9) for day "${todayDow}".
+        const availPeriods = getPeriods().slice(0,8);
+        const periodDesc = availPeriods.map(p=>`${p.id} (${p.label} ${p.time})`).join(', ');
+        const periodIds = availPeriods.map(p=>p.id).join('|');
+        const prompt = `You are an expert timeboxing planner for a personal schedule. Schedule these tasks across periods ${periodDesc} for day "${todayDow}".
 Tasks: ${JSON.stringify(payload)}.
-Return ONLY a valid JSON array of objects with schema: [{"id": "...", "scheduleDay": "${todayDow}", "schedulePeriod": "p1|p2|p3|p4", "startTime": "09:00", "endTime": "10:30"}]. No markdown.`;
+Return ONLY a valid JSON array of objects with schema: [{"id": "...", "scheduleDay": "${todayDow}", "schedulePeriod": "${periodIds}", "startTime": "09:00", "endTime": "10:30"}]. No markdown.`;
         const res = await callGemini(prompt, 'You are an executive day planner. Output valid JSON only.');
         const cleaned = res.replace(/```json/gi, '').replace(/```/g, '').trim();
         const planned = JSON.parse(cleaned);
@@ -11318,11 +11482,11 @@ Return ONLY a valid JSON array of objects with schema: [{"id": "...", "scheduleD
       t.scheduleDay = newDay;
       t.schedulePeriod = newPeriod;
       t.updatedAt = Date.now();
-      logActivity('task.move', `${t.title} → ${DAYS.find(d => d.id === newDay)?.label || newDay} ${PERIODS.find(p => p.id === newPeriod)?.label || newPeriod}`);
+      logActivity('task.move', `${t.title} → ${DAYS.find(d => d.id === newDay)?.label || newDay} ${getPeriods().find(p => p.id === newPeriod)?.label || newPeriod}`);
       save();
       renderSchedule();
       const dayLabel = DAYS.find(d => d.id === newDay)?.label || newDay;
-      const periodLabel = PERIODS.find(p => p.id === newPeriod)?.label || newPeriod;
+      const periodLabel = getPeriods().find(p => p.id === newPeriod)?.label || newPeriod;
       toast(wasUnscheduled ? `📅 Scheduled to ${dayLabel} ${periodLabel}` : `📅 Moved to ${dayLabel} ${periodLabel}`);
     });
   }
