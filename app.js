@@ -1442,7 +1442,7 @@ function updateDebugOverlay() {
     <div class="debug-row"><span>Memo hits</span><b>${hitTotal} (dl:${_memoHits.deadlines} tt:${_memoHits.timeTrack} teach:${_memoHits.teaching} srch:${_memoHits.search})</b></div>
     <div class="debug-row"><span>Perf</span><b>${perfLog.length} logs · ${slow} slow >${PERF_SLOW_MS}ms</b></div>
     <div class="debug-row"><span>Sync</span><b>${peerStatus} · Q ${(syncMeta.syncQueue||[]).length} · rev ${syncMeta.rev||0}</b></div>
-    <div class="debug-row"><span>SW</span><b>${navigator.serviceWorker ? (navigator.serviceWorker.controller ? 'controlled' : 'registered') : 'n/a'} · v100</b></div>
+    <div class="debug-row"><span>SW</span><b>${navigator.serviceWorker ? (navigator.serviceWorker.controller ? 'controlled' : 'registered') : 'n/a'} · v101</b></div>
     <div class="debug-row"><span>Flags</span><b>offline:${!navigator.onLine} · focus:${pomo.running||taskPomo.running}</b></div>
   `;
 }
@@ -1609,7 +1609,7 @@ function ensureThemesCSS() {
   if (_themesLoaded || document.querySelector('link[href="themes.css"]')) { _themesLoaded = true; return; }
   const link = document.createElement('link');
   link.rel = 'stylesheet';
-  link.href = 'themes.css?v=100';
+  link.href = 'themes.css?v=101';
   link.onload = () => { _themesLoaded = true; };
   document.head.appendChild(link);
 }
@@ -1691,11 +1691,35 @@ function getHabitsToProtect() {
 function commitBriefDay(selectedIds) {
   const ids = new Set(selectedIds);
   let moved = 0;
-  state.tasks.forEach(t => { if (ids.has(t.id) && t.status !== 'done' && t.status !== 'today') { t.status = 'today'; t.updatedAt = Date.now(); moved++; } });
+  const movedIds = [];
+  state.tasks.forEach(t => { if (ids.has(t.id) && t.status !== 'done' && t.status !== 'today') { t.status = 'today'; t.updatedAt = Date.now(); moved++; movedIds.push(t.id); } });
   if (moved) { save(); }
   try { localStorage.setItem(BRIEF_COMMIT_KEY, todayISO()); } catch (_) {}
-  // seed pomodoro queue: if focus timer idle, set first committed task as implicit focus hint
+  // wire Commit → Timebox: leave tasks unplaced (no scheduleDay) so Schedule's unplaced tray can timebox them,
+  // and seed Focus: set first committed task as idle Focus target (if no focus running)
+  if (movedIds.length) {
+    try {
+      const first = movedIds[0];
+      state.settings.focusTaskId = first;
+      state.settings.focusSeedAt = Date.now();
+      save();
+      // if dashboard is showing, idle Focus will pick this up via getFirstCommittedTask()
+    } catch (_) {}
+  }
   return moved;
+}
+function getFirstCommittedTask() {
+  // first committed today task that is not done/archived, in commit order (updatedAt desc for recently committed)
+  const todayCommitted = state.tasks.filter(t => t.status === 'today' && !isArchivedTask(t) && t.status !== 'done');
+  if (!todayCommitted.length) return null;
+  // prefer the seed set by commit, else oldest today task
+  const seed = state.settings && state.settings.focusTaskId;
+  if (seed) {
+    const found = todayCommitted.find(t => t.id === seed);
+    if (found) return found;
+  }
+  // fallback: most recently committed (highest updatedAt) else first
+  return todayCommitted.sort((a,b)=> (b.updatedAt||0)-(a.updatedAt||0))[0];
 }
 function linkGraphForTask(t) {
   if (!t || !t.goalId) return '';
@@ -1708,7 +1732,29 @@ function linkGraphForTask(t) {
   if (kr) return `<span class="link-chip" title="Links to key result ${esc(kr.title)}">→ ${esc(g.title)} · ${esc(kr.title)} ${kr.current}/${kr.target}</span>`;
   return `<span class="link-chip" title="Linked goal">→ ${esc(g.title)}</span>`;
 }
-function linkGraphForHabit(h) { return ''; }
+function linkGraphForHabit(h) {
+  if (!h) return '';
+  // cheap heuristic: habit name keywords match goal title or KRs; if habit has explicit goalId, use it
+  if (h.goalId) {
+    const g = state.goals.find(x=>x.id===h.goalId);
+    if (g) {
+      const kr = (g.keyResults||[]).find(k=>k.current < k.target);
+      if (kr) return `<span class="link-chip" title="Habit → ${esc(g.title)} · ${esc(kr.title)}">→ ${esc(g.title)} · ${esc(kr.title)}</span>`;
+      return `<span class="link-chip">→ ${esc(g.title)}</span>`;
+    }
+  }
+  const kw = (h.name||'').toLowerCase().split(/\s+/).filter(w=>w.length>3)[0] || (h.name||'').toLowerCase();
+  if (!kw) return '';
+  let best = null, bestKr = null;
+  for (const g of state.goals) {
+    const titleMatch = g.title.toLowerCase().includes(kw);
+    const krMatch = (g.keyResults||[]).find(k=> k.title.toLowerCase().includes(kw));
+    if (titleMatch || krMatch) { best = g; bestKr = krMatch; break; }
+  }
+  if (!best) return '';
+  if (bestKr) return `<span class="link-chip" title="Habit → ${esc(best.title)} · ${esc(bestKr.title)}">→ ${esc(best.title)} · ${esc(bestKr.title)}</span>`;
+  return `<span class="link-chip" title="Habit → ${esc(best.title)}">→ ${esc(best.title)}</span>`;
+}
 function renderBacklinks(text) {
   if (!text) return '';
   return esc(text).replace(/\[\[([^\]]+)\]\]/g, (_, inner) => {
@@ -1879,6 +1925,7 @@ function renderBrief() {
     return `<div class="brief-habit ${on ? 'on' : ''}" data-habit="${h.id}">
       <span class="hc-emoji">${h.emoji}</span>
       <span class="hc-name">${esc(h.name)}</span>
+      ${linkGraphForHabit(h)}
       ${on
         ? '<span class="brief-hint">✓ checked today</span>'
         : `<span class="brief-hint protect">Protect today · 🔥 ${streak}</span>`}
@@ -1987,14 +2034,27 @@ function renderBrief() {
   const ritualHabitsHTML = protectHabits.length
     ? protectHabits.map(h => `<div class="brief-commit-habit" data-habit="${h.id}"><span>${h.emoji}</span> ${esc(h.name)} <span class="muted">· 🔥 ${habitStreak(h)}</span></div>`).join('')
     : '<div class="muted" style="font-size:12px">All habits protected today.</div>';
-  const ritualHTML = `<div class="card brief-commit ${committed ? 'committed' : ''}" data-dw="brief-commit">
-    <h3 class="card-title"><span>🎯 Commit Your Day</span><span class="muted" style="font-size:11px;font-weight:400">${committed ? 'Soft-nudge — you can still add tasks manually' : 'Soft-nudge — pick what to ship today'}</span></h3>
-    <div class="brief-commit-grid">
+  // Collapse duplicates after commit: hide the checklist grid, show collapsed summary that points to Schedule + Focus
+  const committedSummary = committed ? (() => {
+    const todayCommitted = state.tasks.filter(t=>t.status==='today' && !isArchivedTask(t));
+    const unplaced = todayCommitted.filter(t=>!t.scheduleDay && !t.schedulePeriod).length;
+    const first = getFirstCommittedTask();
+    return `<div class="brief-commit-collapsed" style="padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <span style="font-weight:700">✅ Committed ${todayCommitted.length} for today</span>
+      <span class="muted" style="font-size:12px">${unplaced} unplaced in <a href="#schedule" class="link-btn">Schedule →</a> drop onto today's periods</span>
+      ${first ? `<span class="link-chip" title="Focus seeded">🍅 Focus: ${esc(first.title)}</span>` : ''}
+      <a href="#schedule" class="btn btn-sm btn-accent" id="brief-goto-schedule">Open Schedule</a>
+      <button class="btn btn-sm btn-ghost" id="brief-undo-commit">Undo</button>
+    </div>`;
+  })() : '';
+  const ritualHTML = `<div class="card brief-commit ${committed ? 'committed collapsed' : ''}" data-dw="brief-commit">
+    <h3 class="card-title"><span>🎯 Commit Your Day</span><span class="muted" style="font-size:11px;font-weight:400">${committed ? 'Committed — now timebox it' : 'Soft-nudge — pick what to ship today'}</span></h3>
+    ${committed ? committedSummary : `<div class="brief-commit-grid">
       <div><div class="brief-commit-head">⛔ Overdue (${overdueTasks.length})</div><div class="brief-commit-list">${ritualOverdueHTML}</div></div>
       <div><div class="brief-commit-head">⭐ Today's candidates (top 5)</div><div class="brief-commit-list">${ritualCandidatesHTML}</div></div>
       <div><div class="brief-commit-head">🔥 Habits to protect</div><div class="brief-commit-list">${ritualHabitsHTML}</div></div>
-    </div>
-    <div class="brief-commit-foot">${ritualCommitBtn}<span class="muted" style="font-size:12px">Commits move tasks to <b>Today</b> and seeds Focus. Drag-to-order coming soon.</span></div>
+    </div>`}
+    <div class="brief-commit-foot">${ritualCommitBtn}${!committed ? `<span class="muted" style="font-size:12px">Commits move tasks to <b>Today</b> and leaves them unplaced in Schedule. Drop onto periods and Focus runs.</span>` : `<span class="muted" style="font-size:12px">Duplicates collapsed — Today list below is the same work. Timebox in Schedule.</span>`}</div>
   </div>`;
 
   viewRoot().innerHTML = `
@@ -2113,7 +2173,14 @@ function renderBrief() {
     captureUndo('Commit day');
     const moved = commitBriefDay(checks);
     save(); renderBrief();
-    toast(`✅ Committed ${moved} task${moved === 1 ? '' : 's'} to Today — focus queue seeded`);
+    toast(`✅ Committed ${moved} task${moved === 1 ? '' : 's'} to Today — open Schedule to timebox, Focus seeded`);
+  });
+  $('#brief-goto-schedule')?.addEventListener('click', () => { location.hash = '#schedule'; });
+  $('#brief-undo-commit')?.addEventListener('click', () => {
+    performUndo();
+    try { localStorage.removeItem(BRIEF_COMMIT_KEY); } catch (_) {}
+    renderBrief();
+    toast('↩ Commit undone');
   });
   // quick complete a task
   $$('[data-complete]').forEach(b => b.addEventListener('click', e => {
@@ -5730,7 +5797,7 @@ function habitCardHTML(h) {
       <div class="habit-emoji" style="border-color:${h.color}33;background:${h.color}1a">${h.emoji}</div>
       <div style="flex:1;min-width:0">
         <div class="habit-name">${esc(h.name)} ${weeklyPill}</div>
-        <div class="habit-stats"><span>🔥 <b>${habitStreak(h)}</b> day streak</span><span>🏆 best <b>${habitBest(h)}</b></span></div>
+        <div class="habit-stats"><span>🔥 <b>${habitStreak(h)}</b> day streak</span><span>🏆 best <b>${habitBest(h)}</b></span> ${linkGraphForHabit(h)}</div>
       </div>
       <button class="btn-icon" data-freeze-habit="${h.id}" title="Toggle streak freeze for today">❄️</button>
       <button class="btn-icon" data-del-habit="${h.id}" title="Delete habit">${ic('trash', 15)}</button>
@@ -7019,6 +7086,18 @@ function pomodoroHTML() {
   const pct = total > 0 ? Math.round(((total - pomo.remain) / total) * 100) : 0;
   const mins = Math.floor(pomo.remain / 60), secs = pomo.remain % 60;
   const ss = state.settings.pomodoroDate === todayISO() ? state.settings.pomodoroCount : 0;
+  const isIdle = !pomo.running && pomo.remain === pomo.dur && !taskPomo.taskId;
+  const firstCommitted = isIdle ? getFirstCommittedTask() : null;
+  const focusHint = firstCommitted ? (() => {
+    const sched = firstCommitted.scheduleDay ? `${DAYS.find(d=>d.id===firstCommitted.scheduleDay)?.label || firstCommitted.scheduleDay} ${PERIODS.find(p=>p.id===firstCommitted.schedulePeriod)?.label || firstCommitted.schedulePeriod || ''}` : 'unplaced — drop in Schedule';
+    return `<div class="pomo-focus-hint" data-focus-task="${firstCommitted.id}" data-testid="focus-hint" style="margin-top:10px;padding:8px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;gap:8px;cursor:pointer" title="Click to open">
+      <span style="font-size:11px;font-weight:700;color:var(--accent)">🎯 Next up</span>
+      <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:12.5px;font-weight:600" class="pomo-focus-title">${esc(firstCommitted.title)}</span>
+      <span class="muted" style="font-size:11px">${esc(sched)}</span>
+      ${linkGraphForTask(firstCommitted)}
+    </div>`;
+  })() : '';
+  const idleHint = isIdle && !firstCommitted ? `<div class="muted" style="font-size:12px;margin-top:10px">Commit a day in Brief to seed Focus.</div>` : '';
   return `<h3 class="card-title"><span>🍅 Focus timer</span></h3>
     <div class="pomo-wrap">
       <div class="pomo-ring" style="--p:${pct}%">
@@ -7035,6 +7114,7 @@ function pomodoroHTML() {
         <button class="btn btn-ghost" id="pomo-reset">${ic('x', 14)} Reset</button>
       </div>
       <div class="pomo-session">🍅 ${ss} session${ss === 1 ? '' : 's'} completed today</div>
+      ${focusHint || idleHint}
     </div>`;
 }
 function bindPomodoro() {
@@ -7070,6 +7150,17 @@ function bindPomodoro() {
     state.settings.pomodoroMin = parseInt(b.dataset.pomoMin, 10);
     save(); updatePomoUI();
   }));
+  // idle Focus → first committed task click to open + start task pomo
+  const hint = $('.pomo-focus-hint');
+  if (hint) hint.addEventListener('click', () => {
+    const tid = hint.dataset.focusTask;
+    const t = state.tasks.find(x=>x.id===tid);
+    if (t) {
+      openTaskModal(t);
+      // if user starts pomo from modal, that will be task pomo; for quick start, also seed global hint
+      state.settings.focusTaskId = tid; save();
+    }
+  });
 }
 function offerFocusHabitProtect() {
   const today = todayISO();
@@ -10920,6 +11011,22 @@ function renderSchedule() {
 
   const unscheduled = state.tasks.filter(t => t.status !== 'done' && !t.scheduleDay && !t.schedulePeriod)
     .sort((a, b) => (a.startTime || 'zz') < (b.startTime || 'zz') ? -1 : (a.startTime || 'zz') > (b.startTime || 'zz') ? 1 : 0);
+  // Trello → Commit → Timebox: committed today tasks that are still unplaced (no scheduleDay/Period)
+  const committedUnplaced = state.tasks.filter(t => t.status === 'today' && !t.scheduleDay && !t.schedulePeriod && !isArchivedTask(t) && t.status !== 'done')
+    .sort((a,b)=> (a.updatedAt||0)-(b.updatedAt||0));
+  const otherUnscheduled = unscheduled.filter(t => !committedUnplaced.find(c=>c.id===t.id));
+  const committedTrayHTML = committedUnplaced.length ? `<div class="sched-commit-tray" id="sched-commit-tray" data-testid="commit-tray">
+      <h3 class="card-title"><span>🎯 Committed, unplaced — drop onto today (${DAYS.find(d=>d.id===todayDow)?.label || todayDow})</span><span class="muted" style="font-size:12px;font-weight:400">${committedUnplaced.length} to timebox</span><button class="btn btn-sm btn-ai" id="sched-commit-ai" title="Auto-schedule committed tasks onto today's periods">✨ Auto-place today</button></h3>
+      <div class="sched-unsched-list" id="sched-commit-list">${committedUnplaced.map(t=>{
+        const cat=CATEGORIES.find(c=>c.id===t.category); const catStyle=cat?` style="border-left:3px solid ${cat.color};background:${cat.color}10"`:'';
+        return `<div class="sched-unsched-item committed" data-id="${t.id}" draggable="true"${catStyle} title="Drag onto today's periods">
+          <span class="sched-unsched-title">${esc(t.title)} ${linkGraphForTask(t)}</span>
+          ${cat?`<span class="sched-cat" style="background:${cat.color}22;color:${cat.color}">${cat.label.split(' ')[0]}</span>`:''}
+          ${t.due?`<span class="due-chip">${fmtShort(t.due)}</span>`:''}
+          <span class="muted" style="font-size:10px">↗ drag to today</span>
+        </div>`;
+      }).join('')}</div>
+    </div>` : '';
 
   // Render HTML based on view mode
   let mainScheduleContent = '';
@@ -11011,17 +11118,18 @@ function renderSchedule() {
         </div>
       </div>
       <div class="sched-controls-right">
-        <div class="sched-info">📋 ${scheduledTasks.length} scheduled · ${unscheduled.length} unscheduled</div>
+        <div class="sched-info">📋 ${scheduledTasks.length} scheduled · ${unscheduled.length} unscheduled${committedUnplaced.length?` · 🎯 ${committedUnplaced.length} committed unplaced`:''}</div>
         ${overlapIds.size ? `<div class="sched-overlap-banner">⚠ ${overlapIds.size} overlap${overlapIds.size !== 1 ? 's' : ''}</div>` : ''}
         <button class="btn btn-sm btn-ai" id="sched-ai-plan" title="Auto-schedule tasks with AI timeboxing">✨ AI Day Plan</button>
         <button class="btn btn-accent" id="sched-new">${ic('plus', 15)} New task</button>
       </div>
     </div>
     <div class="sched-legend">${CATEGORIES.map(c => `<span class="sched-legend-item" style="border-left:3px solid ${c.color}">${c.label}</span>`).join('')}</div>
+    ${committedTrayHTML}
     ${mainScheduleContent}
-    ${unscheduled.length ? `<div class="sched-unscheduled">
-      <h3 class="card-title"><span>📋 Unscheduled tasks</span><span class="muted" style="font-size:12px;font-weight:400">Assign a day & period or drag into a time slot</span></h3>
-      <div class="sched-unsched-list">${unscheduled.map(t => {
+    ${otherUnscheduled.length ? `<div class="sched-unscheduled">
+      <h3 class="card-title"><span>📋 Other unscheduled</span><span class="muted" style="font-size:12px;font-weight:400">Assign a day & period or drag into a time slot</span></h3>
+      <div class="sched-unsched-list">${otherUnscheduled.map(t => {
         const cat = CATEGORIES.find(c => c.id === t.category);
         const catStyle = cat ? ` style="border-left:3px solid ${cat.color};background:${cat.color}10"` : '';
         return `<div class="sched-unsched-item ${cat ? 'cat-' + cat.id : 'cat-none'}" data-id="${t.id}" draggable="true"${catStyle}>
@@ -11083,8 +11191,26 @@ function renderSchedule() {
     });
   });
 
-  // Bind new task
+  // Bind new task + commit tray auto-place (reuses AI timeboxing path without Gemini for committed unplaced)
   $('#sched-new').addEventListener('click', () => openTaskModal());
+  $('#sched-commit-ai')?.addEventListener('click', () => {
+    const todayDowInner = DAYS[new Date().getDay()===0?6:new Date().getDay()-1].id; // map today
+    const toPlace = state.tasks.filter(t=>t.status==='today' && !t.scheduleDay && !t.schedulePeriod && !isArchivedTask(t));
+    if (!toPlace.length) { toast('Nothing committed to place'); return; }
+    captureUndo('Auto-place committed');
+    // reuse AI path logic but local round-robin: distribute across today's periods sequentially
+    const periodsToday = PERIODS.filter(p=>!['lunch'].includes(p.id)); // skip lunch
+    toPlace.forEach((t,i)=>{
+      const p = periodsToday[i % periodsToday.length];
+      t.scheduleDay = todayDowInner;
+      t.schedulePeriod = p.id;
+      t.startTime = p.start;
+      t.endTime = p.end;
+      t.updatedAt = Date.now();
+    });
+    save(); renderSchedule();
+    toast(`✨ Placed ${toPlace.length} committed task${toPlace.length===1?'':'s'} onto today`);
+  });
   const aiPlanBtn = $('#sched-ai-plan');
   if (aiPlanBtn) {
     aiPlanBtn.addEventListener('click', async () => {
