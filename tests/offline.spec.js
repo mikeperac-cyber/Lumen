@@ -39,26 +39,38 @@ test('offline shell: reload AND fresh navigation boot the app with the server de
   const srv = startServer(process.cwd());
   try {
     await waitPort(PORT, 20000);
-    await page.goto(`http://127.0.0.1:${PORT}/`);
-    await page.waitForLoadState('load');
-    await page.waitForTimeout(2200);
+    await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'load', timeout: 30000 });
+    // Wait for SW to control — poll instead of fixed sleep (CI slower)
+    await page.waitForFunction(() => !!navigator.serviceWorker.controller, null, { timeout: 30000 }).catch(async () => {
+      // Fallback: wait for ready then re-check
+      await page.evaluate(() => navigator.serviceWorker.ready.catch(()=>{}));
+      await page.waitForTimeout(1500);
+    });
+    // Extra grace for cache population
+    await page.waitForTimeout(800);
     expect(await page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
+    await expect(page.locator('.app')).toBeVisible({ timeout: 10000 });
 
     await stopServer(srv);
-    await page.waitForTimeout(500);
-
-    // Reload while genuinely offline
-    await page.reload({ waitUntil: 'domcontentloaded', timeout: 15000 });
+    // Ensure server is truly down before offline reload
     await page.waitForTimeout(800);
+
+    // Reload while genuinely offline — use commit to avoid hanging on network idle
+    await page.reload({ waitUntil: 'commit', timeout: 15000 });
+    await page.waitForSelector('.app', { timeout: 15000 });
     expect(await page.evaluate(() => !!document.querySelector('.app'))).toBe(true);
 
     // Fresh navigation (new tab) while offline
     const page2 = await page.context().newPage();
-    await page2.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'domcontentloaded', timeout: 15000 });
-    await page2.waitForTimeout(600);
+    await page2.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'commit', timeout: 15000 });
+    await page2.waitForSelector('.app', { timeout: 15000 });
     expect(await page2.evaluate(() => !!document.querySelector('.app'))).toBe(true);
     await page2.close();
   } finally {
-    await stopServer(srv);
+    // Robust stop — don't hang if already dead
+    await Promise.race([
+      stopServer(srv),
+      new Promise(res => setTimeout(res, 3000))
+    ]);
   }
 });
