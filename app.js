@@ -723,13 +723,14 @@ function autoVaultDb() {
     rq.onerror = () => rej(rq.error);
   });
 }
-let _autoVaultIdx = 0;
+let _autoVaultIdx = (()=>{ try{ const v=parseInt(localStorage.getItem('lumen.autoVaultIdx')||'0',10); return Number.isFinite(v)?v%3:0; }catch(_){ return 0; }})();
 async function autoVaultBackup(json, password) {
   try {
     const enc = await encryptVaultBackup(json, password);
     const db = await autoVaultDb();
     const key = 'slot-' + (_autoVaultIdx % 3);
     _autoVaultIdx = (_autoVaultIdx + 1) % 3;
+    try{ localStorage.setItem('lumen.autoVaultIdx', String(_autoVaultIdx)); }catch(_){}
     await new Promise((res, rej) => {
       const tx = db.transaction(AUTO_VAULT_STORE, 'readwrite');
       tx.objectStore(AUTO_VAULT_STORE).put(enc, key);
@@ -1107,11 +1108,15 @@ const DEFAULT_PERIODS = [
 ];
 let PERIODS = DEFAULT_PERIODS.slice(); // mutable, replaced by personal schedule when customized
 const PERSONAL_SCHEDULE_KEY = 'lumen.personalSchedule';
+let _periodsCache = null, _periodsCacheRev = -1;
 function getPeriods() {
-  if (Array.isArray(state.schedulePeriods) && state.schedulePeriods.length) return state.schedulePeriods;
-  // also support legacy state.settings.personalSchedule
-  if (state.settings && Array.isArray(state.settings.personalSchedule) && state.settings.personalSchedule.length) return state.settings.personalSchedule;
-  return PERIODS;
+  if (_periodsCache && _periodsCacheRev === _stateRev) return _periodsCache;
+  let res;
+  if (Array.isArray(state.schedulePeriods) && state.schedulePeriods.length) res = state.schedulePeriods;
+  else if (state.settings && Array.isArray(state.settings.personalSchedule) && state.settings.personalSchedule.length) res = state.settings.personalSchedule;
+  else res = PERIODS;
+  _periodsCache = res; _periodsCacheRev = _stateRev;
+  return res;
 }
 function getScheduleConfig() {
   // derive config from current periods if no explicit config stored
@@ -1170,8 +1175,8 @@ function openScheduleIntervalsModal() {
   const intervalsOpts = intervals.map(m=>`<option value="${m}" ${m===cfg.interval?'selected':''}>${m} min</option>`).join('');
   const preview = (start,end,interval) => {
     const gen = generatePeriods(start,end,interval);
-    if (!gen) return '<div class="muted" style="font-size:12px;color:var(--red)">Invalid range — end must be after start</div>';
-    return `<div style="display:flex;flex-direction:column;gap:6px;max-height:220px;overflow-y:auto;margin-top:10px">${gen.map(p=>`<div style="display:flex;gap:8px;align-items:center;padding:6px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:8px"><span style="font-weight:700;min-width:70px">${esc(p.label)}</span><span class="muted" style="font-size:12px">${p.time}</span><span style="flex:1"></span><span class="muted" style="font-size:11px">${p.id}</span></div>`).join('')}</div><div class="muted" style="font-size:11px;margin-top:6px">${gen.length} intervals · ${start} – ${end}</div>`;
+    if (!gen) return '<div class="ps-preview-empty">⚠️ Invalid range — end must be after start</div>';
+    return `<div style="display:flex;flex-direction:column;gap:6px">${gen.map(p=>`<div class="ps-preview-item"><span class="ps-preview-label">${esc(p.label)}</span><span class="ps-preview-time">🕐 ${esc(p.time)}</span><span class="ps-preview-id">${esc(p.id)}</span></div>`).join('')}</div><div class="ps-preview-count">${gen.length} intervals · ${esc(start)} – ${esc(end)} · ${interval} min each</div>`;
   };
   const modalHTML = `<div class="modal" style="max-width:560px">
     <div class="modal-head"><h3>⚙️ Personal Schedule Intervals</h3><button class="btn-icon" onclick="closeModal()">${ic('x',16)}</button></div>
@@ -1184,11 +1189,11 @@ function openScheduleIntervalsModal() {
       </div>
       <div id="ps-custom-interval" class="field ${intervals.includes(cfg.interval)?'hidden':''}"><label class="field-label">Custom minutes (5–240)</label><input id="ps-custom-val" type="number" min="5" max="240" value="${cfg.interval}"></div>
       <div class="field"><label class="field-label">Preview</label><div id="ps-preview">${preview(cfg.start,cfg.end,cfg.interval)}</div></div>
-      <details style="margin-top:10px"><summary class="muted" style="cursor:pointer;font-size:12px">Advanced — edit current intervals individually</summary>
-        <div id="ps-advanced-list" style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
-          ${current.map(p=>`<div class="field-row" data-period-id="${p.id}"><div class="field"><label class="field-label">Label</label><input data-edit-label value="${esc(p.label)}"></div><div class="field"><label class="field-label">Start</label><input type="time" data-edit-start value="${p.start}"></div><div class="field"><label class="field-label">End</label><input type="time" data-edit-end value="${p.end}"></div><button class="btn btn-sm btn-ghost" data-del-period="${p.id}">✕</button></div>`).join('')}
+      <details style="margin-top:14px"><summary class="muted" style="cursor:pointer;font-size:12.5px;font-weight:600">✎ Advanced — edit current intervals individually</summary>
+        <div id="ps-advanced-list">
+          ${current.map(p=>`<div class="ps-advanced-row field-row" data-period-id="${p.id}"><div class="field"><label class="field-label">Label</label><input data-edit-label value="${esc(p.label)}"></div><div class="field"><label class="field-label">Start</label><input type="time" data-edit-start value="${p.start}"></div><div class="field"><label class="field-label">End</label><input type="time" data-edit-end value="${p.end}"></div><button class="ps-advanced-del" data-del-period="${p.id}" title="Remove interval">✕</button></div>`).join('')}
         </div>
-        <button class="btn btn-sm btn-ghost" id="ps-add-period" style="margin-top:8px">+ Add interval</button>
+        <button class="btn btn-sm btn-ghost" id="ps-add-period" style="margin-top:10px">+ Add interval</button>
       </details>
     </div>
     <div class="modal-foot">
@@ -1211,19 +1216,24 @@ function openScheduleIntervalsModal() {
   $('#ps-add-period')?.addEventListener('click', ()=>{
     const list=$('#ps-advanced-list');
     const id='p'+(Date.now()%100000);
-    list.insertAdjacentHTML('beforeend', `<div class="field-row" data-period-id="${id}"><div class="field"><label class="field-label">Label</label><input data-edit-label value="Block ${list.children.length+1}"></div><div class="field"><label class="field-label">Start</label><input type="time" data-edit-start value="09:00"></div><div class="field"><label class="field-label">End</label><input type="time" data-edit-end value="10:00"></div><button class="btn btn-sm btn-ghost" data-del-period="${id}">✕</button></div>`);
+    list.insertAdjacentHTML('beforeend', `<div class="ps-advanced-row field-row" data-period-id="${id}"><div class="field"><label class="field-label">Label</label><input data-edit-label value="Block ${list.children.length+1}"></div><div class="field"><label class="field-label">Start</label><input type="time" data-edit-start value="09:00"></div><div class="field"><label class="field-label">End</label><input type="time" data-edit-end value="10:00"></div><button class="ps-advanced-del" data-del-period="${id}" title="Remove">✕</button></div>`);
   });
   $('#ps-advanced-list')?.addEventListener('click', e=>{
     const btn=e.target.closest('[data-del-period]'); if(!btn) return;
-    btn.closest('.field-row').remove();
+    btn.closest('.ps-advanced-row').remove();
   });
   $('#ps-reset')?.addEventListener('click', ()=>{ closeModal(); resetPersonalSchedule(); });
   $('#ps-save')?.addEventListener('click', ()=>{
     // if advanced list has edits, use those as source of truth
-    const advRows=[...document.querySelectorAll('#ps-advanced-list .field-row')];
+    const advRows=[...document.querySelectorAll('#ps-advanced-list .ps-advanced-row')];
     let periods;
     let config;
-    if (advRows.length && advRows.some(r=> r.querySelector('[data-edit-label]').value.trim() !== current.find(p=>p.id===r.dataset.periodId)?.label || r.querySelector('[data-edit-start]').value !== current.find(p=>p.id===r.dataset.periodId)?.start)) {
+    const advEdited = advRows.length !== current.length || advRows.some(r=>{
+      const cur = current.find(p=>p.id===r.dataset.periodId);
+      if (!cur) return true; // new row or deleted makes length diff already true, but handle new id
+      return r.querySelector('[data-edit-label]').value.trim() !== cur.label || r.querySelector('[data-edit-start]').value !== cur.start || r.querySelector('[data-edit-end]').value !== cur.end;
+    });
+    if (advRows.length && advEdited) {
       // advanced edited — use individual rows
       periods = advRows.map(r=> {
         const id=r.dataset.periodId;
@@ -1599,7 +1609,7 @@ function updateDebugOverlay() {
     <div class="debug-row"><span>Memo hits</span><b>${hitTotal} (dl:${_memoHits.deadlines} tt:${_memoHits.timeTrack} teach:${_memoHits.teaching} srch:${_memoHits.search})</b></div>
     <div class="debug-row"><span>Perf</span><b>${perfLog.length} logs · ${slow} slow >${PERF_SLOW_MS}ms</b></div>
     <div class="debug-row"><span>Sync</span><b>${peerStatus} · Q ${(syncMeta.syncQueue||[]).length} · rev ${syncMeta.rev||0}</b></div>
-    <div class="debug-row"><span>SW</span><b>${navigator.serviceWorker ? (navigator.serviceWorker.controller ? 'controlled' : 'registered') : 'n/a'} · v102</b></div>
+    <div class="debug-row"><span>SW</span><b>${navigator.serviceWorker ? (navigator.serviceWorker.controller ? 'controlled' : 'registered') : 'n/a'} · v103</b></div>
     <div class="debug-row"><span>Flags</span><b>offline:${!navigator.onLine} · focus:${pomo.running||taskPomo.running}</b></div>
   `;
 }
@@ -1766,7 +1776,7 @@ function ensureThemesCSS() {
   if (_themesLoaded || document.querySelector('link[href="themes.css"]')) { _themesLoaded = true; return; }
   const link = document.createElement('link');
   link.rel = 'stylesheet';
-  link.href = 'themes.css?v=102';
+  link.href = 'themes.css?v=103';
   link.onload = () => { _themesLoaded = true; };
   document.head.appendChild(link);
 }
@@ -5177,6 +5187,16 @@ function openTaskModal(task, presetStatus) {
     const krSel = $('#f-kr');
     if (krSel) krSel.innerHTML = krOptionsHTML(e.target.value, '');
   });
+  // Period picker → auto-fill start/end times from dynamic intervals
+  const schedPeriodEl = $('#f-sched-period');
+  if (schedPeriodEl) schedPeriodEl.addEventListener('change', e => {
+    const pid = e.target.value;
+    const p = getPeriods().find(x=>x.id===pid);
+    const st = $('#f-start-time'), en = $('#f-end-time');
+    if (p) { if (st) st.value = p.start || ''; if (en) en.value = p.end || ''; }
+    else { if (st) st.value = ''; if (en) en.value = ''; }
+  });
+  // Also sync when scheduleDay changes? keep times from period
   $('#f-dup')?.addEventListener('click', () => { if (task) { duplicateTaskById(task.id); closeModal(); } });
   $('#f-share')?.addEventListener('click', () => { if (task) shareText(task.title, (task.desc || '') + (task.due ? '\nDue: ' + task.due : '')); });
   // Trello cover picker
@@ -11359,8 +11379,9 @@ function renderSchedule() {
     const toPlace = state.tasks.filter(t=>t.status==='today' && !t.scheduleDay && !t.schedulePeriod && !isArchivedTask(t));
     if (!toPlace.length) { toast('Nothing committed to place'); return; }
     captureUndo('Auto-place committed');
-    // reuse AI path logic but local round-robin: distribute across today's periods sequentially
-    const periodsToday = getPeriods().filter(p=>!['lunch'].includes(p.id)); // skip lunch
+    // reuse AI path logic but local round-robin: distribute across today's periods sequentially (skip lunch breaks)
+    let periodsToday = getPeriods().filter(p=> p.id !== 'lunch' && !String(p.label||'').toLowerCase().includes('lunch'));
+    if (!periodsToday.length) periodsToday = getPeriods();
     toPlace.forEach((t,i)=>{
       const p = periodsToday[i % periodsToday.length];
       t.scheduleDay = todayDowInner;
@@ -11385,7 +11406,8 @@ function renderSchedule() {
       aiPlanBtn.textContent = '✨ Planning…';
       try {
         const payload = toPlan.slice(0, 8).map(t => ({ id: t.id, title: t.title, priority: t.priority }));
-        const availPeriods = getPeriods().slice(0,8);
+        let availPeriods = getPeriods().filter(p=> p.id !== 'lunch' && !String(p.label||'').toLowerCase().includes('lunch')).slice(0,8);
+        if (!availPeriods.length) availPeriods = getPeriods().slice(0,8);
         const periodDesc = availPeriods.map(p=>`${p.id} (${p.label} ${p.time})`).join(', ');
         const periodIds = availPeriods.map(p=>p.id).join('|');
         const prompt = `You are an expert timeboxing planner for a personal schedule. Schedule these tasks across periods ${periodDesc} for day "${todayDow}".
@@ -11481,6 +11503,8 @@ Return ONLY a valid JSON array of objects with schema: [{"id": "...", "scheduleD
       captureUndo('Reschedule task');
       t.scheduleDay = newDay;
       t.schedulePeriod = newPeriod;
+      const _pp = getPeriods().find(p=>p.id===newPeriod);
+      if (_pp) { t.startTime = _pp.start || ''; t.endTime = _pp.end || ''; }
       t.updatedAt = Date.now();
       logActivity('task.move', `${t.title} → ${DAYS.find(d => d.id === newDay)?.label || newDay} ${getPeriods().find(p => p.id === newPeriod)?.label || newPeriod}`);
       save();

@@ -2855,12 +2855,35 @@ html.focus-mode .topbar { justify-content: center; }
 .pomo-focus-hint { transition: border-color .12s, background .12s; }
 .pomo-focus-hint:hover { border-color: var(--accent) !important; background: rgba(96,93,255,.08) !important; }
 .sched-cell.today.drag-over { background: rgba(96,93,255,.08) !important; outline:2px dashed var(--accent); outline-offset:-2px; }
-/* Personal Schedule Intervals Modal */
-#ps-preview { max-height:220px; overflow-y:auto; }
-#ps-preview div[style*="display:flex"] { transition: transform .12s; }
-#ps-preview div[style*="display:flex"]:hover { transform: translateX(4px); }
-.modal .modal-body .field-row { display:flex; gap:8px; flex-wrap:wrap; }
-.modal .modal-body .field-row .field { flex:1; min-width:120px; }
-.ps-advanced-item { display:flex; gap:8px; flex-wrap:wrap; }
-#ps-custom-interval.hidden { display:none; }
-.sched-info .period-badge { background: rgba(96,93,255,.12); color: var(--accent); padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; margin-left:8px; }
+/* Personal Schedule Intervals Modal — polished */
+#ps-preview { max-height:240px; overflow-y:auto; padding:2px; scrollbar-width:thin; }
+#ps-preview:empty { display:none; }
+.ps-preview-item { display:flex; gap:10px; align-items:center; padding:8px 10px; background:var(--surface2); border:1px solid var(--border); border-radius:9px; transition: border-color .14s, transform .14s, box-shadow .14s; }
+.ps-preview-item:hover { border-color:var(--accent); transform: translateX(3px); box-shadow: 0 2px 10px rgba(96,93,255,.10); }
+.ps-preview-label { font-weight:700; min-width:72px; font-size:12.5px; color:var(--text-strong); }
+.ps-preview-time { font-size:12px; color:var(--muted); font-weight:600; background:var(--surface3); padding:2px 7px; border-radius:6px; }
+.ps-preview-id { margin-left:auto; font-size:10.5px; color:var(--muted); background:var(--surface3); padding:2px 6px; border-radius:6px; font-variant-numeric: tabular-nums; }
+.ps-preview-count { font-size:11.5px; color:var(--muted); margin-top:6px; display:flex; align-items:center; gap:6px; }
+.ps-preview-count::before { content:""; width:6px; height:6px; border-radius:50%; background:var(--accent); opacity:.7; }
+.ps-preview-empty { font-size:12px; color:var(--red); background:rgba(255,93,108,.08); border:1px solid rgba(255,93,108,.18); padding:8px 10px; border-radius:8px; }
+#ps-advanced-list { display:flex; flex-direction:column; gap:8px; margin-top:8px; }
+.ps-advanced-row { display:grid; grid-template-columns: 1.15fr .85fr .85fr auto; gap:8px; align-items:end; background:var(--surface2); border:1px solid var(--border); border-radius:10px; padding:10px 10px 8px; transition: border-color .14s; }
+.ps-advanced-row:hover { border-color: rgba(96,93,255,.28); }
+.ps-advanced-row .field { margin-bottom:0; }
+.ps-advanced-row .field-label { font-size:10.5px; letter-spacing:.2px; }
+.ps-advanced-del { width:28px; height:28px; border-radius:7px; display:grid; place-items:center; color:var(--muted); border:1px solid var(--border); background:var(--surface); align-self:center; }
+.ps-advanced-del:hover { color:var(--red); border-color: rgba(255,93,108,.35); background: rgba(255,93,108,.08); }
+.ps-intervals-toolbar { display:flex; gap:8px; align-items:center; }
+#ps-custom-interval.hidden { display:none !important; }
+#ps-custom-interval { margin-top:8px; }
+.sched-info { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.sched-info .period-badge { background: linear-gradient(135deg, rgba(96,93,255,.14), rgba(79,140,255,.10)); color: var(--accent); padding:3px 9px; border-radius:20px; font-size:11px; font-weight:700; border:1px solid rgba(96,93,255,.18); }
+#sched-intervals { border:1px solid rgba(96,93,255,.18); background: linear-gradient(135deg, rgba(96,93,255,.08), rgba(79,140,255,.04)); }
+#sched-intervals:hover { border-color: var(--accent); background: rgba(96,93,255,.10); transform: translateY(-1px); }
+.sched-toolbar .sched-info { font-weight:600; }
+@media (max-width: 640px) {
+  .ps-advanced-row { grid-template-columns: 1fr 1fr; }
+  .ps-advanced-row .field:first-child { grid-column: 1 / -1; }
+  .ps-preview-item { padding:7px 8px; }
+  #ps-preview { max-height:190px; }
+}
