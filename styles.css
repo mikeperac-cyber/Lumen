@@ -2823,3 +2823,25 @@ html.focus-mode .topbar { justify-content: center; }
 .debug-row span { color: #8b93a7; font-weight: 600; }
 .debug-foot { display: flex; gap: 6px; padding: 8px 10px; border-top: 1px solid #2a3140; }
 #debug-overlay .btn { font-size: 11px; padding: 4px 8px; }
+/* Trello parity */
+.tc-cover { height: 8px; border-radius: 12px 12px 0 0; margin: -14px -14px 10px -14px; }
+.tc-cover-img { margin: -14px -14px 10px -14px; overflow: hidden; border-radius: 12px 12px 0 0; }
+.tc-cover-img img { display: block; width: 100%; }
+.task-card.archived { opacity: .62; filter: grayscale(.2); border-style: dashed; }
+.tc-icon-badge { display:inline-flex;align-items:center;gap:3px;padding:1px 6px;border-radius:10px;background:var(--surface2);border:1px solid var(--border);font-size:10.5px;font-weight:600;color:var(--muted) }
+.cover-picker .cover-dot { cursor:pointer; transition: transform .12s, box-shadow .12s; }
+.cover-picker .cover-dot.active { transform: scale(1.12); }
+.cover-picker .cover-dot:hover { transform: scale(1.08); }
+.col-head { position:relative; display:flex;align-items:center;gap:6px;padding:8px 8px 8px 10px;background:var(--surface2);border-radius:10px 10px 0 0;border-bottom:2px solid var(--border);font-weight:700;font-size:13px }
+.col-title { flex:1; cursor:text; }
+.col-menu { opacity:0; transition:opacity .12s; }
+.col:hover .col-menu { opacity:1; }
+.kanban { display:flex;gap:12px;overflow-x:auto;padding-bottom:12px;scroll-snap-type:x mandatory; }
+.kanban .col { min-width:280px;max-width:320px;flex:0 0 300px;background:var(--surface);border:1px solid var(--border);border-radius:12px;display:flex;flex-direction:column;max-height:calc(100vh - 220px) }
+.col-body { flex:1;overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:8px;min-height:120px }
+.task-card { background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:14px;box-shadow:0 2px 8px rgba(0,0,0,.08);transition: transform .12s, box-shadow .12s; }
+.task-card:hover { transform: translateY(-1px); box-shadow:0 6px 16px rgba(0,0,0,.12); }
+.task-card.dragging { opacity:.5; transform: rotate(2deg); }
+.col.drag-over { background: rgba(96,93,255,.06); border-color: var(--accent); }
+.attach-row:hover, .comment-row:hover { background:var(--surface);}
+@media (max-width: 860px) { .kanban .col { min-width:260px; } }

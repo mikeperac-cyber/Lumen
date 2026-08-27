@@ -657,7 +657,7 @@ async function callGemini(prompt, systemInstruction = '') {
 
 /* ---------- State & persistence ---------- */
 const KEY = 'lumen.state.v1';
-let state = { tasks: [], goals: [], habits: [], notes: [], recordings: [], krHistory: [], tagColors: {}, projects: [], activityLog: [], settings: {}, incomeTypes: ['ESL','IELTS','Tutoring','Exam Prep'], expenseCategories: ['Rent','Utilities','Food','Transport','Supplies','Software','Marketing','Education','Healthcare','Other'], students: [], income: [], expenses: [], expectedIncome: [], expectedExpenses: [], attendance: [], assignments: [], lessonPlans: [] };
+let state = { tasks: [], goals: [], habits: [], notes: [], recordings: [], krHistory: [], tagColors: {}, projects: [], activityLog: [], settings: {}, incomeTypes: ['ESL','IELTS','Tutoring','Exam Prep'], expenseCategories: ['Rent','Utilities','Food','Transport','Supplies','Software','Marketing','Education','Healthcare','Other'], students: [], income: [], expenses: [], expectedIncome: [], expectedExpenses: [], attendance: [], assignments: [], lessonPlans: [], kanbanLists: [] };
 function getTagColor(name) {
   return (state.tagColors || {})[name.toLowerCase()] || null;
 }
@@ -801,8 +801,21 @@ function normalizeState(parsed) {
   }
   // Ensure all goals have required defaults
   if (Array.isArray(state.goals)) state.goals.forEach(g => { if (!Array.isArray(g.keyResults)) g.keyResults = []; });
-  // Ensure tasks have subtasks array
-  if (Array.isArray(state.tasks)) state.tasks.forEach(t => { if (!Array.isArray(t.subtasks)) t.subtasks = []; });
+  // Ensure kanban lists exist (Trello board)
+  ensureKanbanLists();
+  // Ensure tasks have subtasks array + Trello fields
+  if (Array.isArray(state.tasks)) state.tasks.forEach(t => {
+    if (!Array.isArray(t.subtasks)) t.subtasks = [];
+    if (!Array.isArray(t.comments)) t.comments = [];
+    if (!Array.isArray(t.attachments)) t.attachments = [];
+    if (t.coverColor === undefined) t.coverColor = '';
+    if (t.coverImage === undefined) t.coverImage = '';
+    if (t.startDate === undefined) t.startDate = '';
+    if (t.archived === undefined) t.archived = false;
+    if (t.watchers === undefined) t.watchers = [];
+    if (t.members === undefined) t.members = [];
+  });
+  // include archived tasks in sync but hidden in kanban
 }
 
 function getStudentsList() {
@@ -994,6 +1007,62 @@ const STATUSES = [
   { id: 'progress', title: 'In Progress', color: '#4f8cff' },
   { id: 'done', title: 'Done', color: '#34d399' }
 ];
+/* ---- Trello: custom board lists (extends STATUSES) ---- */
+const COVER_COLORS = ['#7c6cf6','#4f8cff','#34d399','#ffb020','#ff5d6c','#f472b6','#22d3ee','#a3e635','#00000000'];
+function getKanbanLists() {
+  const custom = state.kanbanLists;
+  if (Array.isArray(custom) && custom.length) {
+    // ensure every status still has a fallback color/title
+    return custom.map(l => {
+      const base = STATUSES.find(s => s.id === l.id);
+      return { id: l.id, title: l.title || (base ? base.title : l.id), color: l.color || (base ? base.color : '#8b93a7') };
+    });
+  }
+  return STATUSES;
+}
+function ensureKanbanLists() {
+  if (!Array.isArray(state.kanbanLists) || !state.kanbanLists.length) {
+    state.kanbanLists = STATUSES.map(s => ({ id: s.id, title: s.title, color: s.color }));
+  }
+  // migrate archived pseudo-list (hidden)
+  if (!state.kanbanLists.find(l => l.id === 'archived')) {
+    // archived is virtual, not shown in kanban but used for filtering
+  }
+}
+function kanbanListColor(id) { const l = getKanbanLists().find(x => x.id === id); return l ? l.color : '#8b93a7'; }
+function isArchivedTask(t) { return !!t.archived || t.status === 'archived'; }
+function addKanbanList(title, color) {
+  title = (title || '').trim(); if (!title) return;
+  const id = title.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'') || 'list-' + Date.now();
+  let base = id, n=1; while (getKanbanLists().find(l=>l.id===base)) base = id + '-' + (++n);
+  captureUndo('Add list'); state.kanbanLists.push({ id: base, title, color: color || COLORS[Math.floor(Math.random()*COLORS.length)] }); save(); renderTasks(); toast('List added: ' + title);
+}
+function renameKanbanList(id, newTitle) {
+  newTitle = (newTitle||'').trim(); if (!newTitle) return;
+  const l = state.kanbanLists.find(x=>x.id===id); if (!l) return;
+  captureUndo('Rename list'); l.title = newTitle; save(); renderTasks();
+}
+function deleteKanbanList(id) {
+  if (getKanbanLists().length <= 1) { toast('Keep at least one list', 'error'); return; }
+  const l = state.kanbanLists.find(x=>x.id===id); if (!l) return;
+  if (!confirm(`Delete list "${l.title}"? Cards will move to Backlog.`)) return;
+  captureUndo('Delete list');
+  state.tasks.forEach(t=>{ if (t.status===id) { t.status='backlog'; t.updatedAt=Date.now(); } });
+  state.kanbanLists = state.kanbanLists.filter(x=>x.id!==id);
+  save(); renderTasks(); toast('List deleted');
+}
+function archiveAllInList(id) {
+  const l = getKanbanLists().find(x=>x.id===id); if (!l) return;
+  const count = state.tasks.filter(t=>t.status===id && !t.archived).length;
+  if (!count) { toast('No cards to archive'); return; }
+  if (!confirm(`Archive ${count} card${count===1?'':'s'} in "${l.title}"?`)) return;
+  captureUndo('Archive list'); state.tasks.forEach(t=>{ if (t.status===id) { t.archived=true; t.updatedAt=Date.now(); } }); save(); renderTasks(); toast(`Archived ${count} card${count===1?'':'s'}`);
+}
+function setTaskArchived(id, archived) {
+  const t = state.tasks.find(x=>x.id===id); if (!t) return;
+  captureUndo(archived ? 'Archive card' : 'Restore card');
+  t.archived = archived; t.updatedAt = Date.now(); save(); renderTasks(); toast(archived ? 'Archived' : 'Restored');
+}
 const PRIOS = {
   high: { label: 'High', cls: 'priority-high' },
   med: { label: 'Medium', cls: 'priority-med' },
@@ -1373,7 +1442,7 @@ function updateDebugOverlay() {
     <div class="debug-row"><span>Memo hits</span><b>${hitTotal} (dl:${_memoHits.deadlines} tt:${_memoHits.timeTrack} teach:${_memoHits.teaching} srch:${_memoHits.search})</b></div>
     <div class="debug-row"><span>Perf</span><b>${perfLog.length} logs · ${slow} slow >${PERF_SLOW_MS}ms</b></div>
     <div class="debug-row"><span>Sync</span><b>${peerStatus} · Q ${(syncMeta.syncQueue||[]).length} · rev ${syncMeta.rev||0}</b></div>
-    <div class="debug-row"><span>SW</span><b>${navigator.serviceWorker ? (navigator.serviceWorker.controller ? 'controlled' : 'registered') : 'n/a'} · v99</b></div>
+    <div class="debug-row"><span>SW</span><b>${navigator.serviceWorker ? (navigator.serviceWorker.controller ? 'controlled' : 'registered') : 'n/a'} · v100</b></div>
     <div class="debug-row"><span>Flags</span><b>offline:${!navigator.onLine} · focus:${pomo.running||taskPomo.running}</b></div>
   `;
 }
@@ -1540,7 +1609,7 @@ function ensureThemesCSS() {
   if (_themesLoaded || document.querySelector('link[href="themes.css"]')) { _themesLoaded = true; return; }
   const link = document.createElement('link');
   link.rel = 'stylesheet';
-  link.href = 'themes.css?v=99';
+  link.href = 'themes.css?v=100';
   link.onload = () => { _themesLoaded = true; };
   document.head.appendChild(link);
 }
@@ -2603,7 +2672,7 @@ let _deadlinesMemo = null;
 let _searchIndex = null; // { rev, tasksHay } — lower-cased haystacks for global search
 function getSearchTasksHay() {
   if (_searchIndex && _searchIndex.rev === _stateRev) { _memoHits.search++; return _searchIndex.tasksHay; }
-  const hay = state.tasks.map(t => ({ t, hay: (t.title + ' ' + (t.tags || []).join(' ') + ' ' + (t.desc || '')).toLowerCase() }));
+  const hay = state.tasks.map(t => ({ t, hay: (t.title + ' ' + (t.tags || []).join(' ') + ' ' + (t.desc || '') + ' ' + (t.members||[]).join(' ') + ' ' + (t.comments||[]).map(c=>c.text).join(' ') + ' ' + (t.attachments||[]).map(a=>a.name).join(' ')).toLowerCase() }));
   _searchIndex = { rev: _stateRev, tasksHay: hay };
   return hay;
 }
@@ -3930,6 +3999,7 @@ let taskColShowAll = new Set(); // statuses whose column bypasses the active fil
 let taskHiddenRisk = {}; // status -> count of overdue/due-soon tasks hidden by the filter
 let taskHiddenRiskPrev = {}; // previous render's hidden-risk counts (for pulse detection)
 let taskFilterSig = ''; // last-rendered filter signature
+let taskShowArchived = false;
 let taskDragging = false;
 let taskViewMode = 'kanban'; // 'kanban' or 'matrix'
 const MATRIX_PAGE = 60; // per-quadrant window — keeps initial matrix DOM ~4×60 instead of 4×500
@@ -4138,8 +4208,12 @@ function bindColScroll(status) {
 }
 function renderTasks() {
   if (taskViewMode === 'matrix') { renderMatrix(); return; }
+  ensureKanbanLists();
+  const KANBAN = getKanbanLists();
   const goals = state.goals;
   const filtered = state.tasks.filter(t => {
+    if (!taskShowArchived && isArchivedTask(t)) return false;
+    if (taskShowArchived && !isArchivedTask(t)) return false;
     if (taskFilter.goal && t.goalId !== taskFilter.goal) return false;
     if (taskFilter.tag) {
       const tags = t.tags || [];
@@ -4148,14 +4222,14 @@ function renderTasks() {
     }
     if (taskFilter.category && t.category !== taskFilter.category) return false;
     if (taskFilter.q) {
-      const hay = (t.title + ' ' + t.desc + ' ' + (t.tags || []).join(' ')).toLowerCase();
+      const hay = (t.title + ' ' + t.desc + ' ' + (t.tags || []).join(' ') + ' ' + (t.comments||[]).map(c=>c.text).join(' ')).toLowerCase();
       if (!hay.includes(taskFilter.q.toLowerCase())) return false;
     }
     return true;
   });
   // true per-status totals (ignoring filters) so the column range badge can show filtered/total
   taskStatusTotals = {};
-  state.tasks.forEach(t => { taskStatusTotals[t.status] = (taskStatusTotals[t.status] || 0) + 1; });
+  state.tasks.forEach(t => { if (isArchivedTask(t) && !taskShowArchived) return; taskStatusTotals[t.status] = (taskStatusTotals[t.status] || 0) + 1; });
   taskFilterActive = !!(taskFilter.q || taskFilter.goal || taskFilter.tag);
   // NOTE: taskColShowAll intentionally persists across filter changes — reveals stay revealed
   // when re-filtering, so users can keep hidden work in view without re-expanding columns.
@@ -4164,6 +4238,7 @@ function renderTasks() {
   const filteredSet = new Set(filtered.map(t => t.id));
   taskHiddenRisk = {};
   state.tasks.forEach(t => {
+    if (isArchivedTask(t)) return;
     if (t.status === 'done' || !t.due || t.due > soonISO) return;
     if (filteredSet.has(t.id)) return; // visible — not hidden
     taskHiddenRisk[t.status] = (taskHiddenRisk[t.status] || 0) + 1;
@@ -4176,21 +4251,21 @@ function renderTasks() {
     taskFilterSig = fSig;
     taskHiddenRiskPrev = Object.assign({}, taskHiddenRisk); // baseline — no pulse on filter change
   } else {
-    STATUSES.forEach(s => {
+    KANBAN.forEach(s => {
       if ((taskHiddenRisk[s.id] || 0) > (taskHiddenRiskPrev[s.id] || 0) && !taskColShowAll.has(s.id)) pulseSet.add(s.id);
     });
     taskHiddenRiskPrev = Object.assign({}, taskHiddenRisk);
   }
-  const allByStatus = status => state.tasks.filter(t => t.status === status);
-  const hiddenTotal = STATUSES.reduce((sum, s) => sum + (taskColShowAll.has(s.id) ? 0 : (taskHiddenRisk[s.id] || 0)), 0);
-  const riskParts = STATUSES.filter(s => !taskColShowAll.has(s.id) && (taskHiddenRisk[s.id] || 0) > 0)
+  const allByStatus = status => state.tasks.filter(t => t.status === status && (taskShowArchived ? isArchivedTask(t) : !isArchivedTask(t)));
+  const hiddenTotal = KANBAN.reduce((sum, s) => sum + (taskColShowAll.has(s.id) ? 0 : (taskHiddenRisk[s.id] || 0)), 0);
+  const riskParts = KANBAN.filter(s => !taskColShowAll.has(s.id) && (taskHiddenRisk[s.id] || 0) > 0)
     .map(s => `${taskHiddenRisk[s.id]} ${s.title.toLowerCase()}`);
-  const cols = STATUSES.map(s => {
+  const cols = KANBAN.map(s => {
     const items = taskColShowAll.has(s.id) ? allByStatus(s.id) : filtered.filter(t => t.status === s.id);
     return `<div class="col" data-status="${s.id}">
-      <div class="col-head"><span class="col-dot" style="background:${s.color}"></span>${s.title}<span class="col-count${taskFilterActive && !taskColShowAll.has(s.id) && (taskHiddenRisk[s.id] || 0) ? ' warn' : ''}">${items.length}</span><span class="col-range" data-range="${s.id}"></span></div>
+      <div class="col-head"><span class="col-dot" style="background:${s.color}"></span><span class="col-title" data-rename-list="${s.id}" title="Double-click to rename">${esc(s.title)}</span><span class="col-count${taskFilterActive && !taskColShowAll.has(s.id) && (taskHiddenRisk[s.id] || 0) ? ' warn' : ''}">${items.length}</span><span class="col-range" data-range="${s.id}"></span><button class="btn-icon col-menu" data-list-menu="${s.id}" title="List actions">⋮</button></div>
       <div class="col-body" data-status-body="${s.id}"></div>
-      <button class="col-add" data-add-status="${s.id}">${ic('plus', 14)} Add task</button>
+      <button class="col-add" data-add-status="${s.id}">${ic('plus', 14)} Add card</button>
     </div>`;
   }).join('');
 
@@ -4209,9 +4284,11 @@ function renderTasks() {
       ${taskFilterActive && hiddenTotal > 0 ? `<span class="risk-pill" id="task-risk-pill" title="Hidden overdue/due-soon — ${riskParts.join(' · ')}. Click to show all hidden tasks">⚠ ${hiddenTotal} hidden overdue/due-soon</span>` : ''}
       <button class="btn btn-ghost" id="task-clear-filter">Clear</button>
       <div style="flex:1"></div>
+      <label class="btn btn-ghost" style="gap:6px"><input type="checkbox" id="task-show-archived" ${taskShowArchived?'checked':''}> 🗄 Archived</label>
+      <button class="btn btn-ghost" id="task-add-list">${ic('plus',14)} Add List</button>
       <button class="btn btn-ghost" id="task-select-mode" title="Select multiple tasks">${taskSelectMode ? ic('check', 14) + ' Exit select' : ic('check-square', 14) + ' Select'}</button>
       <button class="btn btn-ghost" id="task-view-toggle">${ic('target', 14)} Matrix</button>
-      <button class="btn btn-accent" id="task-new">${ic('plus', 15)} New task</button>
+      <button class="btn btn-accent" id="task-new">${ic('plus', 15)} New card</button>
     </div>
     <div class="quick-add-bar">
       <input type="text" class="input" id="quick-task-input" placeholder="⚡ Quick add (e.g. 'Review deck tomorrow at 3pm !high #work')" style="flex:1;font-size:14px;padding:10px 14px;border-radius:10px">
@@ -4225,7 +4302,7 @@ function renderTasks() {
         <div class="batch-actions">
           <select class="batch-select" id="batch-set-status">
             <option value="">Move to…</option>
-            ${STATUSES.map(s => `<option value="${s.id}">${s.title}</option>`).join('')}
+            ${getKanbanLists().map(s => `<option value="${s.id}">${esc(s.title)}</option>`).join('')}
           </select>
           <select class="batch-select" id="batch-set-prio">
             <option value="">Priority…</option>
@@ -4245,9 +4322,9 @@ function renderTasks() {
         </div>
       </div>` : ''}`;
 
-  // windowed column bodies
+  // windowed column bodies (Trello lists)
   taskVirtRAF = {};
-  STATUSES.forEach(s => {
+  KANBAN.forEach(s => {
     taskVirtItems[s.id] = taskColShowAll.has(s.id) ? allByStatus(s.id) : filtered.filter(t => t.status === s.id);
     renderTaskColumnBody(s.id);
     bindColScroll(s.id);
@@ -4260,10 +4337,41 @@ function renderTasks() {
     renderTasks();
   }));
 
+  // Trello list menu (⋮) — rename, change color, archive all, delete
+  $$('[data-list-menu]').forEach(btn => btn.addEventListener('click', e => {
+    e.stopPropagation();
+    const id = btn.dataset.listMenu;
+    const l = getKanbanLists().find(x=>x.id===id); if (!l) return;
+    openModal(`<div class="modal" style="max-width:340px"><div class="modal-head"><h3>List: ${esc(l.title)}</h3><button class="btn-icon" onclick="closeModal()">${ic('x',16)}</button></div><div class="modal-body">
+      <div class="field"><label class="field-label">Title</label><input id="list-rename" value="${esc(l.title)}"></div>
+      <div class="field"><label class="field-label">Color</label><div style="display:flex;gap:6px;flex-wrap:wrap">${COLORS.map(c=>`<button class="color-dot ${l.color===c?'active':''}" data-list-color="${c}" style="background:${c};width:28px;height:28px;border-radius:50%;border:2px solid ${l.color===c?'#fff':'transparent'};box-shadow:0 0 0 2px ${l.color===c?c:'transparent'}"></button>`).join('')}</div></div>
+      <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+        <button class="btn btn-sm btn-accent" id="list-save">Save</button>
+        <button class="btn btn-sm btn-ghost" id="list-archive-all">Archive all</button>
+        <button class="btn btn-sm btn-danger" id="list-delete">Delete list</button>
+      </div>
+    </div></div>`);
+    $('#list-save')?.addEventListener('click', () => {
+      const nv = $('#list-rename').value.trim(); if (nv) renameKanbanList(id, nv);
+      const sel = document.querySelector('[data-list-color].active');
+      const col = sel ? sel.dataset.listColor : l.color;
+      if (col !== l.color) { const ll = state.kanbanLists.find(x=>x.id===id); if (ll) { ll.color = col; save(); renderTasks(); } }
+      closeModal();
+    });
+    $$('[data-list-color]').forEach(b=>b.addEventListener('click', ()=>{ $$('[data-list-color]').forEach(x=>x.classList.remove('active')); b.classList.add('active'); }));
+    $('#list-archive-all')?.addEventListener('click', ()=>{ closeModal(); archiveAllInList(id); });
+    $('#list-delete')?.addEventListener('click', ()=>{ closeModal(); deleteKanbanList(id); });
+  }));
+  $$('[data-rename-list]').forEach(el => el.addEventListener('dblclick', () => {
+    const id = el.dataset.renameList;
+    const l = getKanbanLists().find(x=>x.id===id); if (!l) return;
+    const nv = prompt('Rename list', l.title);
+    if (nv && nv.trim() && nv.trim()!==l.title) renameKanbanList(id, nv.trim());
+  }));
   // toolbar summary of hidden at-risk work — click to reveal all of it
   const riskPill = $('#task-risk-pill');
   if (riskPill) riskPill.addEventListener('click', () => {
-    taskColShowAll = new Set(STATUSES.map(s => s.id));
+    taskColShowAll = new Set(KANBAN.map(s => s.id));
     renderTasks();
   });
 
@@ -4311,6 +4419,28 @@ function renderTasks() {
   // add column buttons
   $$('.col-add').forEach(b => b.addEventListener('click', () => openTaskModal(null, b.dataset.addStatus)));
   $('#task-new').addEventListener('click', () => openTaskModal());
+  $('#task-add-list')?.addEventListener('click', () => {
+    const t = prompt('New list title'); if (t) addKanbanList(t);
+  });
+  $('#task-show-archived')?.addEventListener('change', e => { taskShowArchived = e.target.checked; renderTasks(); });
+  // drag & drop for kanban lists (reorder lists) — simple: drag header to reorder
+  // (uses HTML5 DnD on .col)
+  $$('.col').forEach(colEl => {
+    const head = colEl.querySelector('.col-head'); if (!head) return;
+    head.draggable = true;
+    head.addEventListener('dragstart', e => { e.dataTransfer.setData('text/list', colEl.dataset.status); e.dataTransfer.effectAllowed='move'; });
+    head.addEventListener('dragover', e => e.preventDefault());
+    head.addEventListener('drop', e => {
+      e.preventDefault();
+      const src = e.dataTransfer.getData('text/list'); const dst = colEl.dataset.status;
+      if (!src || src===dst) return;
+      const lists = state.kanbanLists; const sIdx = lists.findIndex(l=>l.id===src); const dIdx = lists.findIndex(l=>l.id===dst);
+      if (sIdx<0 || dIdx<0) return;
+      captureUndo('Reorder lists');
+      const [moved] = lists.splice(sIdx,1);
+      lists.splice(dIdx,0,moved); save(); renderTasks();
+    });
+  });
   // Quick-add inline
   const quickInput = $('#quick-task-input');
   const quickAdd = () => {
@@ -4465,14 +4595,22 @@ function taskCardHTML(t) {
   const subProg = subtasks.length ? `<span class="subtask-prog ${subDone === subtasks.length ? 'done' : ''}">✓ ${subDone}/${subtasks.length}</span>` : '';
   const subBar = subtasks.length ? `<div class="subtask-bar-track" title="${subDone} of ${subtasks.length} subtasks completed"><div class="subtask-bar-fill" style="width:${Math.round((subDone / subtasks.length) * 100)}%"></div></div>` : '';
   const recBadge = t.recurrence ? `<span class="badge rec-badge">🔄 ${RECURRENCE.find(r => r.id === t.recurrence)?.label || t.recurrence}</span>` : '';
+  const coverBar = t.coverColor && t.coverColor !== '#00000000' ? `<div class="tc-cover" style="background:${t.coverColor}"></div>` : '';
+  const coverImg = t.coverImage ? `<div class="tc-cover-img"><img src="${t.coverImage}" alt="cover" loading="lazy" style="width:100%;height:90px;object-fit:cover;border-radius:8px 8px 0 0"></div>` : '';
+  const commentsBadge = (t.comments && t.comments.length) ? `<span class="tc-icon-badge" title="${t.comments.length} comment${t.comments.length===1?'':'s'}">💬 ${t.comments.length}</span>` : '';
+  const attachesBadge = (t.attachments && t.attachments.length) ? `<span class="tc-icon-badge" title="${t.attachments.length} file${t.attachments.length===1?'':'s'}">📎 ${t.attachments.length}</span>` : '';
+  const membersBadge = (t.members && t.members.length) ? `<span class="tc-icon-badge" title="${t.members.length} member${t.members.length===1?'':'s'}">👤 ${t.members.length}</span>` : '';
+  const startBadge = t.startDate ? `<span class="due-chip" title="Start ${t.startDate}">${fmtShort(t.startDate)} →</span>` : '';
+  const archivedCls = isArchivedTask(t) ? ' archived' : '';
   const selChecked = taskSelected.has(t.id) ? ' checked' : '';
   const selBox = taskSelectMode ? `<input type="checkbox" class="task-sel-check" data-sel-id="${t.id}"${selChecked}>` : '';
-  return `<div class="task-card ${taskSelectMode ? 'select-mode' : ''}${taskSelected.has(t.id) ? ' selected' : ''}" draggable="${taskSelectMode ? 'false' : 'true'}" data-id="${t.id}">
+  return `<div class="task-card${archivedCls} ${taskSelectMode ? 'select-mode' : ''}${taskSelected.has(t.id) ? ' selected' : ''}" draggable="${taskSelectMode ? 'false' : 'true'}" data-id="${t.id}">
+    ${coverImg || coverBar}
     <div class="tc-top">
       ${selBox}
       <button class="check-circle ${t.status === 'done' ? 'done' : ''}" data-complete="${t.id}" title="Mark done">${ic('check', 12)}</button>
       <div style="flex:1;min-width:0">
-        <div class="tc-title">${esc(t.title)}</div>
+        <div class="tc-title">${esc(t.title)} ${isArchivedTask(t)?'<span class="badge" style="background:#8b93a7;color:#fff;font-size:10px">archived</span>':''}</div>
         ${t.desc ? `<div class="tc-desc">${esc(t.desc)}</div>` : ''}
       </div>
     </div>
@@ -4482,9 +4620,13 @@ function taskCardHTML(t) {
       ${catBadge}
       ${goal ? `<span class="goal-chip" style="background:${goal.color}">${esc(goal.title)}</span>` : ''}
       ${linkGraphForTask(t)}
+      ${startBadge}
       ${t.due ? `<span class="due-chip ${overdue ? 'overdue' : ''}">${overdue ? '⚠ ' : ''}${fmtShort(t.due)}</span>` : ''}
       ${recBadge}
       ${subProg}
+      ${commentsBadge}
+      ${attachesBadge}
+      ${membersBadge}
     </div>
     ${subBar}
     ${(t.totalProgressTime || t.status === 'progress') ? `<div class="tc-time"><span class="time-icon">⏱</span> ${t.status === 'progress' ? '<span class="time-live" data-progress-start="' + (t.progressStartedAt || '') + '"></span>' : fmtProgressTime(t.totalProgressTime)}</div>` : ''}
@@ -4703,8 +4845,9 @@ function krOptionsHTML(goalId, selected) {
   return opts.join('');
 }
 function openTaskModal(task, presetStatus) {
-  const t = task || { title: '', desc: '', status: presetStatus || 'today', priority: 'med', due: '', goalId: '', tags: [], category: '', recurrence: '', subtasks: [] };
-  const statusOpts = STATUSES.map(s => `<option value="${s.id}" ${s.id === t.status ? 'selected' : ''}>${s.title}</option>`).join('');
+  const t = task || { title: '', desc: '', status: presetStatus || 'today', priority: 'med', due: '', startDate: '', coverColor: '', coverImage: '', members: [], comments: [], attachments: [], archived:false, watchers:[], goalId: '', tags: [], category: '', recurrence: '', subtasks: [] };
+  if (!t.comments) t.comments = []; if (!t.attachments) t.attachments = []; if (!t.members) t.members = [];
+  const statusOpts = getKanbanLists().map(s => `<option value="${s.id}" ${s.id === t.status ? 'selected' : ''}>${esc(s.title)}</option>`).join('');
   const prioOpts = Object.keys(PRIOS).map(k => `<option value="${k}" ${k === t.priority ? 'selected' : ''}>${PRIOS[k].label}</option>`).join('');
   const catOpts = CATEGORIES.map(c => `<option value="${c.id}" ${c.id === t.category ? 'selected' : ''}>${c.label}</option>`).join('');
   const studentList = getStudentsList();
@@ -4717,6 +4860,7 @@ function openTaskModal(task, presetStatus) {
       <div class="modal-head"><h3>${task ? 'Edit task' : 'New task'}</h3><button class="btn-icon" onclick="closeModal()">${ic('x', 16)}</button></div>
       <div class="modal-body">
         <div class="field"><label class="field-label">Title</label><input id="f-title" type="text" value="${esc(t.title)}" placeholder="What needs doing?"></div>
+        <div class="field"><label class="field-label">Cover (Trello)</label><div class="cover-picker" id="f-cover-picker" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${COVER_COLORS.map(c=>`<button type="button" class="cover-dot ${t.coverColor===c?'active':''}" data-cover="${c}" style="background:${c};width:28px;height:28px;border-radius:6px;border:2px solid ${t.coverColor===c?'#fff':'transparent'};box-shadow:0 0 0 2px ${t.coverColor===c?c:'transparent'};${c==='#00000000'?'border:1px dashed #8b93a7;background:transparent':''}" title="${c==='#00000000'?'No cover':c}">${c==='#00000000'?'✕':''}</button>`).join('')}<label class="btn btn-sm btn-ghost" style="margin-left:8px">🖼️ Image<input type="file" id="f-cover-file" accept="image/*" class="hidden"></label>${t.coverImage?`<button class="btn btn-sm btn-ghost" id="f-cover-clear">Clear</button></div><div class="cover-preview" style="margin-top:8px"><img src="${t.coverImage}" style="max-width:100%;max-height:120px;border-radius:8px;border:1px solid var(--border)"></div>`:'</div>'}</div>
         <div class="field"><label class="field-label">Description</label><textarea id="f-desc" rows="3" placeholder="Optional details…">${esc(t.desc)}</textarea></div>
         <div class="field-row">
           <div class="field"><label class="field-label">Status</label><select id="f-status">${statusOpts}</select></div>
@@ -4726,10 +4870,12 @@ function openTaskModal(task, presetStatus) {
           <div class="field"><label class="field-label">Student (optional)</label><select id="f-student"><option value="">— None —</option>${studentOpts}</select></div>
           <div class="field"><label class="field-label">Category</label><select id="f-category"><option value="">— None —</option>${catOpts}</select></div>
         </div>
+        <div class="field"><label class="field-label">Members (Trello, comma separated)</label><input id="f-members" type="text" value="${esc((t.members||[]).join(', '))}" placeholder="alice, bob, carol"></div>
         <div class="field-row">
+          <div class="field"><label class="field-label">Start date</label><input id="f-start" type="date" value="${t.startDate || ''}"></div>
           <div class="field"><label class="field-label">Due date</label><input id="f-due" type="date" value="${t.due || ''}"></div>
-          <div class="field"><label class="field-label">Goal</label><select id="f-goal"><option value="">— None —</option>${goalOpts}</select></div>
         </div>
+        <div class="field"><label class="field-label">Goal</label><select id="f-goal"><option value="">— None —</option>${goalOpts}</select></div>
         <div class="field-row">
           <div class="field"><label class="field-label">Recurrence</label><select id="f-recurrence">${recOpts}</select></div>
         </div>
@@ -4744,12 +4890,28 @@ function openTaskModal(task, presetStatus) {
         <div class="field"><label class="field-label">Key result (optional) — completing this task advances it</label><select id="f-kr">${krOptionsHTML(t.goalId, t.krId)}</select></div>
         <div class="field"><label class="field-label">Tags (comma separated)</label><input id="f-tags" type="text" value="${esc((t.tags || []).join(', '))}" placeholder="work, focus, errand"></div>
         <div class="field">
-          <label class="field-label">Subtasks</label>
+          <label class="field-label">Subtasks (Trello checklist)</label>
           <div id="f-subtasks">${subtaskRows}</div>
           <div style="display:flex;gap:8px;margin-top:6px">
-            <button class="btn btn-ghost btn-sm" id="f-add-subtask">${ic('plus', 14)} Add subtask</button>
+            <button class="btn btn-ghost btn-sm" id="f-add-subtask">${ic('plus', 14)} Add checklist item</button>
             <button class="btn btn-sm btn-ai" id="f-ai-subtasks">✨ AI Breakdown</button>
           </div>
+        </div>
+        <div class="field"><label class="field-label">Attachments (Trello)</label>
+          <div id="f-attachments-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px">${(t.attachments||[]).map(a=>`<div class="attach-row" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--border);border-radius:8px"><span>${fileIcon(a.name)}</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">${esc(a.name)} <span class="muted" style="font-size:11px">${fileSizeStr(a.size)} · ${a.mime||''}</span></span><button class="btn btn-xs btn-ghost" data-attach-dl="${a.id}">⬇</button><button class="btn btn-xs btn-ghost" data-attach-del="${a.id}">✕</button></div>`).join('') || '<div class="muted" style="font-size:12px">No files yet — attach images, PDFs, etc.</div>'}</div>
+          <label class="btn btn-sm btn-ghost" style="cursor:pointer">📎 Add file<input type="file" id="f-attach-file" class="hidden" multiple></label>
+          <span class="muted" style="font-size:11px;margin-left:8px">Stored locally in IndexedDB — offline.</span>
+        </div>
+        <div class="field"><label class="field-label">Comments (Trello)</label>
+          <div id="f-comments-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px;max-height:180px;overflow-y:auto">${(t.comments||[]).slice().reverse().map(c=>`<div class="comment-row" style="padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--surface2)"><div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:12px">${esc(c.author||'You')}</b><span class="muted" style="font-size:11px">${timeAgo(c.at)} <button class="btn-icon" data-comment-del="${c.id}" title="Delete">${ic('x',12)}</button></span></div><div style="font-size:13px;margin-top:4px;white-space:pre-wrap">${esc(c.text)}</div></div>`).join('') || '<div class="muted" style="font-size:12px">No comments yet — ask a question or leave a note.</div>'}</div>
+          <div style="display:flex;gap:8px"><input id="f-comment-input" type="text" placeholder="Write a comment…" style="flex:1"><button class="btn btn-accent btn-sm" id="f-comment-add">Comment</button></div>
+        </div>
+        <div class="field" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <label class="field-label" style="margin:0">Card actions</label>
+          <button class="btn btn-sm btn-ghost" id="f-archive-toggle">${t.archived? '↩ Restore' : '🗄 Archive'}</button>
+          <button class="btn btn-sm btn-ghost" id="f-move-card">↔ Move</button>
+          <button class="btn btn-sm btn-ghost" id="f-copy-card">⧉ Copy</button>
+          <button class="btn btn-sm btn-ghost" id="f-watch-toggle">${(t.watchers||[]).includes('me')? '👁 Watching' : '👁 Watch'}</button>
         </div>
         ${t.goalId ? `<div class="modal-link-graph">${linkGraphForTask(t)} <span class="muted" style="font-size:11px">· completes → KR auto-advances</span></div>` : ''}
         ${task ? `<div class="modal-pomo-widget" id="f-pomo-widget">
@@ -4793,6 +4955,49 @@ function openTaskModal(task, presetStatus) {
   });
   $('#f-dup')?.addEventListener('click', () => { if (task) { duplicateTaskById(task.id); closeModal(); } });
   $('#f-share')?.addEventListener('click', () => { if (task) shareText(task.title, (task.desc || '') + (task.due ? '\nDue: ' + task.due : '')); });
+  // Trello cover picker
+  let pendingCoverColor = t.coverColor || '';
+  let pendingCoverImage = t.coverImage || '';
+  $$('[data-cover]').forEach(b=>b.addEventListener('click', ()=>{ $$('[data-cover]').forEach(x=>x.classList.remove('active')); b.classList.add('active'); pendingCoverColor = b.dataset.cover; if (pendingCoverColor==='#00000000') pendingCoverColor=''; }));
+  $('#f-cover-file')?.addEventListener('change', async e => {
+    const f = e.target.files[0]; if (!f) return;
+    if (f.size > 2*1024*1024) { toast('Image too large (max 2MB)', 'error'); return; }
+    const reader = new FileReader(); reader.onload = () => { pendingCoverImage = reader.result; const prev = document.querySelector('.cover-preview'); if (prev) prev.innerHTML = `<img src="${pendingCoverImage}" style="max-width:100%;max-height:120px;border-radius:8px;border:1px solid var(--border)">`; else document.getElementById('f-cover-picker').insertAdjacentHTML('afterend', `<div class="cover-preview" style="margin-top:8px"><img src="${pendingCoverImage}" style="max-width:100%;max-height:120px;border-radius:8px"></div>`); toast('Cover image ready — save to keep'); }; reader.readAsDataURL(f);
+  });
+  $('#f-cover-clear')?.addEventListener('click', ()=>{ pendingCoverImage=''; pendingCoverColor=''; $$('[data-cover]').forEach(x=>x.classList.remove('active')); const prev=document.querySelector('.cover-preview'); if(prev) prev.remove(); });
+  // Watch toggle
+  $('#f-watch-toggle')?.addEventListener('click', ()=>{ const isWatched = (t.watchers||[]).includes('me'); if (!t.watchers) t.watchers=[]; if(isWatched) t.watchers = t.watchers.filter(x=>x!=='me'); else t.watchers.push('me'); $('#f-watch-toggle').textContent = t.watchers.includes('me') ? '👁 Watching' : '👁 Watch'; toast(t.watchers.includes('me') ? 'Watching' : 'Unwatched'); });
+  // Archive toggle
+  $('#f-archive-toggle')?.addEventListener('click', ()=>{ t.archived = !t.archived; $('#f-archive-toggle').textContent = t.archived ? '↩ Restore' : '🗄 Archive'; toast(t.archived ? 'Will archive on save' : 'Will restore on save'); });
+  // Move card (Trello)
+  $('#f-move-card')?.addEventListener('click', ()=>{
+    const lists = getKanbanLists();
+    openModal(`<div class="modal" style="max-width:340px"><div class="modal-head"><h3>Move card</h3><button class="btn-icon" onclick="closeModal()">${ic('x',16)}</button></div><div class="modal-body"><div class="field"><label class="field-label">List</label><select id="move-list">${lists.map(l=>`<option value="${l.id}" ${l.id===t.status?'selected':''}>${esc(l.title)}</option>`).join('')}</select></div><div class="field"><label class="field-label">Position</label><select id="move-pos"><option value="top">Top</option><option value="bottom" selected>Bottom</option></select></div></div><div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-accent" id="move-confirm">Move</button></div></div>`);
+    $('#move-confirm')?.addEventListener('click', ()=>{
+      const nl = $('#move-list').value; const pos = $('#move-pos').value;
+      if (nl && task) { captureUndo('Move card'); task.status = nl; task.updatedAt=Date.now(); if(pos==='top'){ const idx=state.tasks.indexOf(task); state.tasks.splice(idx,1); state.tasks.unshift(task); } save(); renderView(); closeModal(); openTaskModal(task); toast('Moved to '+ (lists.find(l=>l.id===nl)?.title||nl)); }
+    });
+  });
+  $('#f-copy-card')?.addEventListener('click', ()=>{ if(task) { duplicateTaskById(task.id); } });
+  // Comments
+  const renderComments = ()=>{ const list=$('#f-comments-list'); if(!list) return; list.innerHTML = (t.comments||[]).slice().reverse().map(c=>`<div class="comment-row" style="padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--surface2)"><div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:12px">${esc(c.author||'You')}</b><span class="muted" style="font-size:11px">${timeAgo(c.at)} <button class="btn-icon" data-comment-del="${c.id}" title="Delete">${ic('x',12)}</button></span></div><div style="font-size:13px;margin-top:4px;white-space:pre-wrap">${esc(c.text)}</div></div>`).join('') || '<div class="muted" style="font-size:12px">No comments yet — ask a question or leave a note.</div>'; list.querySelectorAll('[data-comment-del]').forEach(b=>b.addEventListener('click', ()=>{ t.comments = (t.comments||[]).filter(x=>x.id!==b.dataset.commentDel); renderComments(); toast('Comment deleted'); })); };
+  $('#f-comment-add')?.addEventListener('click', ()=>{ const inp=$('#f-comment-input'); const txt=inp.value.trim(); if(!txt) return; if(!t.comments) t.comments=[]; t.comments.push({id:uid(), text:txt, at:Date.now(), author:'You'}); inp.value=''; renderComments(); });
+  $('#f-comment-input')?.addEventListener('keydown', e=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); $('#f-comment-add').click(); } });
+  // Attachments
+  const renderAttach = ()=>{ const list=$('#f-attachments-list'); if(!list) return; list.innerHTML = (t.attachments||[]).map(a=>`<div class="attach-row" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--border);border-radius:8px"><span>${fileIcon(a.name)}</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">${esc(a.name)} <span class="muted" style="font-size:11px">${fileSizeStr(a.size)} · ${a.mime||''}</span></span><button class="btn btn-xs btn-ghost" data-attach-dl="${a.id}">⬇</button><button class="btn btn-xs btn-ghost" data-attach-del="${a.id}">✕</button></div>`).join('') || '<div class="muted" style="font-size:12px">No files yet — attach images, PDFs, etc.</div>';
+    list.querySelectorAll('[data-attach-del]').forEach(b=>b.addEventListener('click', async ()=>{ const id=b.dataset.attachDel; const att=(t.attachments||[]).find(x=>x.id===id); if(att && att.blobId) try{ await blobDelete(att.blobId); }catch(_){} t.attachments=(t.attachments||[]).filter(x=>x.id!==id); renderAttach(); }));
+    list.querySelectorAll('[data-attach-dl]').forEach(b=>b.addEventListener('click', async ()=>{ const att=(t.attachments||[]).find(x=>x.id===b.dataset.attachDl); if(!att) return; try{ const blob=await blobGet(att.blobId); if(!blob){ toast('File not found', 'error'); return; } const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=att.name; a.click(); setTimeout(()=>URL.revokeObjectURL(url),3000); }catch(_){ toast('Download failed','error'); } }));
+  };
+  $('#f-attach-file')?.addEventListener('change', async e=>{
+    const files=[...e.target.files]; if(!files.length) return;
+    if(!t.attachments) t.attachments=[];
+    for(const f of files){
+      if(f.size>5*1024*1024){ toast(f.name+' too large (5MB max)','error'); continue; }
+      const blobId='attach-'+uid();
+      try{ await blobPut(blobId, f); t.attachments.push({id:uid(), name:f.name, size:f.size, mime:f.type, blobId}); }catch(_){ toast('Save failed','error'); }
+    }
+    renderAttach(); e.target.value='';
+  });
   // Subtask management
   function bindSubtaskRow(row) {
     const input = row.querySelector('.st-input');
@@ -4885,6 +5090,14 @@ function openTaskModal(task, presetStatus) {
       priority: $('#f-prio').value,
       student: $('#f-student')?.value || undefined,
       due: $('#f-due').value,
+      startDate: $('#f-start')?.value || '',
+      coverColor: pendingCoverColor,
+      coverImage: pendingCoverImage,
+      members: ($('#f-members')?.value || '').split(',').map(s=>s.trim()).filter(Boolean),
+      comments: t.comments || [],
+      attachments: t.attachments || [],
+      archived: !!t.archived,
+      watchers: t.watchers || [],
       category: $('#f-category').value,
       recurrence: $('#f-recurrence').value,
       goalId: $('#f-goal').value,
@@ -7267,7 +7480,7 @@ function handleData(d, c) {
 function applyMerge(inc, incomingRev) {
   const key = arr => JSON.stringify([...(arr || [])].sort((a, b) => (a.id < b.id ? -1 : 1)));
   const keyAch = a => JSON.stringify(Object.entries(a || {}).sort((x, y) => (x[0] < y[0] ? -1 : 1)));
-  const before = key(state.tasks) + key(state.goals) + key(state.habits) + key(state.notes) + key(state.recordings) + key(state.projects) + key(state.krHistory) + key(state.income) + key(state.expenses) + key(state.students) + key(state.attendance) + key(state.assignments) + key(state.lessonPlans) + JSON.stringify(state.tagColors || {}) + keyAch(state.achievements);
+  const before = key(state.tasks) + key(state.goals) + key(state.habits) + key(state.notes) + key(state.recordings) + key(state.projects) + key(state.krHistory) + key(state.income) + key(state.expenses) + key(state.students) + key(state.attendance) + key(state.assignments) + key(state.lessonPlans) + JSON.stringify(state.kanbanLists||[]) + JSON.stringify(state.tagColors || {}) + keyAch(state.achievements);
   const mergeOne = (local, incoming, tombKey) => {
     const tomb = new Set(syncMeta.tombstones[tombKey] || []);
     ((inc.deleted && inc.deleted[tombKey]) || []).forEach(id => tomb.add(id));
@@ -7392,12 +7605,18 @@ function applyMerge(inc, incomingRev) {
     }
     state.expenseCategories = [...curSet];
   }
+  // Merge kanban lists (Trello) — union, incoming wins for same id
+  if (Array.isArray(inc.kanbanLists) && inc.kanbanLists.length) {
+    const map = new Map((state.kanbanLists||[]).map(l=>[l.id,l]));
+    inc.kanbanLists.forEach(l=> { if(l && l.id) map.set(l.id, l); });
+    state.kanbanLists = [...map.values()];
+  }
   state.achievements = Object.assign({}, state.achievements || {});
   Object.keys(inc.achievements || {}).forEach(k => {
     const iu = (inc.achievements[k] || {}).unlockedAt || 0;
     if (!state.achievements[k] || iu > ((state.achievements[k] || {}).unlockedAt || 0)) state.achievements[k] = inc.achievements[k];
   });
-  const changed = before !== key(state.tasks) + key(state.goals) + key(state.habits) + key(state.notes) + key(state.recordings) + key(state.projects) + key(state.krHistory) + key(state.income) + key(state.expenses) + key(state.students) + key(state.attendance) + key(state.assignments) + key(state.lessonPlans) + JSON.stringify(state.tagColors || {}) + keyAch(state.achievements);
+  const changed = before !== key(state.tasks) + key(state.goals) + key(state.habits) + key(state.notes) + key(state.recordings) + key(state.projects) + key(state.krHistory) + key(state.income) + key(state.expenses) + key(state.students) + key(state.attendance) + key(state.assignments) + key(state.lessonPlans) + JSON.stringify(state.kanbanLists||[]) + JSON.stringify(state.tagColors || {}) + keyAch(state.achievements);
   saveSyncMeta();
   if (changed) {
     syncMeta.rev = Math.max(syncMeta.rev || 0, incomingRev) + 1;
@@ -7416,12 +7635,12 @@ function pushState() {
       type: 'sync',
       rev: syncMeta.rev,
       name: syncMeta.deviceName,
-      data: {
+        data: {
         tasks: state.tasks, goals: state.goals, habits: state.habits, notes: state.notes, recordings: state.recordings,
         projects: state.projects, krHistory: state.krHistory, tagColors: state.tagColors, _tagColorMeta: state._tagColorMeta, _incomeTypesMeta: state._incomeTypesMeta, _expenseCategoriesMeta: state._expenseCategoriesMeta,
         achievements: state.achievements, income: state.income, expenses: state.expenses,
         expectedIncome: state.expectedIncome, expectedExpenses: state.expectedExpenses, incomeTypes: state.incomeTypes, expenseCategories: state.expenseCategories,
-        students: state.students, attendance: state.attendance, assignments: state.assignments, lessonPlans: state.lessonPlans,
+        students: state.students, attendance: state.attendance, assignments: state.assignments, lessonPlans: state.lessonPlans, kanbanLists: state.kanbanLists,
         deleted: syncMeta.tombstones
       }
     });
@@ -7455,7 +7674,7 @@ function enqueueSyncSnapshot() {
       achievements: state.achievements, income: state.income, expenses: state.expenses,
       expectedIncome: state.expectedIncome, expectedExpenses: state.expectedExpenses, incomeTypes: state.incomeTypes, expenseCategories: state.expenseCategories,
       _tagColorMeta: state._tagColorMeta, _incomeTypesMeta: state._incomeTypesMeta, _expenseCategoriesMeta: state._expenseCategoriesMeta,
-      students: state.students,
+      students: state.students, kanbanLists: state.kanbanLists,
       deleted: syncMeta.tombstones
     }
   };
