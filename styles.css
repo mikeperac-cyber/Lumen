@@ -2904,6 +2904,20 @@ html.focus-mode .topbar { justify-content: center; }
   .fps-nums { text-align: left; }
 }
 
+/* v106 — mobile reach: heavy views one-handed on a phone */
+@media (max-width: 860px) {
+  .topbar { position: sticky; top: 0; z-index: 30; background: var(--bg); }
+  .topbar-right { flex-wrap: wrap; gap: 6px; }
+  .search-btn { flex: 1 1 100%; min-width: 0; }
+  .fin-tx-table, .students-table, table { max-width: 100%; }
+}
+@media (max-width: 640px) {
+  .btn, .btn-sm { min-height: 38px; }
+  .btn-icon { min-width: 34px; min-height: 34px; }
+  .stats { grid-template-columns: repeat(2, 1fr); }
+  .ritual-nav { flex-wrap: wrap; }
+}
+
 /* v106 — weekly review ritual */
 .ritual-strip { border-left: 3px solid var(--accent); }
 .ritual-head { display: flex; justify-content: space-between; align-items: center; font-weight: 600; margin-bottom: 8px; }
