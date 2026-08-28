@@ -3333,6 +3333,31 @@ function reviewCtx(off) {
   const achHTML = (achRows || '<div class="empty-state"><div class="es-icon">🎁</div>Nothing unlocked this week — check-ins, completions and memos earn badges.</div>') +
     (streakAtEnd >= 1 || off === 0 ? `<div class="muted" style="font-size:12px;margin-top:8px">🔁 Weekly unlock streak: <b>${streakAtEnd}</b> week${streakAtEnd === 1 ? '' : 's'}${off === 0 && streakAtEnd >= 2 ? ' and counting' : ''}</div>` : '');
   const deltaTxt = delta === 0 ? 'same as last week' : delta > 0 ? `+${delta} vs last week` : `${delta} vs last week`;
+
+  // ---- Slipped: work that fell behind in this window ----
+  const slippedTasks = state.tasks.filter(t => t.due && t.due >= w.startISO && t.due <= w.endISO && t.status !== 'done');
+  const slippedHabits = state.habits.filter(h => {
+    let misses = 0;
+    for (let i = 0; i < 7; i++) { const k = wkKeys[i]; if (k <= today && !h.dates[k]) misses++; }
+    return misses >= 2;
+  });
+  const stalledKRs = [];
+  state.goals.forEach(g => (g.keyResults || []).forEach(kr => {
+    const moved = (state.krHistory || []).some(x => x.krId === kr.id && x.at >= wkStartMs && x.at <= wkEndMs);
+    if (!moved && (kr.current || 0) < (kr.target || 1)) stalledKRs.push({ goal: g, kr });
+  }));
+  const slippedRows =
+    (slippedTasks.slice(0, 6).map(t => `<div class="slip-row" data-goto="tasks">⛔ <span class="t-title">${esc(t.title)}</span><span class="due-chip overdue">${fmtShort(t.due)}</span></div>`).join('')) +
+    (slippedHabits.map(h => `<div class="slip-row" data-goto="habits">${h.emoji} <span class="t-title">${esc(h.name)}</span><span class="muted">2+ misses</span></div>`).join('')) +
+    (stalledKRs.slice(0, 4).map(({ goal, kr }) => `<div class="slip-row" data-goto="goals">🎯 <span class="t-title">${esc(goal.title)} — ${esc(kr.title)}</span><span class="muted">no progress</span></div>`).join(''))
+    || '<div class="muted" style="font-size:12px;padding:6px 0">Nothing slipped. Clean week.</div>';
+  const soonISO = isoDate(shiftDays(14));
+  const protectCandidates = [
+    ...slippedHabits.map(h => ({ id: h.id, kind: 'habit', label: `${h.emoji} ${h.name}` })),
+    ...state.goals.filter(g => g.due && g.due >= today && g.due <= soonISO).map(g => ({ id: g.id, kind: 'goal', label: `🎯 ${g.title}` })),
+    ...slippedTasks.slice(0, 5).map(t => ({ id: t.id, kind: 'task', label: `⛔ ${t.title}` })),
+  ];
+
   ctx = {
     today, label: w.label,
     statTasks: String(weekTasks.length), statTasksLabel: 'tasks completed · ' + deltaTxt,
@@ -3341,7 +3366,8 @@ function reviewCtx(off) {
     statNotes: String(notesCreated), statNotesLabel: 'notes created',
     statOverdue: String(hiddenOverdue), hiddenOverdue,
     dhRows: deadlineHealthRowsHTML(w, krIdx),
-    completedHTML, completedSig, goalRows, achHTML, habitRows, weekTasksSorted
+    completedHTML, completedSig, goalRows, achHTML, habitRows, weekTasksSorted,
+    slipped: { tasks: slippedTasks, habits: slippedHabits, stalledKRs }, slippedRows, protectCandidates
   };
   if (reviewWeekCache.size > 24) reviewWeekCache.clear();
   reviewWeekCache.set(off, ctx);
