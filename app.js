@@ -1704,10 +1704,10 @@ const ACCENT_COLORS = [
 
 let _themesLoaded = false;
 function ensureThemesCSS() {
-  if (_themesLoaded || document.querySelector('link[href^="themes.css"]')) { _themesLoaded = true; return; }
+  if (_themesLoaded || document.querySelector('link[rel="stylesheet"][href^="themes.css"]')) { _themesLoaded = true; return; }
   const link = document.createElement('link');
   link.rel = 'stylesheet';
-  link.href = 'themes.css?v=107';
+  link.href = 'themes.css?v=108';
   link.onload = () => { _themesLoaded = true; };
   document.head.appendChild(link);
 }
@@ -1723,10 +1723,8 @@ function applyTheme() {
   }
   const meta = THEME_PALETTES.find(p=>p.id===t);
   const isLight = meta ? !meta.dark : (t === 'sepia' || t === 'coral-dawn' || t === 'boardroom' || t === 'library' || t === 'campus' || t === 'calm' || t === 'journal');
-  // lazy-load extra themes after first paint (keeps critical CSS lighter) — keep dracula/sepia/calm critical
-  const critical = new Set(['dracula','sepia','calm','boardroom']);
-  if (!critical.has(t)) ensureThemesCSS();
-  else _whenIdle(ensureThemesCSS);
+  // ensure themes.css is present as stylesheet before applying — fixes light themes that were only prefetched
+  ensureThemesCSS();
   const doApply = () => {
     document.documentElement.dataset.theme = t;
     // purposeful: if user picked a custom accent, honor it; else let theme's own --accent shine
