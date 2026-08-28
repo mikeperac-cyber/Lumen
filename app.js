@@ -446,7 +446,7 @@ async function callGemini(prompt, systemInstruction = '') {
 
 /* ---------- State & persistence ---------- */
 const KEY = 'lumen.state.v1';
-let state = { tasks: [], goals: [], habits: [], notes: [], recordings: [], krHistory: [], tagColors: {}, projects: [], activityLog: [], settings: {}, incomeTypes: ['ESL','IELTS','Tutoring','Exam Prep'], expenseCategories: ['Rent','Utilities','Food','Transport','Supplies','Software','Marketing','Education','Healthcare','Other'], students: [], income: [], expenses: [], expectedIncome: [], expectedExpenses: [], attendance: [], assignments: [], lessonPlans: [], kanbanLists: [] };
+let state = { tasks: [], goals: [], habits: [], notes: [], recordings: [], krHistory: [], tagColors: {}, projects: [], activityLog: [], settings: {}, incomeTypes: ['ESL','IELTS','Tutoring','Exam Prep'], expenseCategories: ['Rent','Utilities','Food','Transport','Supplies','Software','Marketing','Education','Healthcare','Other'], students: [], income: [], expenses: [], expectedIncome: [], expectedExpenses: [], attendance: [], assignments: [], lessonPlans: [], kanbanLists: [], vaultItems: [], vaultCollections: [], _vaultItemsMeta: {}, _vaultCollectionsMeta: {} };
 function getTagColor(name) {
   return (state.tagColors || {})[name.toLowerCase()] || null;
 }
@@ -597,7 +597,7 @@ function normalizeState(parsed) {
     });
   }
   // Ensure all goals have required defaults
-  if (Array.isArray(state.goals)) state.goals.forEach(g => { if (!Array.isArray(g.keyResults)) g.keyResults = []; if (!Array.isArray(g.linkedStudentIds)) g.linkedStudentIds = []; });
+  if (Array.isArray(state.goals)) state.goals.forEach(g => { if (!Array.isArray(g.keyResults)) g.keyResults = []; if (!Array.isArray(g.linkedStudentIds)) g.linkedStudentIds = []; if (!Array.isArray(g.vaultIds)) g.vaultIds = []; });
   // Ensure kanban lists exist (Trello board)
   ensureKanbanLists();
   // Ensure tasks have subtasks array + Trello fields
@@ -611,7 +611,29 @@ function normalizeState(parsed) {
     if (t.archived === undefined) t.archived = false;
     if (t.watchers === undefined) t.watchers = [];
     if (t.members === undefined) t.members = [];
+    if (!Array.isArray(t.vaultIds)) t.vaultIds = [];
   });
+  // Vault backfill
+  if (!Array.isArray(state.vaultItems)) state.vaultItems = [];
+  if (!Array.isArray(state.vaultCollections)) state.vaultCollections = [];
+  if (!state._vaultItemsMeta) state._vaultItemsMeta = {};
+  if (!state._vaultCollectionsMeta) state._vaultCollectionsMeta = {};
+  ensureVaultCollections();
+  state.vaultItems.forEach(v => {
+    if (!v.id) v.id = uid();
+    if (!Array.isArray(v.tags)) v.tags = [];
+    if (!Array.isArray(v.linkedTaskIds)) v.linkedTaskIds = [];
+    if (!Array.isArray(v.linkedGoalIds)) v.linkedGoalIds = [];
+    if (!Array.isArray(v.linkedNoteIds)) v.linkedNoteIds = [];
+    if (!Array.isArray(v.linkedStudentIds)) v.linkedStudentIds = [];
+    if (v.collectionId === undefined) v.collectionId = null;
+    if (v.pinned === undefined) v.pinned = false;
+    if (!v.type) v.type = vaultGuessType(v.fileName || '', v.mime || '') || 'link';
+    if (v.createdAt === undefined) v.createdAt = v.updatedAt || Date.now();
+    if (v.updatedAt === undefined) v.updatedAt = Date.now();
+    if (!state._vaultItemsMeta[v.id]) state._vaultItemsMeta[v.id] = v.updatedAt;
+  });
+  try{ backfillVaultLinks(); }catch(_){}
   // include archived tasks in sync but hidden in kanban
 }
 
@@ -755,6 +777,105 @@ function performRedo() {
   state = JSON.parse(next);
   save(); renderView();
   toast('↪️ Redo', 'success');
+}
+
+/* ---- Vault: IDB for file blobs (separate store, plain blobs only) ---- */
+let _vaultDb = null;
+const VAULT_DB = 'lumen-vault';
+const VAULT_STORE = 'blobs';
+const VAULT_MAX_FILE = 10 * 1024 * 1024; // 10MB per file
+const VAULT_SOFT_CAP = 100 * 1024 * 1024; // 100MB soft cap
+function vaultDb() {
+  return new Promise((res, rej) => {
+    if (_vaultDb) return res(_vaultDb);
+    let rq; try { rq = indexedDB.open(VAULT_DB, 1); } catch (e) { return rej(e); }
+    rq.onupgradeneeded = e => { const db = e.target.result; if (!db.objectStoreNames.contains(VAULT_STORE)) db.createObjectStore(VAULT_STORE); };
+    rq.onsuccess = e => { _vaultDb = e.target.result; res(_vaultDb); };
+    rq.onerror = () => rej(rq.error);
+  });
+}
+function vaultBlobPut(key, blob) { return vaultDb().then(db => new Promise((res, rej) => { const tx = db.transaction(VAULT_STORE, 'readwrite'); tx.objectStore(VAULT_STORE).put(blob, key); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); })); }
+function vaultBlobGet(key) { return vaultDb().then(db => new Promise((res, rej) => { const tx = db.transaction(VAULT_STORE, 'readonly'); const rq = tx.objectStore(VAULT_STORE).get(key); rq.onsuccess = () => res(rq.result || null); rq.onerror = () => rej(rq.error); })); }
+function vaultBlobDelete(key) { return vaultDb().then(db => new Promise((res, rej) => { const tx = db.transaction(VAULT_STORE, 'readwrite'); tx.objectStore(VAULT_STORE).delete(key); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); })); }
+function vaultQuotaUsed() { return (state.vaultItems || []).reduce((s, v) => s + (v.size || 0), 0); }
+function vaultGuessType(fileName, mime) {
+  const ext = (fileName || '').split('.').pop().toLowerCase();
+  const m = (mime || '').toLowerCase();
+  if (['pdf'].includes(ext) || m.includes('pdf')) return 'pdf';
+  if (['doc','docx','odt','rtf','txt','md'].includes(ext) || m.includes('word') || m.includes('document') || m === 'text/plain') return 'doc';
+  if (['xls','xlsx','csv','ods'].includes(ext) || m.includes('sheet') || m.includes('excel') || m.includes('csv')) return 'sheet';
+  if (['png','jpg','jpeg','gif','webp','svg','bmp','ico'].includes(ext) || m.startsWith('image/')) return 'image';
+  if (['mp4','mov','avi','webm','mkv'].includes(ext) || m.startsWith('video/')) return 'video';
+  return 'link';
+}
+function vaultTypeIcon(type) {
+  const map = { link:'🔗', doc:'📄', sheet:'📊', pdf:'📕', image:'🖼️', video:'🎬', other:'📦' };
+  return map[type] || map.other;
+}
+function getVaultCollections() {
+  if (!Array.isArray(state.vaultCollections)) state.vaultCollections = [];
+  return state.vaultCollections;
+}
+function ensureVaultCollections() {
+  if (!Array.isArray(state.vaultCollections)) state.vaultCollections = [];
+  if (!state._vaultCollectionsMeta) state._vaultCollectionsMeta = {};
+}
+function addVaultCollection(title, color) {
+  title = (title || '').trim(); if (!title) return null;
+  const id = title.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'') || 'col-' + Date.now();
+  let base = id, n=1; while (getVaultCollections().find(c=>c.id===base)) base = id + '-' + (++n);
+  const col = { id: base, title, color: color || COLORS[Math.floor(Math.random()*COLORS.length)], createdAt: Date.now() };
+  captureUndo('Add collection'); state.vaultCollections.push(col);
+  if (!state._vaultCollectionsMeta) state._vaultCollectionsMeta = {};
+  state._vaultCollectionsMeta[base] = Date.now();
+  save(); renderVault(); toast('Collection added: ' + title); return col;
+}
+function renameVaultCollection(id, newTitle) {
+  newTitle = (newTitle||'').trim(); if (!newTitle) return;
+  const c = state.vaultCollections.find(x=>x.id===id); if (!c) return;
+  captureUndo('Rename collection'); c.title = newTitle;
+  if (!state._vaultCollectionsMeta) state._vaultCollectionsMeta = {};
+  state._vaultCollectionsMeta[id] = Date.now();
+  save(); renderVault();
+}
+function deleteVaultCollection(id) {
+  const c = state.vaultCollections.find(x=>x.id===id); if (!c) return;
+  if (!confirm(`Delete collection "${c.title}"? Items will move to Unsorted.`)) return;
+  captureUndo('Delete collection');
+  state.vaultItems.forEach(v=>{ if (v.collectionId===id) { v.collectionId=null; v.updatedAt=Date.now(); if (!state._vaultItemsMeta) state._vaultItemsMeta={}; state._vaultItemsMeta[v.id]=Date.now(); } });
+  state.vaultCollections = state.vaultCollections.filter(x=>x.id!==id);
+  if (!state._vaultCollectionsMeta) state._vaultCollectionsMeta={};
+  state._vaultCollectionsMeta[id]=Date.now();
+  if (!syncMeta.tombstones.vaultCollections) syncMeta.tombstones.vaultCollections={};
+  syncMeta.tombstones.vaultCollections[id]=Date.now();
+  saveSyncMeta(); save(); renderVault(); toast('Collection deleted');
+}
+function getVaultItems() {
+  if (!Array.isArray(state.vaultItems)) state.vaultItems = [];
+  return state.vaultItems;
+}
+function getVaultHay(v) {
+  const colTitle = (state.vaultCollections||[]).find(c=>c.id===v.collectionId)?.title || '';
+  return (v.title + ' ' + (v.url||'') + ' ' + (v.description||'') + ' ' + (v.tags||[]).join(' ') + ' ' + colTitle + ' ' + v.type).toLowerCase();
+}
+function getVaultFiltered() {
+  const q = (vaultFilter.q || '').toLowerCase();
+  const type = vaultFilter.type || '';
+  const tag = vaultFilter.tag || '';
+  const col = vaultFilter.collection || '';
+  let out = getVaultItems().slice();
+  if (type) out = out.filter(v => v.type === type);
+  if (tag) out = out.filter(v => (v.tags||[]).map(t=>t.toLowerCase()).includes(tag.toLowerCase()));
+  if (col) {
+    if (col === '__none') out = out.filter(v => !v.collectionId);
+    else out = out.filter(v => v.collectionId === col);
+  }
+  if (q) {
+    const ql = q.toLowerCase();
+    out = out.filter(v => getVaultHay(v).includes(ql));
+  }
+  out.sort((a,b)=> (b.pinned?1:0)-(a.pinned?1:0) || b.updatedAt - a.updatedAt);
+  return out;
 }
 
 /* IndexedDB for audio blobs */
@@ -1051,6 +1172,20 @@ function openScheduleIntervalsModal() {
 }
 const COLORS = ['#7c6cf6', '#4f8cff', '#34d399', '#ffb020', '#ff5d6c', '#f472b6', '#22d3ee', '#a3e635'];
 const EMOJIS = ['💧', '🏋️', '📚', '🧘', '🥗', '✍️', '🌅', '💪', '🎸', '🌱', '🧠', '🚶'];
+const VAULT_TYPES = [
+  { id: 'link', label: 'Link', icon: '🔗' },
+  { id: 'doc', label: 'Doc', icon: '📄' },
+  { id: 'sheet', label: 'Sheet', icon: '📊' },
+  { id: 'pdf', label: 'PDF', icon: '📕' },
+  { id: 'image', label: 'Image', icon: '🖼️' },
+  { id: 'video', label: 'Video', icon: '🎬' },
+  { id: 'other', label: 'Other', icon: '📦' }
+];
+const VAULT_TYPE_SET = new Set(VAULT_TYPES.map(t=>t.id));
+let vaultFilter = { q: '', type: '', tag: '', collection: '' };
+let vaultViewMode = (()=>{ try{ return localStorage.getItem('lumen.vault.view') || 'grid'; }catch(_){ return 'grid'; }})();
+function setVaultViewMode(m){ vaultViewMode=m; try{ localStorage.setItem('lumen.vault.view', m); }catch(_){} }
+let _vaultSearchMemo = null; // for memoization if needed
 const TITLES = {
   brief: ['Morning Brief', 'Your day, assembled before you start'],
   dashboard: ['Dashboard', 'Your day at a glance'],
@@ -1069,13 +1204,14 @@ const TITLES = {
   perf: ['Performance', 'Render times & slow view alerts'],
   analytics: ['Habit Analytics', 'Day-of-week patterns & cross-habit insights'],
   finance: ['Finance', 'Income, expenses & cash flow'],
-  students: ['Students', 'Teaching roster, lesson dossiers & student progress']
+  students: ['Students', 'Teaching roster, lesson dossiers & student progress'],
+  vault: ['Vault', 'Your links & files — local-first, pinned & searchable']
 };
 const NAV = {
-  brief: ['sparkles', 'Brief'], dashboard: ['dashboard', 'Dashboard'], students: ['graduation-cap', 'Students'], review: ['calendar', 'Weekly review'], tasks: ['check-square', 'Tasks'], projects: ['folder', 'Projects'], schedule: ['calendar-plus', 'Personal Schedule'], tags: ['tag', 'Tags'], goals: ['target', 'Goals'],
+  brief: ['sparkles', 'Brief'], dashboard: ['dashboard', 'Dashboard'], students: ['graduation-cap', 'Students'], vault: ['folder', 'Vault'], review: ['calendar', 'Weekly review'], tasks: ['check-square', 'Tasks'], projects: ['folder', 'Projects'], schedule: ['calendar-plus', 'Personal Schedule'], tags: ['tag', 'Tags'], goals: ['target', 'Goals'],
   habits: ['flame', 'Habits'], achievements: ['trophy', 'Achievements'], notes: ['file-text', 'Notes'], voice: ['mic', 'Voice'], activity: ['activity', 'Activity'], perf: ['zap', 'Performance'],  analytics: ['bar-chart', 'Analytics'], finance: ['dollar-sign', 'Finance'], settings: ['settings', 'Settings']
 };
-const MAIN_VIEWS = new Set(['brief', 'dashboard', 'students', 'tasks', 'projects', 'schedule', 'habits', 'notes', 'voice', 'finance', 'more']);
+const MAIN_VIEWS = new Set(['brief', 'dashboard', 'students', 'vault', 'tasks', 'projects', 'schedule', 'habits', 'notes', 'voice', 'finance', 'more']);
 
 /* ---------- Seed data ---------- */
 function d(offset) { return isoDate(shiftDays(offset)); }
@@ -1444,7 +1580,7 @@ function renderView() {
   updateNavBadges();
   const root = viewRoot();
   const _t0 = performance.now();
-  const RENDERERS = { brief: renderBrief, dashboard: renderDashboard, students: renderStudents, review: renderReview, tasks: renderTasks, projects: renderProjects, tags: renderTags, schedule: renderSchedule, goals: renderGoals, habits: renderHabits, achievements: renderAchievements, notes: renderNotes, voice: renderVoice, activity: renderActivity, settings: renderSettings, analytics: renderAnalytics, finance: renderFinance, perf: renderPerf };
+  const RENDERERS = { brief: renderBrief, dashboard: renderDashboard, students: renderStudents, vault: renderVault, review: renderReview, tasks: renderTasks, projects: renderProjects, tags: renderTags, schedule: renderSchedule, goals: renderGoals, habits: renderHabits, achievements: renderAchievements, notes: renderNotes, voice: renderVoice, activity: renderActivity, settings: renderSettings, analytics: renderAnalytics, finance: renderFinance, perf: renderPerf };
   (RENDERERS[view] || renderDashboard)();
   const ms = performance.now() - _t0;
   perfRecord(view, ms);
@@ -1470,6 +1606,7 @@ function bindTopbar() {
     const a = b.dataset.action;
     hideQuickMenu();
     if (a === 'task') openTaskModal();
+    else if (a === 'vault') { location.hash = '#vault'; openVaultModal(); }
     else if (a === 'student') openStudentEditModal();
     else if (a === 'project') { location.hash = '#projects'; openProjectModal(null); }
     else if (a === 'goal') openGoalModal();
@@ -1479,6 +1616,7 @@ function bindTopbar() {
     else if (a === 'schedule') location.hash = '#schedule';
     else if (a === 'finance') { location.hash = '#finance'; openFinanceModal(); }
     else if (a === 'voice') toggleCapture();
+    else if (a === 'go-vault') location.hash = '#vault';
     else if (a === 'go-brief') location.hash = '#brief';
     else if (a === 'go-students') location.hash = '#students';
     else if (a === 'go-dashboard') location.hash = '#dashboard';
@@ -1528,11 +1666,26 @@ function bindTopbar() {
 
 /* ---------- Theme & UI Engine ---------- */
 const THEME_PALETTES = [
-  { id: 'dracula', name: 'Dracula Matrix', bg: '#1e1f29', surface: '#282a36', accent: '#bd93f9', dark: true },
-  { id: 'nord', name: 'Nord Frost', bg: '#242933', surface: '#3b4252', accent: '#88c0d0', dark: true },
-  { id: 'cerulean', name: 'Atlantic Cerulean', bg: '#0d131a', surface: '#182230', accent: '#518DBF', dark: true },
-  { id: 'sepia', name: 'Warm Sepia', bg: '#fbf0d9', surface: '#fff8eb', accent: '#b8621b', dark: false },
-  { id: 'coral-dawn', name: 'Coral Dawn', bg: '#fcf7f4', surface: '#ffffff', accent: '#B33101', dark: false }
+  // Professional — trustworthy, low-distraction, built for finance, projects, and review
+  { id: 'boardroom', name: 'Boardroom', category: 'Professional', purpose: 'Board & finance — daylight clarity', bg: '#f8f9fb', surface: '#ffffff', accent: '#2563eb', dark: false, desc: 'Light, high-contrast slate for client work' },
+  { id: 'executive', name: 'Executive Slate', category: 'Professional', purpose: 'Deep work & review — night ops', bg: '#0f141a', surface: '#1a2332', accent: '#3b82f6', dark: true, desc: 'Dark slate, reduced glare for long sessions' },
+  { id: 'cerulean', name: 'Atlantic Cerulean', category: 'Professional', purpose: 'Trust & focus — corporate calm', bg: '#0d131a', surface: '#182230', accent: '#518DBF', dark: true, desc: 'Corporate blue, steady for planning' },
+  // Academic / Education — warm, readable, optimized for teaching & notes
+  { id: 'library', name: 'Library Paper', category: 'Academic', purpose: 'Reading & lesson plans — paper', bg: '#fdfbf7', surface: '#fffefb', accent: '#92400e', dark: false, desc: 'Warm paper, scholarly ink for deep reading' },
+  { id: 'campus', name: 'Campus Sky', category: 'Academic', purpose: 'Teaching & dossiers — friendly', bg: '#f0f7ff', surface: '#ffffff', accent: '#0ea5e9', dark: false, desc: 'Bright sky, optimistic for classrooms' },
+  { id: 'sepia', name: 'Warm Sepia', category: 'Academic', purpose: 'Archive & study — timeless', bg: '#fbf0d9', surface: '#fff8eb', accent: '#b8621b', dark: false, desc: 'Classic sepia, low eye-strain' },
+  // Personal / Wellness — soft, human, habit & journal friendly
+  { id: 'calm', name: 'Wellness Calm', category: 'Personal', purpose: 'Habits & brief — wellness', bg: '#f8faf8', surface: '#ffffff', accent: '#6a9c7c', dark: false, desc: 'Sage, soft contrast for daily rituals' },
+  { id: 'journal', name: 'Journal Cream', category: 'Personal', purpose: 'Notes & reflection — intimate', bg: '#fefcf6', surface: '#fffef8', accent: '#9a6a3a', dark: false, desc: 'Cream, serif-ready for writing' },
+  { id: 'void', name: 'Focus Ink', category: 'Personal', purpose: 'Distraction-free — minimal', bg: '#0a0a0b', surface: '#1a1a1d', accent: '#a1a1aa', dark: true, desc: 'Near-monochrome, pure focus' },
+  // Creative / Studio — expressive, kept for makers
+  { id: 'dracula', name: 'Dracula Matrix', category: 'Creative', purpose: 'Night studio — code & make', bg: '#1e1f29', surface: '#282a36', accent: '#bd93f9', dark: true, desc: 'Matrix night, vibrant for building' },
+  { id: 'nord', name: 'Nord Frost', category: 'Creative', purpose: 'Nordic calm — balanced', bg: '#242933', surface: '#3b4252', accent: '#88c0d0', dark: true, desc: 'Arctic frost, balanced for focus' },
+  { id: 'coral-dawn', name: 'Coral Dawn', category: 'Personal', purpose: 'Morning light — soft start', bg: '#fcf7f4', surface: '#ffffff', accent: '#E05338', dark: false, desc: 'Dawn coral, gentle mornings' },
+  // Legacy creative (kept, collapsible)
+  { id: 'cyberpunk', name: 'Cyberpunk Neon', category: 'Creative', purpose: 'Neon lab — high energy', bg: '#090a15', surface: '#141730', accent: '#00f0ff', dark: true, desc: 'Neon, for high-energy sprints' },
+  { id: 'forest', name: 'Forest Sage', category: 'Personal', purpose: 'Grounding — forest', bg: '#0d1a14', surface: '#172e24', accent: '#10b981', dark: true, desc: 'Deep forest, grounding' },
+  { id: 'sunset', name: 'Sunset Bloom', category: 'Creative', purpose: 'Bloom — expressive dusk', bg: '#18111e', surface: '#2b1d37', accent: '#ec4899', dark: true, desc: 'Sunset, expressive evenings' }
 ];
 
 const ACCENT_COLORS = [
@@ -1551,35 +1704,59 @@ const ACCENT_COLORS = [
 
 let _themesLoaded = false;
 function ensureThemesCSS() {
-  if (_themesLoaded || document.querySelector('link[href="themes.css"]')) { _themesLoaded = true; return; }
+  if (_themesLoaded || document.querySelector('link[href^="themes.css"]')) { _themesLoaded = true; return; }
   const link = document.createElement('link');
   link.rel = 'stylesheet';
-  link.href = 'themes.css?v=103';
+  link.href = 'themes.css?v=107';
   link.onload = () => { _themesLoaded = true; };
   document.head.appendChild(link);
 }
 function applyTheme() {
   if (!state.settings) state.settings = {};
   let t = state.settings.theme || 'dracula';
-  const valid = new Set(['dracula', 'nord', 'cerulean', 'sepia', 'coral-dawn']);
+  const valid = new Set(THEME_PALETTES.map(p=>p.id));
   if (!valid.has(t)) {
-    t = (t === 'light' || t === 'sepia') ? 'sepia' : (t === 'coral-dawn' ? 'coral-dawn' : 'dracula');
+    // legacy migration: light -> sepia, unknown -> dracula
+    if (t === 'light') t = 'sepia';
+    else if (!valid.has(t)) t = 'dracula';
     state.settings.theme = t;
   }
-  // lazy-load extra themes after first paint (keeps critical CSS ~22KB lighter)
-  if (t !== 'dracula' && t !== 'light' && t !== 'sepia') ensureThemesCSS();
-  else if (t === 'dracula' || t === 'sepia') {
-    // dracula/sepia critical, but still preload themes for next switch idle
-    _whenIdle(ensureThemesCSS);
+  const meta = THEME_PALETTES.find(p=>p.id===t);
+  const isLight = meta ? !meta.dark : (t === 'sepia' || t === 'coral-dawn' || t === 'boardroom' || t === 'library' || t === 'campus' || t === 'calm' || t === 'journal');
+  // lazy-load extra themes after first paint (keeps critical CSS lighter) — keep dracula/sepia/calm critical
+  const critical = new Set(['dracula','sepia','calm','boardroom']);
+  if (!critical.has(t)) ensureThemesCSS();
+  else _whenIdle(ensureThemesCSS);
+  const doApply = () => {
+    document.documentElement.dataset.theme = t;
+    // purposeful: if user picked a custom accent, honor it; else let theme's own --accent shine
+    if (state.settings.accent) {
+      document.documentElement.dataset.accent = state.settings.accent;
+    } else {
+      document.documentElement.removeAttribute('data-accent');
+      delete document.documentElement.dataset.accent;
+    }
+    document.documentElement.dataset.density = state.settings.density || 'comfortable';
+    document.documentElement.dataset.glass = state.settings.glass !== false ? 'on' : 'off';
+    document.documentElement.dataset.font = state.settings.font || 'sans';
+    // PWA theme-color matches purposeful accent
+    try {
+      const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || meta?.accent || '#605DFF';
+      const mc = document.querySelector('meta[name="theme-color"]');
+      if (mc) mc.setAttribute('content', accent);
+      const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
+      if (bg) document.documentElement.style.setProperty('color-scheme', isLight ? 'light' : 'dark');
+    } catch(_) {}
+  };
+  if (document.startViewTransition) {
+    try { document.startViewTransition(doApply); } catch(_) { doApply(); }
+  } else {
+    document.documentElement.classList.add('theme-transition');
+    doApply();
+    setTimeout(()=> document.documentElement.classList.remove('theme-transition'), 350);
   }
-  document.documentElement.dataset.theme = t;
-  document.documentElement.dataset.accent = state.settings.accent || 'violet';
-  document.documentElement.dataset.density = state.settings.density || 'comfortable';
-  document.documentElement.dataset.glass = state.settings.glass !== false ? 'on' : 'off';
-  document.documentElement.dataset.font = state.settings.font || 'sans';
 
   const btn = $('#theme-toggle');
-  const isLight = t === 'sepia' || t === 'coral-dawn';
   if (btn) btn.innerHTML = isLight ? `${ic('moon', 17)} <span>Dark mode</span>` : `${ic('sun', 17)} <span>Light mode</span>`;
 }
 
@@ -1671,15 +1848,23 @@ function getFirstCommittedTask() {
   return todayCommitted.sort((a,b)=> (b.updatedAt||0)-(a.updatedAt||0))[0];
 }
 function linkGraphForTask(t) {
-  if (!t || !t.goalId) return '';
-  const g = state.goals.find(x => x.id === t.goalId);
-  if (!g) return '';
-  let kr = null;
-  if (t.krId) kr = (g.keyResults || []).find(k => k.id === t.krId);
-  if (!kr && t.advancedKrId) kr = (g.keyResults || []).find(k => k.id === t.advancedKrId);
-  if (!kr) kr = (g.keyResults || []).find(k => k.current < k.target);
-  if (kr) return `<span class="link-chip" title="Links to key result ${esc(kr.title)}">→ ${esc(g.title)} · ${esc(kr.title)} ${kr.current}/${kr.target}</span>`;
-  return `<span class="link-chip" title="Linked goal">→ ${esc(g.title)}</span>`;
+  let out='';
+  if (t && t.goalId){
+    const g = state.goals.find(x => x.id === t.goalId);
+    if (g){
+      let kr = null;
+      if (t.krId) kr = (g.keyResults || []).find(k => k.id === t.krId);
+      if (!kr && t.advancedKrId) kr = (g.keyResults || []).find(k => k.id === t.advancedKrId);
+      if (!kr) kr = (g.keyResults || []).find(k => k.current < k.target);
+      if (kr) out += `<span class="link-chip" title="Links to key result ${esc(kr.title)}">→ ${esc(g.title)} · ${esc(kr.title)} ${kr.current}/${kr.target}</span>`;
+      else out += `<span class="link-chip" title="Linked goal">→ ${esc(g.title)}</span>`;
+    }
+  }
+  if (t && Array.isArray(t.vaultIds) && t.vaultIds.length){
+    const vchips = t.vaultIds.map(id=>{ const v=state.vaultItems.find(x=>x.id===id); return v? `<span class="link-chip vault-chip-link" data-vault-task="${v.id}" title="Vault: ${esc(v.title)}">🔗 ${esc(v.title.slice(0,20))}</span>` : ''; }).join('');
+    out += (out? ' ' : '') + vchips;
+  }
+  return out;
 }
 function linkGraphForHabit(h) {
   if (!h) return '';
@@ -1707,7 +1892,14 @@ function linkGraphForHabit(h) {
 function renderBacklinks(text) {
   if (!text) return '';
   return esc(text).replace(/\[\[([^\]]+)\]\]/g, (_, inner) => {
-    const q = inner.trim().toLowerCase();
+    const raw = inner.trim();
+    const q = raw.toLowerCase();
+    // Vault prefix: [[Vault:Title]] or [[Vault Title]]
+    if (q.startsWith('vault:') || q.startsWith('vault ')){
+      const vq = q.replace(/^vault[:\s]+/, '').trim();
+      const v = state.vaultItems.find(x => x.title.toLowerCase() === vq || x.id.toLowerCase() === vq);
+      if (v) return `<span class="backlink-pill" data-backlink="vault:${v.id}" title="vault: ${esc(v.title)}">[[${esc(inner)}]]</span>`;
+    }
     let target = null, type = '';
     const g = state.goals.find(x => x.title.toLowerCase() === q || x.id.toLowerCase() === q);
     if (g) { target = g; type = 'goal'; }
@@ -1720,6 +1912,10 @@ function renderBacklinks(text) {
         else {
           const n = state.notes.find(x => (x.title || '').toLowerCase() === q);
           if (n) { target = n; type = 'note'; }
+          else {
+            const v2 = state.vaultItems.find(x => x.title.toLowerCase() === q);
+            if (v2) { target = v2; type = 'vault'; }
+          }
         }
       }
     }
@@ -2696,12 +2892,18 @@ let _dashMemo = null; // { rev, today, html } — dashboard render cache
 let _timeTrackMemo = null; // { rev, html }
 let _teachingMemo = null; // { rev, html }
 let _deadlinesMemo = null;
-let _searchIndex = null; // { rev, tasksHay } — lower-cased haystacks for global search
+let _searchIndex = null; // { rev, tasksHay, vaultHay } — lower-cased haystacks for global search
 function getSearchTasksHay() {
   if (_searchIndex && _searchIndex.rev === _stateRev) { _memoHits.search++; return _searchIndex.tasksHay; }
   const hay = state.tasks.map(t => ({ t, hay: (t.title + ' ' + (t.tags || []).join(' ') + ' ' + (t.desc || '') + ' ' + (t.members||[]).join(' ') + ' ' + (t.comments||[]).map(c=>c.text).join(' ') + ' ' + (t.attachments||[]).map(a=>a.name).join(' ')).toLowerCase() }));
-  _searchIndex = { rev: _stateRev, tasksHay: hay };
+  const vHay = state.vaultItems.map(v => ({ v, hay: getVaultHay(v) }));
+  _searchIndex = { rev: _stateRev, tasksHay: hay, vaultHay: vHay };
   return hay;
+}
+function getSearchVaultHay(){
+  if(_searchIndex && _searchIndex.rev===_stateRev) return _searchIndex.vaultHay;
+  getSearchTasksHay();
+  return _searchIndex.vaultHay;
 }
 /* ============ Dashboard ============ */
 /* ---- Pinnable dashboard widgets ----
@@ -2714,7 +2916,7 @@ const DASH_FOLD_KEY = 'lumen.dash.fold';
 const DASH_WIDGET_LABELS = {
   deadlines: 'Deadlines', 'task-stats': 'Task stats', today: 'Today', habits: 'Habit check-in',
   radar: 'Wheel of Life', timetrack: 'Time tracking', focus: 'Focus timer',
-  teaching: 'Teaching hub', notes: 'Recent notes', projects: 'Projects'
+  teaching: 'Teaching hub', notes: 'Recent notes', projects: 'Projects', vault: 'Personal Vault'
 };
 let _dashFoldCache = null;
 function dashFoldedSet() {
@@ -2927,6 +3129,7 @@ function renderDashboard() {
         <div class="ts-item"><div class="ts-val">${state.tasks.length ? Math.round(state.tasks.filter(t => t.status === 'done').length / state.tasks.length * 100) : 0}%</div><div class="ts-lbl">Completion rate</div></div>
       </div>
     </div>
+    ${vaultWidgetHTML()}
     <div class="dash-grid">
       <div class="dash-stack">
         <div class="card" data-dw="today">
@@ -3128,6 +3331,21 @@ function renderDashboard() {
       save(); renderDashboard();
     });
   });
+  // vault widget
+  $$('#vault-widget-add, #vault-widget-add2').forEach(b=> b && b.addEventListener('click', ()=> openVaultModal()));
+  $$('[data-vault-mini]').forEach(el=> el.addEventListener('click', ()=>{ const v=state.vaultItems.find(x=>x.id===el.dataset.vaultMini); if(v) openVaultModal(v); }));
+  // vault widget drop zone
+  const vaultDropWidget = $('[data-vault-drop]');
+  if(vaultDropWidget){
+    ['dragenter','dragover'].forEach(ev=> vaultDropWidget.addEventListener(ev, e=>{ e.preventDefault(); vaultDropWidget.classList.add('drag-over'); }));
+    ['dragleave','drop'].forEach(ev=> vaultDropWidget.addEventListener(ev, e=>{ vaultDropWidget.classList.remove('drag-over'); }));
+    vaultDropWidget.addEventListener('drop', e=>{
+      e.preventDefault();
+      const f=e.dataTransfer.files && e.dataTransfer.files[0];
+      if(f){ if(f.size>VAULT_MAX_FILE) toast('File too large — 10MB max','error'); else openVaultModal(null, f); }
+      else if(e.dataTransfer.getData('text/uri-list')){ const url=e.dataTransfer.getData('text/uri-list').trim().split('\n')[0]; if(url) openVaultModal(null,null,url); }
+    });
+  }
   dashListVirt.sync();
   const g = `${greet}. ${dateLine}.`;
   $('#view-sub').textContent = g;
@@ -3654,14 +3872,24 @@ function overdueCount() {
 }
 function updateNavBadges() {
   const nav = $('#nav-goals');
-  if (!nav) return;
-  const count = overdueCount();
-  let badge = nav.querySelector('.nav-badge');
-  if (count > 0) {
-    if (!badge) { badge = document.createElement('span'); badge.className = 'nav-badge'; nav.appendChild(badge); }
-    badge.textContent = count;
-  } else if (badge) {
-    badge.remove();
+  if (nav){
+    const count = overdueCount();
+    let badge = nav.querySelector('.nav-badge');
+    if (count > 0) {
+      if (!badge) { badge = document.createElement('span'); badge.className = 'nav-badge'; nav.appendChild(badge); }
+      badge.textContent = count;
+    } else if (badge) {
+      badge.remove();
+    }
+  }
+  const vNav = $('#nav-vault');
+  if(vNav){
+    const vc = (state.vaultItems||[]).length;
+    let vb = vNav.querySelector('.nav-badge');
+    if(vc>0){
+      if(!vb){ vb=document.createElement('span'); vb.className='nav-badge'; vNav.appendChild(vb); }
+      vb.textContent=vc;
+    } else if(vb) vb.remove();
   }
 }
 function bumpDeadline(goalId, krId) {
@@ -5025,6 +5253,10 @@ function openTaskModal(task, presetStatus) {
           <div class="field"><label class="field-label">End time</label><input id="f-end-time" type="time" value="${t.endTime || ''}"></div>
         </div>
         <div class="field"><label class="field-label">Key result (optional) — completing this task advances it</label><select id="f-kr">${krOptionsHTML(t.goalId, t.krId)}</select></div>
+        <div class="field"><label class="field-label">Vault links (attach resources)</label>
+          <div id="f-vault-picker">${vaultLinkPickerHTML(t.vaultIds||[])}</div>
+          <div style="margin-top:6px;display:flex;gap:6px"><button class="btn btn-sm btn-ghost" id="f-vault-new">+ Create vault item</button><label class="btn btn-sm btn-ghost" style="cursor:pointer">📎 Choose from Vault<input type="file" id="f-vault-attach" class="hidden"></label></div>
+        </div>
         <div class="field"><label class="field-label">Tags (comma separated)</label><input id="f-tags" type="text" value="${esc((t.tags || []).join(', '))}" placeholder="work, focus, errand"></div>
         <div class="field">
           <label class="field-label">Subtasks (Trello checklist)</label>
@@ -5050,7 +5282,7 @@ function openTaskModal(task, presetStatus) {
           <button class="btn btn-sm btn-ghost" id="f-copy-card">⧉ Copy</button>
           <button class="btn btn-sm btn-ghost" id="f-watch-toggle">${(t.watchers||[]).includes('me')? '👁 Watching' : '👁 Watch'}</button>
         </div>
-        ${t.goalId ? `<div class="modal-link-graph">${linkGraphForTask(t)} <span class="muted" style="font-size:11px">· completes → KR auto-advances</span></div>` : ''}
+        ${(t.goalId || (t.vaultIds||[]).length) ? `<div class="modal-link-graph">${t.goalId? linkGraphForTask(t)+' <span class="muted" style="font-size:11px">· completes → KR auto-advances</span>' : ''} ${(t.vaultIds||[]).map(id=>{ const v=state.vaultItems.find(x=>x.id===id); return v? `<span class="link-chip" title="Vault: ${esc(v.title)}">🔗 ${esc(v.title.slice(0,22))}</span>`:''}).join(' ')}</div>` : ''}
         ${task ? `<div class="modal-pomo-widget" id="f-pomo-widget">
           <label class="field-label">🍅 Focus timer</label>
           <div class="pomo-widget-body">
@@ -5144,6 +5376,22 @@ function openTaskModal(task, presetStatus) {
       try{ await blobPut(blobId, f); t.attachments.push({id:uid(), name:f.name, size:f.size, mime:f.type, blobId}); }catch(_){ toast('Save failed','error'); }
     }
     renderAttach(); e.target.value='';
+  });
+  // Vault picker: create new vault item inline + choose from vault storage
+  $('#f-vault-new')?.addEventListener('click', ()=>{ closeModal(); openVaultModal(); setTimeout(()=> openTaskModal(task, presetStatus), 400); });
+  $('#f-vault-attach')?.addEventListener('change', async e=>{
+    const f=e.target.files[0]; if(!f) return;
+    if(f.size>VAULT_MAX_FILE){ toast('File too large — 10MB max','error'); e.target.value=''; return; }
+    // create vault item from file then link
+    const blobId='vault-'+uid(); try{ await vaultBlobPut(blobId, f); }catch(_){ toast('Save failed','error'); return; }
+    const vItem={ id: uid(), title: f.name.replace(/\.[^.]+$/,''), url:'', description:'Attached via task', type: vaultGuessType(f.name,f.type), tags:[], collectionId:null, fileName:f.name, mime:f.type, size:f.size, blobId, linkedTaskIds: task? [task.id] : [], linkedGoalIds:[], linkedNoteIds:[], linkedStudentIds:[], pinned:false, createdAt:Date.now(), updatedAt:Date.now() };
+    state.vaultItems.unshift(vItem); if(!state._vaultItemsMeta) state._vaultItemsMeta={}; state._vaultItemsMeta[vItem.id]=Date.now();
+    if(!t.vaultIds) t.vaultIds=[]; t.vaultIds.push(vItem.id);
+    vItem.linkedTaskIds=[task?.id].filter(Boolean);
+    // also copy as attachment for convenience
+    try{ const blob=await vaultBlobGet(blobId); if(blob){ const attachId='attach-'+uid(); await blobPut(attachId, blob); if(!t.attachments) t.attachments=[]; t.attachments.push({id:uid(), name:f.name, size:f.size, mime:f.type, blobId:attachId}); } }catch(_){}
+    toast('Vault file created & attached ✅'); const picker=$('#f-vault-picker'); if(picker) picker.innerHTML=vaultLinkPickerHTML(t.vaultIds||[]);
+    e.target.value='';
   });
   // Subtask management
   function bindSubtaskRow(row) {
@@ -5253,18 +5501,40 @@ function openTaskModal(task, presetStatus) {
       startTime: $('#f-start-time').value || '',
       endTime: $('#f-end-time').value || '',
       tags: $('#f-tags').value.split(',').map(s => s.trim()).filter(Boolean),
+      vaultIds: [...document.querySelectorAll('#f-vault-picker input:checked')].map(i=>i.value),
       subtasks
     };
     const krSel = $('#f-kr');
     if (krSel) data.krId = krSel.value;
     captureUndo(task ? 'Edit task' : 'Create task');
+    // sync reverse vault links
+    const prevVaultIds = task ? (task.vaultIds||[]) : [];
+    const newVaultIds = data.vaultIds || [];
+    const allVaultIds = new Set([...prevVaultIds, ...newVaultIds]);
+    allVaultIds.forEach(vid=>{
+      const v=state.vaultItems.find(x=>x.id===vid); if(!v) return;
+      if(!Array.isArray(v.linkedTaskIds)) v.linkedTaskIds=[];
+      const shouldHave=newVaultIds.includes(vid);
+      const has=v.linkedTaskIds.includes(task?.id || data.id || '');
+      // for new task, task.id not yet known — will be assigned below, handle after
+      if(shouldHave && !has && task && task.id) { v.linkedTaskIds.push(task.id); v.updatedAt=Date.now(); if(!state._vaultItemsMeta) state._vaultItemsMeta={}; state._vaultItemsMeta[v.id]=Date.now(); }
+      if(!shouldHave && has && task && task.id) { v.linkedTaskIds=v.linkedTaskIds.filter(id=>id!==task.id); v.updatedAt=Date.now(); if(!state._vaultItemsMeta) state._vaultItemsMeta={}; state._vaultItemsMeta[v.id]=Date.now(); }
+    });
     if (task) {
       const oldStatus = task.status;
       Object.assign(task, data); task.updatedAt = Date.now();
       if (oldStatus !== data.status) trackProgressTime(task, oldStatus, data.status);
       logActivity('task.edit', data.title, 'task');
     } else {
-      state.tasks.unshift(Object.assign({ id: uid(), createdAt: Date.now(), completedAt: null, updatedAt: Date.now() }, data));
+      const newId=uid();
+      const newTask=Object.assign({ id: newId, createdAt: Date.now(), completedAt: null, updatedAt: Date.now() }, data);
+      state.tasks.unshift(newTask);
+      // link new task to vault items (reverse)
+      (data.vaultIds||[]).forEach(vid=>{
+        const v=state.vaultItems.find(x=>x.id===vid); if(!v) return;
+        if(!Array.isArray(v.linkedTaskIds)) v.linkedTaskIds=[];
+        if(!v.linkedTaskIds.includes(newId)){ v.linkedTaskIds.push(newId); v.updatedAt=Date.now(); if(!state._vaultItemsMeta) state._vaultItemsMeta={}; state._vaultItemsMeta[v.id]=Date.now(); }
+      });
       logActivity('task.create', data.title, 'task');
     }
     save(); closeModal(); renderView();
@@ -5651,6 +5921,7 @@ function openGoalModal(goal) {
             ${_goalStudents.map(s => `<button type="button" class="g-student-toggle${_goalLinked.has(s.id) ? ' active' : ''}" data-sid="${s.id}">🎓 ${esc(s.name)}</button>`).join('')}
           </div>
         </div>` : '';
+  const vaultPickerGoal = `<div class="field"><label class="field-label">Vault resources</label><div class="vault-link-grid" id="g-vault-picker">${state.vaultItems.slice(0,40).map(v=>`<label class="vault-link-check"><input type="checkbox" value="${v.id}" ${(g.vaultIds||[]).includes(v.id)?'checked':''}> ${vaultTypeIcon(v.type)} ${esc(v.title.slice(0,32))}</label>`).join('') || '<span class="muted" style="font-size:12px">No vault items</span>'}</div></div>`;
   openModal(`
     <div class="modal">
       <div class="modal-head"><h3>${goal ? 'Edit goal' : 'New goal'}</h3><button class="btn-icon" onclick="closeModal()">${ic('x', 16)}</button></div>
@@ -5667,6 +5938,7 @@ function openGoalModal(goal) {
           <button class="btn btn-sm btn-ghost" id="kr-add">${ic('plus', 13)} Add key result</button>
         </div>
         ${studentToggles}
+        ${vaultPickerGoal}
       </div>
       <div class="modal-foot">
         ${goal ? `<button class="btn btn-danger" id="g-delete">Delete</button>` : ''}
@@ -5698,10 +5970,24 @@ function openGoalModal(goal) {
     })).filter(k => k.title);
     const tags = [...new Set($('#g-tags').value.split(',').map(s => s.trim().toLowerCase().replace(/^#/, '')).filter(Boolean))];
     const linkedStudentIds = $$('.g-student-toggle.active').map(b => b.dataset.sid);
-    const data = { title, desc: $('#g-desc').value.trim(), color, keyResults: krs, due: $('#g-due').value || '', tags, linkedStudentIds };
+    const vaultIds = [...document.querySelectorAll('#g-vault-picker input:checked')].map(i=>i.value);
+    const data = { title, desc: $('#g-desc').value.trim(), color, keyResults: krs, due: $('#g-due').value || '', tags, linkedStudentIds, vaultIds };
     let target;
+    const prevVaultIdsGoal = goal ? (goal.vaultIds||[]) : [];
+    const newVaultIdsGoal = data.vaultIds||[];
     if (goal) { Object.assign(goal, data); goal.updatedAt = Date.now(); target = goal; logActivity('goal.edit', title, 'goal'); }
     else { target = Object.assign({ id: uid(), createdAt: Date.now(), updatedAt: Date.now() }, data); state.goals.push(target); logActivity('goal.create', title, 'goal'); }
+    // sync vault reverse for goal
+    const goalIdForVault = target.id;
+    const allGoalVaultIds = new Set([...prevVaultIdsGoal, ...newVaultIdsGoal]);
+    allGoalVaultIds.forEach(vid=>{
+      const v=state.vaultItems.find(x=>x.id===vid); if(!v) return;
+      if(!Array.isArray(v.linkedGoalIds)) v.linkedGoalIds=[];
+      const shouldHave=newVaultIdsGoal.includes(vid);
+      const has=v.linkedGoalIds.includes(goalIdForVault);
+      if(shouldHave && !has){ v.linkedGoalIds.push(goalIdForVault); v.updatedAt=Date.now(); if(!state._vaultItemsMeta) state._vaultItemsMeta={}; state._vaultItemsMeta[v.id]=Date.now(); }
+      if(!shouldHave && has){ v.linkedGoalIds=v.linkedGoalIds.filter(id=>id!==goalIdForVault); v.updatedAt=Date.now(); if(!state._vaultItemsMeta) state._vaultItemsMeta={}; state._vaultItemsMeta[v.id]=Date.now(); }
+    });
     save(); recordGoalSnapshot(target); closeModal(); renderView();
     toast(goal ? 'Goal updated' : 'Goal created 🎯');
   });
@@ -6652,6 +6938,7 @@ function noteEditorHTML(note) {
     <div class="note-editor-head">
       <input id="ne-title" type="text" value="${esc(note.title)}" placeholder="Untitled note">
       <button class="btn btn-sm btn-ghost" id="ne-extract" title="Extract checklist items into Kanban tasks">${ic('check-square', 13)} Extract Tasks</button>
+      <button class="btn btn-sm btn-ghost" id="ne-vault-insert" title="Insert vault link">🔗 Vault</button>
       <button class="btn btn-sm btn-ai" id="ne-ai-polish" title="Polish note and generate bullet summary with AI">✨ Polish</button>
       <button class="btn btn-sm btn-ghost" id="ne-preview">${notePreview ? 'Edit' : 'Preview'}</button>
       <button class="btn-icon ${note.pinned ? 'pin-btn on' : 'pin-btn'}" id="ne-pin" title="Pin">${ic('pin', 15)}</button>
@@ -6733,6 +7020,7 @@ function bindNoteEditor(note) {
         else if (type === 'habit') { location.hash = '#habits'; }
         else if (type === 'task') { const t = state.tasks.find(x => x.id === id); if (t) openTaskModal(t); }
         else if (type === 'note') { selectedNoteId = id; renderNotes(); }
+        else if (type === 'vault') { const v=state.vaultItems.find(x=>x.id===id); if(v) openVaultModal(v); }
       });
     });
   }
@@ -6775,6 +7063,33 @@ function bindNoteEditor(note) {
     });
   }
 
+  // Vault insert
+  const vaultInsertBtn=$('#ne-vault-insert');
+  if(vaultInsertBtn){
+    vaultInsertBtn.addEventListener('click', ()=>{
+      if(!state.vaultItems.length){ toast('No vault items — create one in Vault first','error'); location.hash='#vault'; return; }
+      const pickerHTML=`<div class="modal" style="max-width:420px"><div class="modal-head"><h3>Insert vault link</h3><button class="btn-icon" onclick="closeModal()">${ic('x',16)}</button></div><div class="modal-body"><div style="display:flex;flex-direction:column;gap:6px;max-height:300px;overflow-y:auto">${state.vaultItems.map(v=>`<button class="btn btn-ghost" data-vault-insert="${v.id}" style="text-align:left;justify-content:flex-start"> ${vaultTypeIcon(v.type)} ${esc(v.title)} <span class="muted" style="font-size:11px;margin-left:6px">${esc(v.type)}</span></button>`).join('')}</div></div></div>`;
+      openModal(pickerHTML);
+      $$('[data-vault-insert]').forEach(b=> b.addEventListener('click', ()=>{
+        const v=state.vaultItems.find(x=>x.id===b.dataset.vaultInsert); if(!v) return;
+        const link=`[[Vault:${v.title}]]`;
+        const ta=$('#ne-content') || { value: note.content };
+        // insert at cursor if editing, else append
+        if(ta && typeof ta.selectionStart==='number'){
+          const start=ta.selectionStart, end=ta.selectionEnd;
+          const before=note.content.slice(0,start);
+          const after=note.content.slice(end);
+          note.content=before+(before && !before.endsWith('\n')? '\n':'')+link+(after && !after.startsWith('\n')? '\n':'')+after;
+        } else {
+          note.content=(note.content? note.content+'\n':'')+link;
+        }
+        // link note ↔ vault
+        if(!Array.isArray(v.linkedNoteIds)) v.linkedNoteIds=[];
+        if(!v.linkedNoteIds.includes(note.id)){ v.linkedNoteIds.push(note.id); v.updatedAt=Date.now(); if(!state._vaultItemsMeta) state._vaultItemsMeta={}; state._vaultItemsMeta[v.id]=Date.now(); }
+        note.updatedAt=Date.now(); save(); closeModal(); renderNotes(); toast('Vault link inserted');
+      }));
+    });
+  }
   // AI Polish & Summarize Note
   const aiPolishBtn = $('#ne-ai-polish');
   if (aiPolishBtn) {
@@ -6818,15 +7133,381 @@ function newNote() {
   save();
 }
 
+/* ============ Personal Vault ============ */
+function vaultHost(url){
+  try{ return new URL(url).hostname.replace(/^www\./,''); }catch(_){ return url ? url.slice(0,32) : ''; }
+}
+function vaultSort(a,b){ return (b.pinned?1:0)-(a.pinned?1:0) || b.updatedAt - a.updatedAt; }
+function vaultTypeLabel(id){ const t=VAULT_TYPES.find(x=>x.id===id); return t? t.label : id; }
+function vaultTagSet(){
+  const s=new Set(); (state.vaultItems||[]).forEach(v=>(v.tags||[]).forEach(t=>s.add(t)));
+  return [...s].sort((a,b)=>a.localeCompare(b));
+}
+function vaultCardHTML(v){
+  const col = (state.vaultCollections||[]).find(c=>c.id===v.collectionId);
+  const colDot = col ? `<span class="vault-col-dot" style="background:${col.color}" title="${esc(col.title)}"></span>` : '';
+  const tags = (v.tags||[]).map(t=>tagSpan(t)).join('');
+  const meta = `${fmtShort(isoDate(new Date(v.updatedAt)))} · ${v.size ? fileSizeStr(v.size) : vaultTypeLabel(v.type)}${(v.linkedTaskIds||[]).length ? ` · ↗${v.linkedTaskIds.length}` : ''}`;
+  const host = v.url ? esc(vaultHost(v.url)) : (v.fileName ? esc(v.fileName) : '');
+  const desc = v.description ? `<div class="vault-desc">${esc(v.description).slice(0,140)}</div>` : '';
+  const pinBadge = v.pinned ? '📌 ' : '';
+  const cover = v.type==='image' && v.blobId ? `<div class="vault-cover vault-cover-img" data-vault-preview="${v.id}" title="Preview">🖼️</div>` : `<div class="vault-cover" style="background:${col? col.color : COVER_COLORS[(v.title.charCodeAt(0)||0)%COVER_COLORS.length]}">${vaultTypeIcon(v.type)}</div>`;
+  return `<div class="vault-card" data-vault-id="${v.id}" data-vault-open="${v.id}">
+    ${cover}
+    <div class="vault-card-body">
+      <div class="vault-card-title">${pinBadge}${esc(v.title)} ${colDot}</div>
+      ${host ? `<div class="vault-card-host">${host}</div>` : ''}
+      ${desc}
+      <div class="vault-card-tags">${tags}</div>
+      <div class="vault-card-meta muted">${meta}</div>
+      <div class="vault-card-actions">
+        <button class="btn btn-sm btn-ghost" data-vault-action="open" data-id="${v.id}">Open</button>
+        <button class="btn btn-sm btn-ghost" data-vault-action="copy" data-id="${v.id}">Copy</button>
+        <button class="btn btn-sm btn-ghost" data-vault-action="edit" data-id="${v.id}">Edit</button>
+        <button class="btn btn-sm btn-ghost" data-vault-action="delete" data-id="${v.id}" style="color:var(--red)">Delete</button>
+        <button class="btn btn-sm btn-ghost" data-vault-action="pin" data-id="${v.id}" title="Pin">${v.pinned? '📌':'📍'}</button>
+      </div>
+      ${ (v.linkedTaskIds||[]).length ? `<div class="vault-links muted" style="font-size:11px;margin-top:6px">↗ Tasks: ${(v.linkedTaskIds||[]).map(id=>{ const t=state.tasks.find(x=>x.id===id); return t? esc(t.title.slice(0,18)) : id.slice(0,6); }).join(', ')}</div>` : ''}
+    </div>
+  </div>`;
+}
+function vaultRowHTML(v){
+  const col = (state.vaultCollections||[]).find(c=>c.id===v.collectionId);
+  const colDot = col ? `<span class="vault-col-dot" style="background:${col.color}" title="${esc(col.title)}"></span>` : '';
+  const tags = (v.tags||[]).map(t=>tagSpan(t)).join('');
+  const host = v.url ? esc(vaultHost(v.url)) : '';
+  return `<div class="vault-row" data-vault-id="${v.id}">
+    <span class="vault-row-icon">${vaultTypeIcon(v.type)}</span>
+    <span class="vault-row-title">${v.pinned?'📌 ':''}${esc(v.title)} ${colDot}</span>
+    <span class="vault-row-host muted">${host}</span>
+    <span class="vault-row-tags">${tags}</span>
+    <span class="vault-row-meta muted">${fmtShort(isoDate(new Date(v.updatedAt)))}</span>
+    <button class="btn btn-xs btn-ghost" data-vault-action="open" data-id="${v.id}">Open</button>
+    <button class="btn btn-xs btn-ghost" data-vault-action="edit" data-id="${v.id}">Edit</button>
+  </div>`;
+}
+function vaultWidgetHTML(){
+  const items = getVaultItems().slice().sort(vaultSort).slice(0,6);
+  const counts = { link:0, doc:0, sheet:0, pdf:0, image:0, video:0, other:0, pinned:0 };
+  state.vaultItems.forEach(v=>{ if(counts[v.type]!==undefined) counts[v.type]++; else counts.other++; if(v.pinned) counts.pinned++; });
+  const total = state.vaultItems.length;
+  const headerCounts = total ? `${total} items · ${counts.link} links · ${counts.pdf} PDFs · ${counts.sheet} Sheets · ${counts.pinned} pinned` : 'No items yet';
+  const body = total ? items.map(v=>`<div class="vault-mini" data-vault-mini="${v.id}"><span>${vaultTypeIcon(v.type)}</span><span class="vault-mini-title">${esc(v.title)}</span><span class="muted" style="font-size:11px">${esc(vaultHost(v.url||''))}</span><span class="tag">${esc(v.type)}</span>${(v.linkedTaskIds||[]).length?`<span class="muted">↗${v.linkedTaskIds.length}</span>`:''}</div>`).join('') : `<div class="empty-state" style="padding:18px"><div class="es-icon">🔐</div>No vault items — drop a PDF or paste a link<div style="margin-top:10px;display:flex;gap:8px;justify-content:center"><button class="btn btn-sm btn-accent" id="vault-widget-add">+ Add link</button><label class="btn btn-sm btn-ghost" style="cursor:pointer">⬆ Upload <input type="file" id="vault-widget-upload" class="hidden" accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.gif,.mp4,.webm"></label></div><div class="vault-drop-zone muted" style="margin-top:10px;border:1px dashed var(--border);border-radius:8px;padding:10px" data-vault-drop>Drop file here</div></div>`;
+  return `<div class="card" data-dw="vault">
+    <h3 class="card-title"><span>🔐 Personal Vault — ${headerCounts}</span><span style="display:flex;gap:6px"><a class="link-btn" href="#vault">Open Vault →</a><button class="btn btn-sm btn-accent" id="vault-widget-add2">+ Add</button></span></h3>
+    <div class="vault-widget-body">${body}</div>
+  </div>`;
+}
+function renderVault(){
+  const t0 = typeof performance!=='undefined' && performance.now ? performance.now() : Date.now();
+  const items = getVaultFiltered();
+  const allTags = vaultTagSet();
+  const collections = getVaultCollections();
+  const total = state.vaultItems.length;
+  const typeCounts = VAULT_TYPES.map(t=>({id:t.id,label:t.label,icon:t.icon,count: state.vaultItems.filter(v=>v.type===t.id).length}));
+  const selectedType = vaultFilter.type || '';
+  const selectedTag = vaultFilter.tag || '';
+  const selectedCol = vaultFilter.collection || '';
+  const q = vaultFilter.q || '';
+  const colChips = [`<button class="vault-chip ${!selectedCol?'active':''}" data-vault-col="">All</button>`, `<button class="vault-chip ${selectedCol==='__none'?'active':''}" data-vault-col="__none">Unsorted</button>`, ...collections.map(c=>`<button class="vault-chip ${selectedCol===c.id?'active':''}" data-vault-col="${c.id}" style="${selectedCol===c.id? `background:${c.color}22;border-color:${c.color}44;color:${c.color}`:''}"><span class="vault-col-dot" style="background:${c.color}"></span> ${esc(c.title)}</button>`) ].join('');
+  const typeChips = [`<button class="vault-chip ${!selectedType?'active':''}" data-vault-type="">All</button>`, ...typeCounts.map(tc=>`<button class="vault-chip ${selectedType===tc.id?'active':''}" data-vault-type="${tc.id}">${tc.icon} ${tc.label} <span class="vault-chip-count">${tc.count}</span></button>`)].join('');
+  const tagOpts = ['<option value="">All tags</option>', ...allTags.map(t=>`<option value="${esc(t)}" ${t===selectedTag?'selected':''}>#${esc(t)}</option>`)].join('');
+  const colOpts = ['<option value="">All collections</option>', '<option value="__none">Unsorted</option>', ...collections.map(c=>`<option value="${c.id}" ${c.id===selectedCol?'selected':''}>${esc(c.title)}</option>`)].join('');
+  const grid = vaultViewMode==='grid'
+    ? `<div class="vault-grid">${items.map(v=>vaultCardHTML(v)).join('') || `<div class="empty-state" style="grid-column:1/-1"><div class="es-icon">🔐</div>No vault items match your filters<button class="btn btn-sm btn-ghost" id="vault-clear-filters" style="margin-top:8px">Clear filters</button></div>`}</div>`
+    : `<div class="vault-list">${items.map(v=>vaultRowHTML(v)).join('') || `<div class="empty-state"><div class="es-icon">🔐</div>No vault items match</div>`}</div>`;
+  viewRoot().innerHTML = `
+    <div class="vault-toolbar">
+      <input type="text" class="search-input" id="vault-q" placeholder="Search vault…" value="${esc(q)}" style="min-width:180px">
+      <select id="vault-type">${['<option value="">All types</option>', ...VAULT_TYPES.map(t=>`<option value="${t.id}" ${t.id===selectedType?'selected':''}>${t.icon} ${t.label}</option>`)].join('')}</select>
+      <select id="vault-tag">${tagOpts}</select>
+      <select id="vault-col">${colOpts}</select>
+      <button class="btn btn-sm btn-ghost" id="vault-clear">Clear</button>
+      <div style="flex:1"></div>
+      <div class="vault-view-toggle">
+        <button class="btn btn-sm ${vaultViewMode==='grid'?'btn-accent':''}" data-vault-view="grid">Grid</button>
+        <button class="btn btn-sm ${vaultViewMode==='list'?'btn-accent':''}" data-vault-view="list">List</button>
+      </div>
+      <button class="btn btn-accent" id="vault-add">${ic('plus',14)} Add link</button>
+      <label class="btn btn-ghost" style="cursor:pointer">⬆ Upload <input type="file" id="vault-upload" class="hidden" accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.gif,.webp,.mp4,.webm,.txt,.md,.csv"></label>
+    </div>
+    <div class="vault-collections-bar">
+      <div class="vault-chips" id="vault-col-chips">${colChips}</div>
+      <button class="btn btn-sm btn-ghost" id="vault-add-col">+ New collection</button>
+    </div>
+    <div class="vault-type-bar" style="display:flex;gap:6px;flex-wrap:wrap;margin:10px 0">${typeChips}</div>
+    <div class="vault-meta muted" style="font-size:12px;margin:8px 0">${items.length} of ${total} items${q? ` for "${esc(q)}"` : ''} · ${vaultQuotaUsed()? fileSizeStr(vaultQuotaUsed()) : '0 B'} used${vaultQuotaUsed()>VAULT_SOFT_CAP? ' · ⚠️ near quota':''}</div>
+    <div class="vault-drop" id="vault-drop">${grid}</div>
+    ${!total? `<div class="card" style="margin-top:14px"><div class="empty-state"><div class="es-icon">📦</div>No vault items — drop a PDF or paste a link<div style="margin-top:10px;display:flex;gap:8px;justify-content:center"><button class="btn btn-accent btn-sm" id="vault-empty-add">Add link</button><label class="btn btn-ghost btn-sm" style="cursor:pointer">Upload file <input type="file" id="vault-empty-upload" class="hidden"></label></div></div></div>`:''}
+  `;
+  // perf
+  const ms = (typeof performance!=='undefined' && performance.now ? performance.now() : Date.now()) - t0;
+  if(ms>50) console.warn('[Lumen perf] vault '+ms.toFixed(1)+'ms for '+items.length+' items');
+  // bindings
+  bindFilterInput('#vault-q', 160, v=>{ vaultFilter.q=v; renderVault(); });
+  $('#vault-type')?.addEventListener('change', e=>{ vaultFilter.type=e.target.value; renderVault(); });
+  $('#vault-tag')?.addEventListener('change', e=>{ vaultFilter.tag=e.target.value; renderVault(); });
+  $('#vault-col')?.addEventListener('change', e=>{ vaultFilter.collection=e.target.value; renderVault(); });
+  $('#vault-clear')?.addEventListener('click', ()=>{ vaultFilter={q:'',type:'',tag:'',collection:''}; renderVault(); });
+  $('#vault-clear-filters')?.addEventListener('click', ()=>{ vaultFilter={q:'',type:'',tag:'',collection:''}; renderVault(); });
+  $$('[data-vault-col]').forEach(b=>b.addEventListener('click', ()=>{ vaultFilter.collection=b.dataset.vaultCol; renderVault(); }));
+  $$('[data-vault-type]').forEach(b=>b.addEventListener('click', ()=>{ vaultFilter.type=b.dataset.vaultType; renderVault(); }));
+  $$('[data-vault-view]').forEach(b=>b.addEventListener('click', ()=>{ setVaultViewMode(b.dataset.vaultView); renderVault(); }));
+  $$('#vault-add, #vault-empty-add, #vault-widget-add, #vault-widget-add2').forEach(b=>b && b.addEventListener('click', ()=> openVaultModal()));
+  $('#vault-add-col')?.addEventListener('click', ()=>{
+    const title=prompt('Collection name'); if(title) addVaultCollection(title);
+  });
+  // file inputs
+  const handleVaultFiles = async (files)=>{
+    for(const f of [...files]){
+      if(f.size>VAULT_MAX_FILE){ toast(`"${f.name}" too large — 10MB max, link instead`, 'error'); continue; }
+      if(vaultQuotaUsed()+f.size>VAULT_SOFT_CAP+5*1024*1024){ toast('Vault quota exceeded — 100MB soft cap', 'error'); break; }
+      if(vaultQuotaUsed()+f.size>VAULT_SOFT_CAP) toast('Vault near quota — remove files or increase cap in Settings', 'error');
+      const existing = state.vaultItems.find(v=>v.fileName===f.name && v.size===f.size);
+      if(existing){ toast(`"${f.name}" already in vault`, 'error'); continue; }
+      // prefill modal with file
+      openVaultModal(null, f);
+      break; // one at a time via modal
+    }
+  };
+  $('#vault-upload')?.addEventListener('change', e=>{ if(e.target.files.length) handleVaultFiles(e.target.files); e.target.value=''; });
+  $('#vault-empty-upload')?.addEventListener('change', e=>{ if(e.target.files.length) handleVaultFiles(e.target.files); e.target.value=''; });
+  $('#vault-widget-upload')?.addEventListener('change', e=>{ if(e.target.files.length) handleVaultFiles(e.target.files); e.target.value=''; });
+  // drag-drop
+  const dropEl=$('#vault-drop');
+  if(dropEl){
+    ['dragenter','dragover'].forEach(ev=> dropEl.addEventListener(ev, e=>{ e.preventDefault(); dropEl.classList.add('drag-over'); }));
+    ['dragleave','drop'].forEach(ev=> dropEl.addEventListener(ev, e=>{ if(ev==='dragleave' && e.target!==dropEl) return; dropEl.classList.remove('drag-over'); }));
+    dropEl.addEventListener('drop', e=>{
+      e.preventDefault();
+      if(e.dataTransfer.files && e.dataTransfer.files.length) handleVaultFiles(e.dataTransfer.files);
+      else if(e.dataTransfer.getData('text/uri-list')){ const url=e.dataTransfer.getData('text/uri-list').trim().split('\\n')[0]; openVaultModal(null, null, url); }
+      else if(e.dataTransfer.getData('text/plain')){ const txt=e.dataTransfer.getData('text/plain').trim(); if(/^https?:\/\//.test(txt)) openVaultModal(null,null, txt); }
+    });
+  }
+  $$('[data-vault-open]').forEach(el=> el.addEventListener('click', e=>{
+    if(e.target.closest('[data-vault-action]')) return;
+    const v=state.vaultItems.find(x=>x.id===el.dataset.vaultOpen); if(v) openVaultModal(v);
+  }));
+  $$('[data-vault-mini]').forEach(el=> el.addEventListener('click', ()=>{ const v=state.vaultItems.find(x=>x.id===el.dataset.vaultMini); if(v) openVaultModal(v); }));
+  $$('[data-vault-action]').forEach(b=> b.addEventListener('click', async e=>{
+    e.stopPropagation();
+    const id=b.dataset.id; const v=state.vaultItems.find(x=>x.id===id); if(!v) return;
+    const act=b.dataset.vaultAction;
+    if(act==='open'){
+      if(v.blobId){
+        try{ const blob=await vaultBlobGet(v.blobId); if(blob){ const url=URL.createObjectURL(blob); window.open(url,'_blank','noopener'); setTimeout(()=>URL.revokeObjectURL(url), 60000); } else if(v.url) window.open(v.url,'_blank','noopener'); else toast('File missing','error'); }catch(_){ toast('Open failed','error'); }
+      } else if(v.url) window.open(v.url,'_blank','noopener'); else toast('No link or file','error');
+    } else if(act==='copy'){
+      try{ await navigator.clipboard.writeText(v.url||''); toast('Copied link ⧉'); }catch(_){ toast('Copy failed','error'); }
+    } else if(act==='edit'){ openVaultModal(v); }
+    else if(act==='delete'){
+      if(!confirm(`Delete "${v.title}"?`)) return;
+      captureUndo('Delete vault item');
+      if(v.blobId) try{ await vaultBlobDelete(v.blobId); }catch(_){}
+      state.vaultItems = state.vaultItems.filter(x=>x.id!==id);
+      if(!state._vaultItemsMeta) state._vaultItemsMeta={};
+      state._vaultItemsMeta[id]=Date.now();
+      tombstone('vaultItems', id);
+      // remove reverse links from tasks
+      state.tasks.forEach(t=>{ if((t.vaultIds||[]).includes(id)) { t.vaultIds=t.vaultIds.filter(x=>x!==id); t.updatedAt=Date.now(); } });
+      save(); renderVault(); toast('Vault item deleted');
+    } else if(act==='pin'){
+      v.pinned=!v.pinned; v.updatedAt=Date.now(); if(!state._vaultItemsMeta) state._vaultItemsMeta={}; state._vaultItemsMeta[v.id]=Date.now(); save(); renderVault();
+    }
+  }));
+  // preview click for image
+  $$('[data-vault-preview]').forEach(el=> el.addEventListener('click', async e=>{
+    e.stopPropagation();
+    const v=state.vaultItems.find(x=>x.id===el.dataset.vaultPreview); if(!v||!v.blobId) return;
+    try{ const blob=await vaultBlobGet(v.blobId); if(!blob) return; const url=URL.createObjectURL(blob); window.open(url,'_blank','noopener'); setTimeout(()=>URL.revokeObjectURL(url),60000);}catch(_){}
+  }));
+}
+function openVaultModal(existing, preFile, preUrl){
+  const isEdit=!!existing;
+  const v = existing ? JSON.parse(JSON.stringify(existing)) : { id: uid(), title: '', url: preUrl||'', description: '', type: 'link', tags: [], collectionId: null, fileName:'', mime:'', size:0, blobId:null, linkedTaskIds:[], linkedGoalIds:[], linkedNoteIds:[], linkedStudentIds:[], pinned:false, createdAt: Date.now(), updatedAt: Date.now() };
+  let pendingFile = preFile || null;
+  if(preFile){
+    v.fileName=preFile.name; v.mime=preFile.type||''; v.size=preFile.size; v.type=vaultGuessType(preFile.name, preFile.type);
+    if(!v.title) v.title=preFile.name.replace(/\.[^.]+$/,'');
+  }
+  if(preUrl && !v.title) v.title=preUrl;
+  const allCols=getVaultCollections();
+  const colOpts=['<option value="">— None —</option>', ...allCols.map(c=>`<option value="${c.id}" ${c.id===v.collectionId?'selected':''}>${esc(c.title)}</option>`)].join('');
+  const typeOpts=VAULT_TYPES.map(t=>`<option value="${t.id}" ${t.id===v.type?'selected':''}>${t.icon} ${t.label}</option>`).join('');
+  // linked pickers data
+  const taskOpts = state.tasks.slice(0,80).map(t=>`<label class="vault-link-check"><input type="checkbox" value="${t.id}" ${ (v.linkedTaskIds||[]).includes(t.id)?'checked':''}> ${esc(t.title.slice(0,40))}</label>`).join('');
+  const goalOpts = state.goals.slice(0,30).map(g=>`<label class="vault-link-check"><input type="checkbox" value="${g.id}" ${ (v.linkedGoalIds||[]).includes(g.id)?'checked':''}> ${esc(g.title.slice(0,40))}</label>`).join('');
+  const noteOpts = state.notes.slice(0,30).map(n=>`<label class="vault-link-check"><input type="checkbox" value="${n.id}" ${ (v.linkedNoteIds||[]).includes(n.id)?'checked':''}> ${esc((n.title||'Untitled').slice(0,40))}</label>`).join('');
+  const studentOpts = getStudentsList().slice(0,50).map(s=>`<label class="vault-link-check"><input type="checkbox" value="${s.id}" ${ (v.linkedStudentIds||[]).includes(s.id)?'checked':''}> 🎓 ${esc(s.name)}</label>`).join('');
+  openModal(`<div class="modal" style="max-width:560px">
+    <div class="modal-head"><h3>${isEdit?'Edit vault item':'New vault item'}</h3><button class="btn-icon" onclick="closeModal()">${ic('x',16)}</button></div>
+    <div class="modal-body">
+      <div class="field"><label class="field-label">Title *</label><input id="vm-title" type="text" value="${esc(v.title)}" placeholder="Design doc, invoice, tutorial…"></div>
+      <div class="field"><label class="field-label">URL (https://) — optional if file attached</label><input id="vm-url" type="url" value="${esc(v.url)}" placeholder="https://example.com/doc.pdf"></div>
+      <div class="field"><label class="field-label">Description</label><textarea id="vm-desc" rows="2" placeholder="What is this?">${esc(v.description||'')}</textarea></div>
+      <div class="field-row">
+        <div class="field"><label class="field-label">Type</label><select id="vm-type">${typeOpts}</select></div>
+        <div class="field"><label class="field-label">Collection</label><select id="vm-col">${colOpts}</select></div>
+      </div>
+      <div class="field"><label class="field-label">Tags (comma separated)</label><input id="vm-tags" type="text" value="${esc((v.tags||[]).join(', '))}" placeholder="work, design, invoice"></div>
+      <div class="field"><label class="field-label">File (optional, 10MB max, plain blob)</label>
+        <div class="vault-file-drop" id="vm-drop" style="border:1px dashed var(--border);border-radius:10px;padding:12px;text-align:center;background:var(--surface2)">
+          <div id="vm-file-info" class="muted" style="font-size:12.5px">${pendingFile? esc(pendingFile.name)+' · '+fileSizeStr(pendingFile.size) : (v.fileName? esc(v.fileName)+' · '+fileSizeStr(v.size||0) : 'Drop file here or choose')}</div>
+          <label class="btn btn-sm btn-ghost" style="margin-top:8px;cursor:pointer">📎 Choose file<input type="file" id="vm-file" class="hidden" accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.gif,.webp,.txt,.md,.csv,.mp4,.webm"></label>
+          ${v.blobId? `<button class="btn btn-sm btn-ghost" id="vm-file-clear" style="margin-left:6px">✕ Remove</button>` : ''}
+        </div>
+        <div class="muted" style="font-size:11px;margin-top:6px">Blobs stay IDB-only · never in JSON snapshot · quota 100MB soft cap · large >10MB stays link-only</div>
+      </div>
+      <div class="field"><label class="field-label">Linked tasks</label><div class="vault-link-grid" id="vm-tasks">${taskOpts||'<span class="muted" style="font-size:12px">No tasks</span>'}</div></div>
+      <div class="field"><label class="field-label">Linked goals</label><div class="vault-link-grid" id="vm-goals">${goalOpts||'<span class="muted" style="font-size:12px">No goals</span>'}</div></div>
+      <div class="field"><label class="field-label">Linked notes</label><div class="vault-link-grid" id="vm-notes">${noteOpts||'<span class="muted" style="font-size:12px">No notes</span>'}</div></div>
+      <div class="field"><label class="field-label">Linked students</label><div class="vault-link-grid" id="vm-students">${studentOpts||'<span class="muted" style="font-size:12px">No students</span>'}</div></div>
+      <div class="field"><label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600"><input type="checkbox" id="vm-pinned" ${v.pinned?'checked':''}> 📌 Pinned (shows first in Vault & Dashboard)</label></div>
+    </div>
+    <div class="modal-foot">
+      ${isEdit? `<button class="btn btn-danger" id="vm-delete">Delete</button>` : ''}
+      <div style="flex:1"></div>
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-accent" id="vm-save">Save</button>
+    </div>
+  </div>`);
+  // auto-detect type from url/fileName
+  const titleEl=$('#vm-title'), urlEl=$('#vm-url'), typeEl=$('#vm-type');
+  const syncType=()=>{
+    const fname = pendingFile? pendingFile.name : (v.fileName||'');
+    const mime = pendingFile? pendingFile.type : (v.mime||'');
+    const url = urlEl.value.trim();
+    let guess='link';
+    if(pendingFile) guess=vaultGuessType(fname,mime);
+    else if(url){
+      const ext=url.split('.').pop().split('?')[0].toLowerCase();
+      if(['pdf'].includes(ext)) guess='pdf'; else if(['doc','docx'].includes(ext)) guess='doc'; else if(['xls','xlsx','csv'].includes(ext)) guess='sheet'; else if(['png','jpg','jpeg','gif','webp'].includes(ext)) guess='image'; else if(['mp4','webm','mov'].includes(ext)) guess='video';
+    } else if(fname) guess=vaultGuessType(fname,mime);
+    if(typeEl) typeEl.value=guess;
+  };
+  urlEl?.addEventListener('input', syncType);
+  $('#vm-file')?.addEventListener('change', e=>{
+    const f=e.target.files[0]; if(!f) return;
+    if(f.size>VAULT_MAX_FILE){ toast('File too large — 10MB max, link instead','error'); e.target.value=''; return; }
+    pendingFile=f; v.fileName=f.name; v.mime=f.type; v.size=f.size; $('#vm-file-info').textContent=f.name+' · '+fileSizeStr(f.size); syncType(); if(!titleEl.value.trim()) titleEl.value=f.name.replace(/\.[^.]+$/,'');
+  });
+  const drop=$('#vm-drop');
+  if(drop){
+    ['dragenter','dragover'].forEach(ev=> drop.addEventListener(ev, e=>{ e.preventDefault(); drop.classList.add('drag-over'); }));
+    ['dragleave','drop'].forEach(ev=> drop.addEventListener(ev, e=>{ drop.classList.remove('drag-over'); }));
+    drop.addEventListener('drop', e=>{
+      e.preventDefault();
+      const f=e.dataTransfer.files[0]; if(!f) return;
+      if(f.size>VAULT_MAX_FILE){ toast('File too large — 10MB max','error'); return; }
+      pendingFile=f; v.fileName=f.name; v.mime=f.type; v.size=f.size; $('#vm-file-info').textContent=f.name+' · '+fileSizeStr(f.size); syncType(); if(!titleEl.value.trim()) titleEl.value=f.name.replace(/\.[^.]+$/,'');
+    });
+  }
+  $('#vm-file-clear')?.addEventListener('click', ()=>{ pendingFile=null; v.fileName=''; v.mime=''; v.size=0; v.blobId=null; $('#vm-file-info').textContent='No file — link only'; });
+  $('#vm-delete')?.addEventListener('click', async ()=>{
+    if(!confirm(`Delete "${existing.title}"?`)) return;
+    captureUndo('Delete vault item');
+    if(existing.blobId) try{ await vaultBlobDelete(existing.blobId); }catch(_){}
+    state.vaultItems=state.vaultItems.filter(x=>x.id!==existing.id);
+    if(!state._vaultItemsMeta) state._vaultItemsMeta={}; state._vaultItemsMeta[existing.id]=Date.now();
+    tombstone('vaultItems', existing.id);
+    state.tasks.forEach(t=>{ if((t.vaultIds||[]).includes(existing.id)) t.vaultIds=t.vaultIds.filter(id=>id!==existing.id); });
+    save(); closeModal(); renderVault(); toast('Vault item deleted');
+  });
+  $('#vm-save')?.addEventListener('click', async ()=>{
+    const title=titleEl.value.trim(); if(!title){ toast('Title required','error'); titleEl.focus(); return; }
+    const url=urlEl.value.trim();
+    if(url && !/^https?:\/\/.+/i.test(url)){ toast('URL must start with https://','error'); urlEl.focus(); return; }
+    if(!url && !pendingFile && !v.blobId){ toast('Add a URL or file','error'); return; }
+    // quota check if new file
+    let newBlobId=v.blobId || null;
+    let newFileName=v.fileName||'', newMime=v.mime||'', newSize=v.size||0;
+    if(pendingFile){
+      if(vaultQuotaUsed() + pendingFile.size - (existing? (existing.size||0):0) > VAULT_SOFT_CAP+5*1024*1024){ toast('Vault quota exceeded — 100MB cap','error'); return; }
+      if(vaultQuotaUsed()+pendingFile.size > VAULT_SOFT_CAP) toast('Vault near quota — consider removing old files','error');
+      newBlobId='vault-'+uid();
+      try{ await vaultBlobPut(newBlobId, pendingFile); }catch(e){ if(e && e.name==='QuotaExceededError') { toast('Quota exceeded — link instead','error'); return; } toast('Save failed','error'); return; }
+      // delete old blob if replacing
+      if(existing && existing.blobId && existing.blobId!==newBlobId) try{ await vaultBlobDelete(existing.blobId); }catch(_){}
+      newFileName=pendingFile.name; newMime=pendingFile.type; newSize=pendingFile.size;
+    }
+    const tags=$('#vm-tags').value.split(',').map(s=>s.trim()).filter(Boolean);
+    const col=$('#vm-col').value || null;
+    const type=typeEl.value || vaultGuessType(newFileName,newMime) || 'link';
+    const pinned=$('#vm-pinned').checked;
+    const linkedTaskIds=[...document.querySelectorAll('#vm-tasks input:checked')].map(i=>i.value);
+    const linkedGoalIds=[...document.querySelectorAll('#vm-goals input:checked')].map(i=>i.value);
+    const linkedNoteIds=[...document.querySelectorAll('#vm-notes input:checked')].map(i=>i.value);
+    const linkedStudentIds=[...document.querySelectorAll('#vm-students input:checked')].map(i=>i.value);
+    const now=Date.now();
+    const item={ id: v.id, title, url, description: $('#vm-desc').value.trim(), type, tags, collectionId: col, fileName: newFileName, mime: newMime, size: newSize, blobId: newBlobId, linkedTaskIds, linkedGoalIds, linkedNoteIds, linkedStudentIds, pinned, createdAt: v.createdAt||now, updatedAt: now };
+    captureUndo(isEdit? 'Edit vault item':'Add vault item');
+    if(isEdit){
+      const idx=state.vaultItems.findIndex(x=>x.id===existing.id); if(idx>=0) state.vaultItems[idx]=item;
+    } else {
+      state.vaultItems.unshift(item);
+    }
+    if(!state._vaultItemsMeta) state._vaultItemsMeta={}; state._vaultItemsMeta[item.id]=now;
+    // two-way sync for tasks: update task.vaultIds
+    const allTaskIds=new Set([...linkedTaskIds, ...(existing? existing.linkedTaskIds||[] : [])]);
+    allTaskIds.forEach(tid=>{
+      const t=state.tasks.find(x=>x.id===tid); if(!t) return; if(!Array.isArray(t.vaultIds)) t.vaultIds=[];
+      const shouldHave=linkedTaskIds.includes(tid);
+      const has=t.vaultIds.includes(item.id);
+      if(shouldHave && !has) t.vaultIds.push(item.id);
+      if(!shouldHave && has) t.vaultIds=t.vaultIds.filter(id=>id!==item.id);
+      t.updatedAt=now;
+    });
+    save(); closeModal();
+    if(currentView()==='vault') renderVault(); else if(currentView()==='dashboard') renderDashboard(); else renderView();
+    toast(isEdit?'Vault item updated':'Vault item added ✅');
+  });
+}
+function linkGraphForVault(v){
+  if(!v) return '';
+  const tasks=(v.linkedTaskIds||[]).map(id=> state.tasks.find(t=>t.id===id)).filter(Boolean);
+  if(!tasks.length) return '';
+  return tasks.map(t=> `<span class="link-chip" data-vault-task="${t.id}" title="Vault → ${esc(t.title)}">→ ${esc(t.title.slice(0,24))}</span>`).join(' ');
+}
+function backfillVaultLinks(){
+  // ensure task vaultIds ↔ vault linkedTaskIds two-way consistency on load
+  if(!Array.isArray(state.vaultItems)) return;
+  state.vaultItems.forEach(v=>{
+    (v.linkedTaskIds||[]).forEach(tid=>{
+      const t=state.tasks.find(x=>x.id===tid); if(t){ if(!Array.isArray(t.vaultIds)) t.vaultIds=[]; if(!t.vaultIds.includes(v.id)) t.vaultIds.push(v.id); }
+    });
+  });
+  state.tasks.forEach(t=>{
+    (t.vaultIds||[]).forEach(vid=>{
+      const v=state.vaultItems.find(x=>x.id===vid); if(v){ if(!Array.isArray(v.linkedTaskIds)) v.linkedTaskIds=[]; if(!v.linkedTaskIds.includes(t.id)) v.linkedTaskIds.push(t.id); }
+    });
+  });
+}
+function vaultLinkPickerHTML(selectedIds){
+  const items=getVaultItems().slice().sort(vaultSort);
+  if(!items.length) return '<div class="muted" style="font-size:12px">No vault items — <a href="#vault" onclick="closeModal(); location.hash=\'#vault\'">create one</a></div>';
+  return `<div class="vault-picker">${items.map(v=>`<label class="vault-picker-row"><input type="checkbox" value="${v.id}" ${selectedIds.includes(v.id)?'checked':''}> <span>${vaultTypeIcon(v.type)}</span> <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(v.title)}</span> <span class="muted" style="font-size:11px">${esc(v.type)}</span></label>`).join('')}</div>`;
+}
+
+// expose for tests/debug
+window.LumenLib = window.LumenLib || {};
+window.LumenLib.vault = { vaultGuessType, vaultTypeIcon, getVaultItems, getVaultCollections, getVaultFiltered, vaultBlobPut, vaultBlobGet, vaultBlobDelete, openVaultModal, renderVault };
+
 /* Lightweight markdown */
 function renderMd(md) {
   const lines = String(md || '').replace(/\r\n/g, '\n').split('\n');
   let html = '', inCode = false, codeLines = [], inList = false;
   const inline = s => {
     const escaped = esc(s);
-    // backlinks [[Goal Title]] → pill; resolve against goals/habits/tasks/notes titles
+    // backlinks [[Goal Title]] → pill; resolve against goals/habits/tasks/notes/vault titles
     const withBacklinks = escaped.replace(/\[\[([^\]]+)\]\]/g, (_, inner) => {
-      const q = inner.trim().toLowerCase();
+      const raw = inner.trim();
+      const q = raw.toLowerCase();
+      if (q.startsWith('vault:') || q.startsWith('vault ')){
+        const vq = q.replace(/^vault[:\s]+/, '').trim();
+        const v = state.vaultItems.find(x => x.title.toLowerCase() === vq || x.id.toLowerCase() === vq);
+        if (v) return `<span class="backlink-pill" data-backlink="vault:${v.id}" title="vault: ${esc(v.title)}">[[${esc(inner)}]]</span>`;
+      }
       let target = null, type = '';
       const g = state.goals.find(x => x.title.toLowerCase() === q || x.id.toLowerCase() === q);
       if (g) { target = g; type = 'goal'; }
@@ -6839,6 +7520,10 @@ function renderMd(md) {
           else {
             const n = state.notes.find(x => (x.title || '').toLowerCase() === q);
             if (n) { target = n; type = 'note'; }
+            else {
+              const v2 = state.vaultItems.find(x => x.title.toLowerCase() === q);
+              if (v2) { target = v2; type = 'vault'; }
+            }
           }
         }
       }
@@ -7494,12 +8179,21 @@ function genPeerId() {
   return 'lumen-' + hex;
 }
 function defaultSyncMeta() {
-  return { peerId: genPeerId(), rev: 1, autoSync: true, deviceName: '', passHash: '', passSalt: '', passHashV: 1, tombstones: { tasks: [], goals: [], habits: [], notes: [], recordings: [] }, syncQueue: [] };
+  return { peerId: genPeerId(), rev: 1, autoSync: true, deviceName: '', passHash: '', passSalt: '', passHashV: 1, tombstones: { tasks: [], goals: [], habits: [], notes: [], recordings: [], vaultItems: [], vaultCollections: {} }, syncQueue: [] };
 }
 function loadSyncMeta() {
   try {
     const raw = localStorage.getItem(SYNC_KEY);
-    if (raw) return Object.assign(defaultSyncMeta(), JSON.parse(raw));
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const def = defaultSyncMeta();
+      // merge tombstones so new keys (vaultItems etc) appear on old syncMeta
+      def.tombstones = Object.assign({}, def.tombstones, parsed.tombstones || {});
+      if (parsed.tombstones && parsed.tombstones.vaultCollections && typeof parsed.tombstones.vaultCollections === 'object' && !Array.isArray(parsed.tombstones.vaultCollections)) def.tombstones.vaultCollections = parsed.tombstones.vaultCollections;
+      else if (!def.tombstones.vaultCollections) def.tombstones.vaultCollections = {};
+      if (!Array.isArray(def.tombstones.vaultItems)) def.tombstones.vaultItems = Array.isArray(parsed.tombstones?.vaultItems) ? parsed.tombstones.vaultItems : [];
+      return Object.assign(def, parsed, { tombstones: def.tombstones });
+    }
   } catch (e) { /* ignore */ }
   return defaultSyncMeta();
 }
@@ -7698,6 +8392,7 @@ function pushState() {
         achievements: state.achievements, income: state.income, expenses: state.expenses,
         expectedIncome: state.expectedIncome, expectedExpenses: state.expectedExpenses, incomeTypes: state.incomeTypes, expenseCategories: state.expenseCategories,
         students: state.students, attendance: state.attendance, assignments: state.assignments, lessonPlans: state.lessonPlans, kanbanLists: state.kanbanLists,
+        vaultItems: state.vaultItems, vaultCollections: state.vaultCollections, _vaultItemsMeta: state._vaultItemsMeta, _vaultCollectionsMeta: state._vaultCollectionsMeta,
         deleted: syncMeta.tombstones
       }
     });
@@ -7732,6 +8427,7 @@ function enqueueSyncSnapshot() {
       expectedIncome: state.expectedIncome, expectedExpenses: state.expectedExpenses, incomeTypes: state.incomeTypes, expenseCategories: state.expenseCategories,
       _tagColorMeta: state._tagColorMeta, _incomeTypesMeta: state._incomeTypesMeta, _expenseCategoriesMeta: state._expenseCategoriesMeta,
       students: state.students, kanbanLists: state.kanbanLists,
+      vaultItems: state.vaultItems, vaultCollections: state.vaultCollections, _vaultItemsMeta: state._vaultItemsMeta, _vaultCollectionsMeta: state._vaultCollectionsMeta,
       deleted: syncMeta.tombstones
     }
   };
@@ -7766,8 +8462,17 @@ function flushSyncQueue() {
 }
 
 function tombstone(col, id) {
-  if (!syncMeta.tombstones[col]) syncMeta.tombstones[col] = [];
-  syncMeta.tombstones[col].push(id);
+  if (col === 'vaultCollections') {
+    if (!syncMeta.tombstones[col] || Array.isArray(syncMeta.tombstones[col])) syncMeta.tombstones[col] = {};
+    syncMeta.tombstones[col][id] = Date.now();
+  } else {
+    if (!syncMeta.tombstones[col]) syncMeta.tombstones[col] = [];
+    if (Array.isArray(syncMeta.tombstones[col])) {
+      if (!syncMeta.tombstones[col].includes(id)) syncMeta.tombstones[col].push(id);
+    } else {
+      syncMeta.tombstones[col][id]=Date.now();
+    }
+  }
   saveSyncMeta();
 }
 
@@ -10258,6 +10963,14 @@ function openStudentDossier(studentId) {
             ${linkedGoals.map(g => `<span class="chip chip-student">🎯 ${esc(g.title)} · ${goalProgress(g)}%</span>`).join('')}
           </div>
         </div>` : ''}
+        ${(() => {
+          const vRes = (state.vaultItems||[]).filter(v=> (v.linkedStudentIds||[]).includes(s.id));
+          if (!vRes.length) return '';
+          return `<div class="card" style="margin-top:14px;padding:14px">
+            <h4 style="margin:0 0 8px;font-size:13px;color:var(--muted)">🔐 LINKED RESOURCES</h4>
+            <div style="display:flex;flex-wrap:wrap;gap:6px">${vRes.map(v=> `<span class="chip chip-student" style="cursor:pointer" data-vault-res="${v.id}">${vaultTypeIcon(v.type)} ${esc(v.title)}</span>`).join('')}</div>
+          </div>`;
+        })()}
 
         ${s.goals ? `
           <div class="card" style="margin-top:14px;padding:14px">
@@ -10394,6 +11107,7 @@ function openStudentDossier(studentId) {
   }
 
   function bindDossierContentEvents() {
+    $$('[data-vault-res]').forEach(b=> b.addEventListener('click', ()=>{ const v=state.vaultItems.find(x=>x.id===b.dataset.vaultRes); if(v) { closeModal(); openVaultModal(v);} }));
     $('#dossier-mark-att')?.addEventListener('click', () => { closeModal(); openAttendanceModal(null, s.name); });
     $('#dossier-att-add')?.addEventListener('click', () => { closeModal(); openAttendanceModal(null, s.name); });
     $('#dossier-assign-hw')?.addEventListener('click', () => { closeModal(); openAssignmentModal(null, s.name); });
@@ -11508,27 +12222,49 @@ function renderSettings() {
       <div class="card">
         <h3 class="card-title">🎨 Appearance &amp; Aesthetics</h3>
         <div class="field" style="margin-bottom:12px">
-          <label class="field-label">Color Theme</label>
-          <div class="theme-grid">
-            ${THEME_PALETTES.map(p => `
-              <div class="theme-card ${(state.settings.theme || 'dark') === p.id ? 'active' : ''}" data-theme-id="${p.id}">
-                <div class="theme-preview-swatches">
-                  <div class="theme-swatch" style="background:${p.bg}"></div>
-                  <div class="theme-swatch" style="background:${p.surface}"></div>
-                  <div class="theme-swatch" style="background:${p.accent}"></div>
+          <label class="field-label">Color Theme — purposeful palettes</label>
+          <div class="muted" style="font-size:11px;margin-bottom:8px;line-height:1.4">Professional · Academic · Personal · Creative — each tuned for its context. <span style="color:var(--accent)">● current</span> is <b>${(THEME_PALETTES.find(p=>p.id===(state.settings.theme||'dracula'))||{}).name||state.settings.theme}</b></div>
+          ${(() => {
+            const grouped={}; THEME_PALETTES.forEach(p=>{ const c=p.category||'Other'; (grouped[c]=grouped[c]||[]).push(p); });
+            const order=['Professional','Academic','Personal','Creative','Other'];
+            const icons={Professional:'💼',Academic:'🎓',Personal:'🌿',Creative:'✨',Other:'🎨'};
+            const cats=[...order.filter(c=>grouped[c]), ...Object.keys(grouped).filter(c=>!order.includes(c))];
+            return cats.map(cat=>`
+              <div style="margin-top:10px">
+                <div style="font-size:10.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:6px;display:flex;align-items:center;gap:6px">
+                  <span>${icons[cat]||'•'} ${cat}</span>
+                  <span style="font-weight:600;text-transform:none;letter-spacing:0;opacity:.7">· ${grouped[cat].length} themes</span>
+                  <span style="margin-left:auto;font-weight:600;text-transform:none;letter-spacing:0;font-size:10px;background:var(--surface2);border:1px solid var(--border);padding:1px 6px;border-radius:999px">${cat==='Professional'?'Trust & clarity':cat==='Academic'?'Read & teach':cat==='Personal'?'Calm & reflect':cat==='Creative'?'Make & explore':''}</span>
                 </div>
-                <span style="font-size:11.5px;font-weight:700">${p.name}</span>
+                <div class="theme-grid">
+                  ${grouped[cat].map(p=>`
+                    <div class="theme-card ${(state.settings.theme||'dracula')===p.id?'active':''}" data-theme-id="${p.id}" title="${esc(p.purpose||p.desc||p.name)}">
+                      <div class="theme-preview-swatches">
+                        <div class="theme-swatch" style="background:${p.bg}"></div>
+                        <div class="theme-swatch" style="background:${p.surface}"></div>
+                        <div class="theme-swatch" style="background:${p.accent}"></div>
+                      </div>
+                      <span style="font-size:11.5px;font-weight:700;line-height:1.2">${p.name}</span>
+                      <span style="font-size:10px;color:var(--muted);line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:26px">${esc(p.purpose||p.desc||(p.dark?'Dark':'Light'))}</span>
+                      <span style="font-size:9px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);opacity:.8">${p.dark?'Dark':'Light'} · ${p.accent}</span>
+                    </div>
+                  `).join('')}
+                </div>
               </div>
-            `).join('')}
-          </div>
+            `).join('');
+          })()}
         </div>
 
         <div class="field" style="margin-bottom:12px">
           <label class="field-label">Accent Color</label>
           <div class="accent-picker-row">
             ${ACCENT_COLORS.map(a => `
-              <button class="accent-dot-btn ${(state.settings.accent || 'violet') === a.id ? 'active' : ''}" data-accent-id="${a.id}" style="background:${a.hex}" title="${a.label}"></button>
+              <button class="accent-dot-btn ${state.settings.accent === a.id ? 'active' : ''}" data-accent-id="${a.id}" style="background:${a.hex}" title="${a.label}"></button>
             `).join('')}
+          </div>
+          <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <button class="btn btn-xs ${!state.settings.accent?'btn-accent':'btn-ghost'}" id="accent-clear" title="Let the purposeful theme's own accent shine">${!state.settings.accent?'✓ Theme default':'✕ Use theme default'}</button>
+            <span class="muted" style="font-size:11px">${state.settings.accent ? `Custom: <b style="color:var(--accent)">${esc(state.settings.accent)}</b> overrides purposeful palette` : `Purposeful accent <b style="color:var(--accent)">${esc((THEME_PALETTES.find(p=>p.id===(state.settings.theme||'dracula'))||{}).accent||'auto')}</b> is active`}</span>
           </div>
         </div>
 
@@ -11711,8 +12447,26 @@ function renderSettings() {
     save();
     applyTheme();
     $$('.accent-dot-btn').forEach(ab => ab.classList.toggle('active', ab.dataset.accentId === aid));
+    const clearBtn=$('#accent-clear');
+    if(clearBtn){ clearBtn.textContent='✕ Use theme default'; clearBtn.className='btn btn-xs btn-ghost'; }
     toast(`Accent set to ${aid}`);
   }));
+  $('#accent-clear')?.addEventListener('click', () => {
+    if(state.settings.accent){
+      delete state.settings.accent; save(); applyTheme();
+      $$('.accent-dot-btn').forEach(ab=>ab.classList.remove('active'));
+      const cb=$('#accent-clear'); if(cb){ cb.textContent='✓ Theme default'; cb.className='btn btn-xs btn-accent'; }
+      toast('Accent cleared — purposeful palette active');
+    } else {
+      toast('Theme default already active');
+    }
+    if(currentView()==='settings') {
+      // refresh the muted text showing current accent hex? Re-render settings quickly
+      const cur = THEME_PALETTES.find(p=>p.id===state.settings.theme);
+      const span = document.querySelector('#accent-clear + span');
+      if(span && cur) span.innerHTML=`Purposeful accent <b style="color:var(--accent)">${esc(cur.accent)}</b> is active`;
+    }
+  });
   $('#set-density')?.addEventListener('change', e => {
     state.settings.density = e.target.value;
     save(); applyTheme();
@@ -12202,6 +12956,7 @@ function openSearch() {
         { name: 'finance', icon: 'dollar-sign', label: 'Open finance tracker', act: () => { pushRecentCmd('finance'); closeSearch(); location.hash = '#finance'; } },
         { name: 'income', icon: 'dollar-sign', label: 'Log income', act: () => { pushRecentCmd('income'); closeSearch(); location.hash = '#finance'; openFinanceModal('income'); } },
         { name: 'expense', icon: 'dollar-sign', label: 'Log expense', act: () => { pushRecentCmd('expense'); closeSearch(); location.hash = '#finance'; openFinanceModal('expense'); } },
+        { name: 'vault', icon: 'folder', label: 'Open Vault', act: () => { pushRecentCmd('vault'); closeSearch(); location.hash = '#vault'; } },
         { name: 'backup', icon: 'download', label: 'Export backup (JSON)', act: () => { pushRecentCmd('backup'); closeSearch(); $('#set-export')?.click(); } },
         { name: 'undo', icon: 'zap', label: 'Undo last action', act: () => { pushRecentCmd('undo'); closeSearch(); performUndo(); } },
         { name: 'redo', icon: 'zap', label: 'Redo last action', act: () => { pushRecentCmd('redo'); closeSearch(); performRedo(); } },
@@ -12266,6 +13021,21 @@ function openSearch() {
         });
       }
       const cmdWord = cmd.split(/\s+/)[0] || '';
+      if (cmdWord === 'vault' || cmd.startsWith('vault ') || cmd.startsWith('vault:')) {
+        const vq = cmd.replace(/^vault[:\s]*/, '').trim().toLowerCase();
+        const vaultList = state.vaultItems.filter(v => !vq || getVaultHay(v).includes(vq)).sort((a,b)=> b.updatedAt - a.updatedAt).slice(0,30);
+        const vResults = vaultList.map(v => ({ type: 'Vault', icon: 'folder', title: v.title, sub: (vaultTypeLabel(v.type)||v.type)+' · '+(v.url? vaultHost(v.url): (v.fileName||'')), act: () => { closeSearch(); location.hash='#vault'; openVaultModal(v); }}));
+        // also show vault command itself
+        const vaultCmd = { name:'vault', icon:'folder', label:'Open Vault', act:()=>{ pushRecentCmd('vault'); closeSearch(); location.hash='#vault'; }};
+        const combined = [...vResults, { type:'Command', icon:vaultCmd.icon, title:vaultCmd.label, sub:'>vault', act:vaultCmd.act }];
+        searchResults = combined.slice(0,50);
+        searchRows = buildSearchRows(searchResults);
+        searchVirt.setItems(searchRows, searchRowHTML, 'vault|'+vq);
+        searchVirt.render();
+        if(!vaultList.length && !vq) { /* show vault command at least */ }
+        else if(!vaultList.length) $('#search-results').innerHTML='<div class="search-empty">No vault items for “'+esc(vq)+'”.</div>';
+        return;
+      }
       // fuzzy ranking
       let scored = commands.map(c => ({ c, score: cmdWord ? fuzzyScore(c.name, c.label, cmdWord) : 10 })).filter(x => x.score > 0).sort((a, b) => b.score - a.score);
       // if empty query, show recent first
@@ -12348,6 +13118,34 @@ function openSearch() {
         });
       }
       taskHits.forEach(t => push({ type: 'Task', icon: 'check-square', title: t.title, sub: (STATUSES.find(s => s.id === t.status) || {}).title || t.status || 'Task', act: () => { openTaskModal(t); } }));
+      // vault hits — supports >vault prefix via normal search fallback and boosts title matches
+      const vaultHits = getSearchVaultHay().filter(e => {
+        if(!q) return true;
+        // if query starts with vault prefix, strip it for vault matching but keep original q for other types?
+        const vq = q.replace(/^>vault\s*/,'').replace(/^vault[:\s]+/,'');
+        const hay = e.hay;
+        const match = vq ? hay.includes(vq) : hay.includes(q);
+        // if user typed >vault, only vault hits should surface in normal search (but command palette also handles)
+        if(q.startsWith('>vault')) return match;
+        return match;
+      });
+      if(q) {
+        vaultHits.sort((a,b)=>{
+          const aTitle=a.v.title.toLowerCase(), bTitle=b.v.title.toLowerCase();
+          const vq=q.replace(/^>vault\s*/,'').replace(/^vault[:\s]+/,'');
+          const aScore = aTitle===vq?3: aTitle.startsWith(vq)?2: aTitle.includes(vq)?1:0;
+          const bScore = bTitle===vq?3: bTitle.startsWith(vq)?2: bTitle.includes(vq)?1:0;
+          if(bScore!==aScore) return bScore-aScore;
+          return b.v.updatedAt - a.v.updatedAt;
+        });
+      }
+      // if vault-only query, don't push other types beyond vault? But keep other pushes earlier; for >vault we prioritize vault but still show others? Spec wants >vault vault only. So if >vault, isolate vault.
+      if(q.startsWith('>vault')){
+        // clear previous types? Results already has overdue/tags/tasks — we want vault only when >vault. So filter to keep only vault if requested.
+        // Remove non-vault entries added so far when vault-only: keep only overdue not? Actually spec says >vault prefix filters vault only. So we should clear results before pushing vault.
+        results.length=0;
+      }
+      vaultHits.forEach(({v})=> push({ type:'Vault', icon:'folder', title: v.title, sub: (v.type? vaultTypeLabel(v.type)+' · ':'')+ (v.url? vaultHost(v.url): (v.fileName||'')), act: ()=>{ closeSearch(); location.hash='#vault'; openVaultModal(v); }}));
       state.notes.filter(n => matches(n.title + ' ' + n.content + ' ' + (n.tags || []).join(' ')))
         .forEach(n => push({ type: 'Note', icon: 'file-text', title: n.title || 'Untitled', sub: n.audioId ? 'Voice memo' : 'Note', act: () => { selectedNoteId = n.id; location.hash = '#notes'; } }));
       const goalHits = state.goals.filter(g => matches(g.title + ' ' + (g.desc || '') + ' ' + (g.tags || []).join(' ')))
@@ -12589,15 +13387,20 @@ function init() {
   load();
   loadLocalAudioIds();
   applyTheme();
-  // theme toggle in sidebar
+  // theme toggle — purposeful light ↔ dark (respects current theme's dark flag)
   const themeBtn = $('#theme-toggle');
   if (themeBtn) themeBtn.addEventListener('click', () => {
-    const isLight = state.settings.theme === 'sepia' || state.settings.theme === 'coral-dawn';
-    state.settings.theme = isLight ? 'dracula' : 'coral-dawn';
+    const cur = THEME_PALETTES.find(p=>p.id===state.settings.theme);
+    const isLight = cur ? !cur.dark : (state.settings.theme === 'sepia' || state.settings.theme === 'coral-dawn' || state.settings.theme === 'boardroom');
+    // pair: light -> most recent dark, dark -> most recent light; default to boardroom/executive as purposeful defaults
+    const lightDefault = THEME_PALETTES.find(p=>p.id==='boardroom') || THEME_PALETTES.find(p=>!p.dark) || {id:'coral-dawn'};
+    const darkDefault = THEME_PALETTES.find(p=>p.id==='executive') || THEME_PALETTES.find(p=>p.id==='dracula') || THEME_PALETTES.find(p=>p.dark) || {id:'dracula'};
+    state.settings.theme = isLight ? darkDefault.id : lightDefault.id;
     save(); applyTheme();
     if (currentView() === 'settings') {
       $$('.theme-card').forEach(tc => tc.classList.toggle('active', tc.dataset.themeId === state.settings.theme));
     }
+    toast(`Theme: ${THEME_PALETTES.find(p=>p.id===state.settings.theme)?.name||state.settings.theme}`);
   });
   // nav — render icons only for the main 4 items; 'more' is handled separately
   $$('.nav-item[data-view]').forEach(b => {

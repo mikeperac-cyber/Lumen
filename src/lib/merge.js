@@ -11,7 +11,7 @@
 export function applyMerge({ state, syncMeta, inc, incomingRev }) {
   const key = (arr) => JSON.stringify([...(arr || [])].sort((a, b) => (a.id < b.id ? -1 : 1)));
   const keyAch = (a) => JSON.stringify(Object.entries(a || {}).sort((x, y) => (x[0] < y[0] ? -1 : 1)));
-  const before = key(state.tasks) + key(state.goals) + key(state.habits) + key(state.notes) + key(state.recordings) + key(state.projects) + key(state.krHistory) + key(state.income) + key(state.expenses) + key(state.students) + key(state.attendance) + key(state.assignments) + key(state.lessonPlans) + JSON.stringify(state.kanbanLists || []) + JSON.stringify(state.tagColors || {}) + keyAch(state.achievements);
+  const before = key(state.tasks) + key(state.goals) + key(state.habits) + key(state.notes) + key(state.recordings) + key(state.projects) + key(state.krHistory) + key(state.income) + key(state.expenses) + key(state.students) + key(state.attendance) + key(state.assignments) + key(state.lessonPlans) + JSON.stringify(state.kanbanLists || []) + JSON.stringify(state.tagColors || {}) + keyAch(state.achievements) + key(state.vaultItems) + JSON.stringify(state.vaultCollections||[]) + JSON.stringify(state._vaultItemsMeta||{}) + JSON.stringify(state._vaultCollectionsMeta||{});
   const mergeOne = (local, incoming, tombKey) => {
     const tomb = new Set(syncMeta.tombstones[tombKey] || []);
     ((inc.deleted && inc.deleted[tombKey]) || []).forEach((id) => tomb.add(id));
@@ -143,11 +143,90 @@ export function applyMerge({ state, syncMeta, inc, incomingRev }) {
     inc.kanbanLists.forEach((l) => { if (l && l.id) map.set(l.id, l); });
     state.kanbanLists = [...map.values()];
   }
+  // Vault: ensure meta/tombstones exist
+  if (!state._vaultItemsMeta) state._vaultItemsMeta = {};
+  if (!state._vaultCollectionsMeta) state._vaultCollectionsMeta = {};
+  if (!syncMeta.tombstones) syncMeta.tombstones = {};
+  if (!syncMeta.tombstones.vaultItems) syncMeta.tombstones.vaultItems = [];
+  if (!syncMeta.tombstones.vaultCollections) syncMeta.tombstones.vaultCollections = {};
+  // normalize vault tombstones (support both array and object forms)
+  const normalizeVaultTomb = (key) => {
+    const v = syncMeta.tombstones[key];
+    if (Array.isArray(v)) return new Set(v);
+    if (v && typeof v === 'object') return new Set(Object.keys(v).filter(k => v[k]));
+    return new Set();
+  };
+  // vaultCollections tombstones may be object map -> convert to Set semantics for mergeOne
+  // Merge vaultItems (LWW by updatedAt, tombstone-aware)
+  if (Array.isArray(inc.vaultItems) || (inc.deleted && inc.deleted.vaultItems)){
+    // use mergeOne but it expects array tombstones; temporarily normalize
+    const origVaultTomb = syncMeta.tombstones.vaultItems;
+    const isObj = origVaultTomb && typeof origVaultTomb === 'object' && !Array.isArray(origVaultTomb);
+    if (isObj) syncMeta.tombstones.vaultItems = Object.keys(origVaultTomb).filter(k=> origVaultTomb[k]);
+    state.vaultItems = mergeOne(state.vaultItems||[], inc.vaultItems||[], 'vaultItems');
+    // restore object form if needed? keep array for consistency
+    // merge per-id meta LWW
+    const incMeta = inc._vaultItemsMeta || {};
+    Object.entries(incMeta).forEach(([id, ts])=>{
+      const localTs = state._vaultItemsMeta[id] || 0;
+      if (ts > localTs) state._vaultItemsMeta[id]=ts;
+    });
+    // also merge incoming vaultItems' updatedAt into meta
+    (inc.vaultItems||[]).forEach(v=>{
+      if(!v || !v.id) return;
+      const ts = v.updatedAt || incomingRev || 0;
+      if(ts > (state._vaultItemsMeta[v.id]||0)) state._vaultItemsMeta[v.id]=ts;
+    });
+    // handle explicit deleted map for vaultItems if object form
+    if (inc.deleted && inc.deleted.vaultItems && typeof inc.deleted.vaultItems === 'object' && !Array.isArray(inc.deleted.vaultItems)){
+      Object.entries(inc.deleted.vaultItems).forEach(([id, ts])=>{
+        const cur = (typeof syncMeta.tombstones.vaultItems === 'object' && !Array.isArray(syncMeta.tombstones.vaultItems)) ? (syncMeta.tombstones.vaultItems[id]||0) : 0;
+        if (ts>cur){
+          if (Array.isArray(syncMeta.tombstones.vaultItems)) {
+            if(!syncMeta.tombstones.vaultItems.includes(id)) syncMeta.tombstones.vaultItems.push(id);
+          } else syncMeta.tombstones.vaultItems[id]=ts;
+          state._vaultItemsMeta[id]=ts;
+          state.vaultItems = (state.vaultItems||[]).filter(x=>x.id!==id);
+        }
+      });
+    }
+  } else if (inc.vaultItems){
+    // fallback: still merge meta even if empty array not provided
+    const incMeta = inc._vaultItemsMeta || {};
+    Object.entries(incMeta).forEach(([id, ts])=>{
+      if (ts > (state._vaultItemsMeta[id]||0)) state._vaultItemsMeta[id]=ts;
+    });
+  }
+  // vaultCollections merge (array union, tombstone-aware for object map)
+  if (Array.isArray(inc.vaultCollections)){
+    // build set of tombstoned collection ids
+    const tombSet = normalizeVaultTomb('vaultCollections');
+    const incDeleted = inc.deleted && inc.deleted.vaultCollections;
+    const delIds = incDeleted ? (Array.isArray(incDeleted) ? incDeleted : Object.keys(incDeleted).filter(k=> incDeleted[k])) : [];
+    delIds.forEach(id=> tombSet.add(id));
+    // persist tombstones as object map for vaultCollections
+    const tombObj = {};
+    tombSet.forEach(id=> tombObj[id]= (syncMeta.tombstones.vaultCollections[id] || incDeleted?.[id] || Date.now()));
+    syncMeta.tombstones.vaultCollections = tombObj;
+    const map = new Map((state.vaultCollections||[]).filter(c=>!tombSet.has(c.id)).map(c=>[c.id,c]));
+    (inc.vaultCollections||[]).forEach(c=>{
+      if(!c || !c.id || tombSet.has(c.id)) return;
+      const ex = map.get(c.id);
+      const incTs = (inc._vaultCollectionsMeta && inc._vaultCollectionsMeta[c.id]) || c.updatedAt || incomingRev || 0;
+      const localTs = state._vaultCollectionsMeta[c.id] || 0;
+      if (!ex || incTs > localTs) { map.set(c.id, c); state._vaultCollectionsMeta[c.id]=incTs; }
+    });
+    state.vaultCollections = [...map.values()];
+    // merge meta for collections not in array but in inc meta
+    Object.entries(inc._vaultCollectionsMeta||{}).forEach(([id,ts])=>{
+      if(ts > (state._vaultCollectionsMeta[id]||0)) state._vaultCollectionsMeta[id]=ts;
+    });
+  }
   state.achievements = Object.assign({}, state.achievements || {});
   Object.keys(inc.achievements || {}).forEach((k) => {
     const iu = (inc.achievements[k] || {}).unlockedAt || 0;
     if (!state.achievements[k] || iu > ((state.achievements[k] || {}).unlockedAt || 0)) state.achievements[k] = inc.achievements[k];
   });
-  const changed = before !== key(state.tasks) + key(state.goals) + key(state.habits) + key(state.notes) + key(state.recordings) + key(state.projects) + key(state.krHistory) + key(state.income) + key(state.expenses) + key(state.students) + key(state.attendance) + key(state.assignments) + key(state.lessonPlans) + JSON.stringify(state.kanbanLists || []) + JSON.stringify(state.tagColors || {}) + keyAch(state.achievements);
+  const changed = before !== key(state.tasks) + key(state.goals) + key(state.habits) + key(state.notes) + key(state.recordings) + key(state.projects) + key(state.krHistory) + key(state.income) + key(state.expenses) + key(state.students) + key(state.attendance) + key(state.assignments) + key(state.lessonPlans) + JSON.stringify(state.kanbanLists || []) + JSON.stringify(state.tagColors || {}) + keyAch(state.achievements) + key(state.vaultItems) + JSON.stringify(state.vaultCollections||[]) + JSON.stringify(state._vaultItemsMeta||{}) + JSON.stringify(state._vaultCollectionsMeta||{});
   return changed;
 }
