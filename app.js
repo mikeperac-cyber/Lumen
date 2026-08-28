@@ -8243,13 +8243,15 @@ function renderFinance() {
   const today = todayISO();
   const thisMonth = today.slice(0, 7);
 
-  // Filter by currency & student if set
+  // Filter by currency & student if set (student filter matches by name or by FK id)
+  const _finFilterStudentId = _finStudentFilter !== 'ALL' && _finStudentFilter !== '__NONE__'
+    ? (getStudentsList().find(s => s.name === _finStudentFilter) || {}).id : null;
   const filterFn = e => {
     if (_finCurrFilter !== 'ALL' && (e.currency || 'USD') !== _finCurrFilter) return false;
     if (_finStudentFilter !== 'ALL') {
       if (_finStudentFilter === '__NONE__') {
-        if (e.student) return false;
-      } else if (e.student !== _finStudentFilter) {
+        if (e.student || e.studentId) return false;
+      } else if (e.student !== _finStudentFilter && !(e.studentId && e.studentId === _finFilterStudentId)) {
         return false;
       }
     }
@@ -8433,6 +8435,34 @@ function renderFinance() {
     ...studentList.map(s => `<option value="${esc(s.name)}" ${_finStudentFilter === s.name ? 'selected' : ''}>🎓 ${esc(s.name)}</option>`)
   ].join('');
 
+  // Per-student balance rollup: Paid / Expected / Outstanding, split by currency.
+  const _matchStudent = (e, s) => e.studentId ? e.studentId === s.id : e.student === s.name;
+  const perStudentHTML = studentList
+    .filter(s => (s.status || 'active') === 'active')
+    .map(s => {
+      const paidBy = {}, expBy = {};
+      (state.income || []).filter(e => _matchStudent(e, s)).forEach(e => { const c = e.currency || 'USD'; paidBy[c] = (paidBy[c] || 0) + (e.amount || 0); });
+      (state.expectedIncome || []).filter(e => _matchStudent(e, s)).forEach(e => { const c = e.currency || 'USD'; expBy[c] = (expBy[c] || 0) + (e.amount || 0); });
+      const curs = [...new Set([...Object.keys(paidBy), ...Object.keys(expBy)])];
+      if (!curs.length) return '';
+      return curs.map(c => {
+        const paid = paidBy[c] || 0, expd = expBy[c] || 0, out = Math.max(0, expd - paid);
+        const pct = expd ? Math.min(100, Math.round(paid / expd * 100)) : (paid ? 100 : 0);
+        return `<div class="fps-row">
+          <span class="fps-name">🎓 ${esc(s.name)}</span>
+          <div class="fps-bar"><div class="fps-fill" style="width:${pct}%"></div></div>
+          <span class="fps-nums">${fmtM(paid, c)} / ${fmtM(expd, c)} · <b>${fmtM(out, c)} due</b></span>
+        </div>`;
+      }).join('');
+    }).filter(Boolean).join('');
+  const perStudentCard = perStudentHTML ? `<div id="fin-per-student" style="margin-bottom:14px;padding:10px 12px;background:var(--surface2);border-radius:10px;border:1px solid var(--border)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <span style="font-weight:700;font-size:13px">🎓 Per-student balance</span>
+      <a class="link-btn" href="#students">Students →</a>
+    </div>
+    ${perStudentHTML}
+  </div>` : '';
+
   root.innerHTML = `
     <!-- Top Workstation: Recent Transactions & Quick Logging (ON TOP) -->
     <div class="card" style="margin-bottom:20px">
@@ -8467,6 +8497,8 @@ function renderFinance() {
           </select>
         </div>
       </div>
+
+      ${perStudentCard}
 
       <!-- Transaction Table -->
       ${recent.length ? `<div style="overflow-x:auto"><table class="fin-tx-table">

@@ -61,6 +61,25 @@ test('teaching hub weave uses the explicit goal-student link', async ({ page }) 
   await page.evaluate(() => { state.students = []; state.goals = []; state.income = []; save(); flushSave(); });
 });
 
+test('finance shows a per-student Paid / Expected / Outstanding rollup', async ({ page }) => {
+  await page.goto('/');
+  await page.waitForLoadState('domcontentloaded');
+  await page.waitForTimeout(400);
+  await page.evaluate(() => {
+    state.students = [{ id: 's-c', name: 'Caner', status: 'active', currency: 'TRY', rate: 1500, level: 'IELTS' }];
+    state.income = [{ id: 'i1', studentId: 's-c', student: 'Caner', amount: 1500, currency: 'TRY', date: '2026-08-01' }];
+    state.expectedIncome = [{ id: 'e1', studentId: 's-c', student: 'Caner', amount: 4500, currency: 'TRY', date: '2026-08-01' }];
+    save(); flushSave();
+  });
+  await page.goto('/#finance');
+  await page.waitForTimeout(600);
+  const card = await page.locator('#fin-per-student').innerText();
+  expect(card).toContain('Caner');
+  expect(card).toMatch(/₺1,?500/);   // paid
+  expect(card).toMatch(/₺3,?000 due/); // outstanding = 4500 - 1500
+  await page.evaluate(() => { state.students = []; state.income = []; state.expectedIncome = []; save(); flushSave(); });
+});
+
 test('an income entry with an unknown student name still renders without error', async ({ page }) => {
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
