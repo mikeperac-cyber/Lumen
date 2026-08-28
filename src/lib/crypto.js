@@ -50,12 +50,8 @@ export async function deriveVaultKey(password, salt) {
   );
 }
 
-/**
- * @param {string} plainText
- * @param {string} password
- * @returns {Promise<string>} JSON envelope
- */
-export async function encryptVaultBackup(plainText, password) {
+/** Inline (main-thread) encrypt — the fallback path. */
+async function encryptInline(plainText, password) {
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const key = await deriveVaultKey(password, salt);
@@ -71,15 +67,8 @@ export async function encryptVaultBackup(plainText, password) {
   }, null, 2);
 }
 
-/**
- * @param {object} envelopeObj
- * @param {string} password
- * @returns {Promise<string>}
- */
-export async function decryptVaultBackup(envelopeObj, password) {
-  if (!envelopeObj.lumenEncrypted || !envelopeObj.salt || !envelopeObj.iv || !envelopeObj.data) {
-    throw new Error('Not a valid Lumen encrypted vault file.');
-  }
+/** Inline (main-thread) decrypt — the fallback path. */
+async function decryptInline(envelopeObj, password) {
   const salt = new Uint8Array(b642buf(envelopeObj.salt));
   const iv = new Uint8Array(b642buf(envelopeObj.iv));
   const ciphertext = b642buf(envelopeObj.data);
@@ -90,6 +79,61 @@ export async function decryptVaultBackup(envelopeObj, password) {
   } catch (e) {
     throw new Error('Incorrect vault password or damaged data.');
   }
+}
+
+function runVaultWorker(factory, message) {
+  return new Promise((resolve, reject) => {
+    let worker;
+    try { worker = factory(); } catch (e) { reject(e); return; }
+    if (!worker) { reject(new Error('WORKER_UNAVAILABLE')); return; }
+    const id = String(message.op) + '-' + (typeof performance !== 'undefined' ? performance.now() : 0);
+    const timer = setTimeout(() => { try { worker.terminate(); } catch (_) {} reject(new Error('WORKER_TIMEOUT')); }, 8000);
+    worker.onmessage = (e) => {
+      if (e.data.id !== id) return;
+      clearTimeout(timer);
+      try { worker.terminate(); } catch (_) {}
+      if (e.data.ok) resolve(e.data.result);
+      else reject(new Error(e.data.error));
+    };
+    worker.onerror = (e) => { clearTimeout(timer); try { worker.terminate(); } catch (_) {} reject((e && e.error) || new Error('WORKER_ERROR')); };
+    worker.postMessage({ ...message, id });
+  });
+}
+
+const defaultWorkerFactory = () =>
+  (typeof Worker !== 'undefined' ? new Worker(new URL('./vault-worker.js', import.meta.url)) : null);
+
+/**
+ * @param {string} plainText
+ * @param {string} password
+ * @param {{workerFactory?: () => (Worker|null)}} [opts]
+ * @returns {Promise<string>} JSON envelope
+ */
+export async function encryptVaultBackup(plainText, password, opts = {}) {
+  const factory = opts.workerFactory || defaultWorkerFactory;
+  if (typeof Worker !== 'undefined') {
+    try { return await runVaultWorker(factory, { op: 'encrypt', plainText, password }); } catch (_) { /* fall through */ }
+  }
+  return encryptInline(plainText, password);
+}
+
+/**
+ * @param {object} envelopeObj
+ * @param {string} password
+ * @param {{workerFactory?: () => (Worker|null)}} [opts]
+ * @returns {Promise<string>}
+ */
+export async function decryptVaultBackup(envelopeObj, password, opts = {}) {
+  if (!envelopeObj.lumenEncrypted || !envelopeObj.salt || !envelopeObj.iv || !envelopeObj.data) {
+    throw new Error('Not a valid Lumen encrypted vault file.');
+  }
+  const factory = opts.workerFactory || defaultWorkerFactory;
+  if (typeof Worker !== 'undefined') {
+    // Worker is a pure optimization — any failure (infra or a genuine bad
+    // password) falls through to the inline path, which raises the real error.
+    try { return await runVaultWorker(factory, { op: 'decrypt', envelope: envelopeObj, password }); } catch (_) { /* fall through */ }
+  }
+  return decryptInline(envelopeObj, password);
 }
 
 /**

@@ -54,6 +54,26 @@ describe('crypto.hashPassLegacy', () => {
   });
 });
 
+describe('crypto worker fallback', () => {
+  it('encrypts inline when a workerFactory throws (Worker present)', async () => {
+    const OrigWorker = globalThis.Worker;
+    globalThis.Worker = class { constructor() { throw new Error('no worker'); } };
+    try {
+      const badFactory = () => { throw new Error('no worker here'); };
+      const envelope = await encryptVaultBackup('payload', 'pw', { workerFactory: badFactory });
+      const plain = await decryptVaultBackup(JSON.parse(envelope), 'pw', { workerFactory: badFactory });
+      assert.equal(plain, 'payload');
+    } finally {
+      if (OrigWorker === undefined) delete globalThis.Worker; else globalThis.Worker = OrigWorker;
+    }
+  });
+
+  it('encrypts inline when Worker is unavailable', async () => {
+    const envelope = await encryptVaultBackup('x', 'y');
+    assert.equal(await decryptVaultBackup(JSON.parse(envelope), 'y'), 'x');
+  });
+});
+
 describe('crypto.hashPass (v2, salted)', () => {
   const saltA = 'AAAAAAAAAAAAAAAAAAAAAA==';
   const saltB = 'BBBBBBBBBBBBBBBBBBBBBB==';
