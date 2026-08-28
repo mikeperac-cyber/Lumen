@@ -9683,17 +9683,19 @@ function openAssignmentModal(assignment, presetStudent) {
     const scoreType = $('#as-scoretype').value;
     const tags = $('#as-tags').value.split(',').map(x => x.trim()).filter(Boolean);
     const createTask = $('#as-create-task')?.checked;
+    const _asStudentId = (getStudentsList().find(s => s.name === studentName) || {}).id;
 
     captureUndo('Save assignment');
     if (!Array.isArray(state.assignments)) state.assignments = [];
 
     const assignId = isEdit ? assignment.id : uid();
     if (isEdit) {
-      Object.assign(assignment, { studentName, title, assignedDate, dueDate, description, scoreType, tags, updatedAt: Date.now() });
+      Object.assign(assignment, { studentName, studentId: _asStudentId, title, assignedDate, dueDate, description, scoreType, tags, updatedAt: Date.now() });
     } else {
       state.assignments.unshift({
         id: assignId,
         studentName,
+        studentId: _asStudentId,
         title,
         assignedDate,
         dueDate,
@@ -9718,6 +9720,7 @@ function openAssignmentModal(assignment, presetStudent) {
           due: dueDate || todayISO(),
           tags: ['Homework', studentName],
           student: studentName,
+          studentId: _asStudentId,
           assignmentId: assignId,
           subtasks: [
             { text: 'Check student submission', done: false, id: uid() },
@@ -10067,6 +10070,7 @@ function deliverLessonPlan(planId) {
       state.assignments.unshift({
         id: uid(),
         studentName: plan.studentName,
+        studentId: matchedStudent?.id,
         title: `Homework: ${plan.title}`,
         description: plan.wrapUpHomework,
         assignedDate: todayISO(),

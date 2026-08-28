@@ -101,6 +101,33 @@ test('student dossier shows linked-goal chips with progress', async ({ page }) =
   await page.evaluate(() => { state.students = []; state.goals = []; save(); flushSave(); });
 });
 
+test('a Kanban task created from an assignment carries the studentId FK', async ({ page }) => {
+  await page.goto('/');
+  await page.waitForLoadState('domcontentloaded');
+  await page.waitForTimeout(400);
+  await page.evaluate(() => {
+    state.students = [{ id: 's-l', name: 'Lale', status: 'active', currency: 'USD', rate: 30, level: 'ESL' }];
+    state.assignments = [];
+    state.tasks = [];
+    save(); flushSave();
+  });
+  await page.goto('/#students');
+  await page.waitForTimeout(400);
+  await page.evaluate(() => openAssignmentModal(null, 'Lale'));
+  await page.waitForTimeout(300);
+  await page.fill('#as-title', 'Unit 3 vocab quiz');
+  const cb = page.locator('#as-create-task');
+  if (!(await cb.isChecked())) await cb.check();
+  await page.click('#as-save-btn');
+  await page.waitForTimeout(400);
+  const t = await page.evaluate(() => state.tasks.find(x => x.title.includes('Unit 3 vocab quiz')));
+  expect(t).toBeTruthy();
+  expect(t.studentId).toBe('s-l');
+  const a = await page.evaluate(() => state.assignments[0]);
+  expect(a.studentId).toBe('s-l');
+  await page.evaluate(() => { state.students = []; state.assignments = []; state.tasks = []; save(); flushSave(); });
+});
+
 test('an income entry with an unknown student name still renders without error', async ({ page }) => {
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
