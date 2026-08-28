@@ -96,25 +96,6 @@ html[data-theme="sunset"] {
   --pink: #f472b6;
   --shadow: 0 8px 26px rgba(236, 72, 153, .18);
 }
-html[data-theme="dracula"] {
-  --bg: #1e1f29;
-  --bg2: #242633;
-  --surface: #282a36;
-  --surface2: #343746;
-  --surface3: #44475a;
-  --border: #6272a4;
-  --text: #f8f8f2;
-  --text-strong: #ffffff;
-  --muted: #8be9fd;
-  --accent: #bd93f9;
-  --accent2: #ff79c6;
-  --grad: linear-gradient(135deg, #bd93f9, #ff79c6);
-  --green: #50fa7b;
-  --red: #ff5555;
-  --amber: #f1fa8c;
-  --pink: #ff79c6;
-  --shadow: 0 8px 26px rgba(0, 0, 0, .45);
-}
 html[data-theme="cerulean"] {
   --bg: #0d131a;
   --bg2: #121a24;

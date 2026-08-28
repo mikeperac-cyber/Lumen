@@ -9,6 +9,8 @@ import * as parserLib from './parser.js';
 import * as mergeLib from './merge.js';
 import * as geminiLib from './gemini.js';
 import * as studentsLib from './students.js';
+import * as vaultStore from '../vault/store.js';
+import * as vaultView from '../vault/view.js';
 
 window.LumenLib = {
   crypto: cryptoLib,
@@ -17,4 +19,5 @@ window.LumenLib = {
   merge: mergeLib,
   gemini: geminiLib,
   students: studentsLib,
+  vault: { ...vaultStore, ...vaultView },
 };

@@ -786,6 +786,8 @@ const VAULT_DB = 'lumen-vault';
 const VAULT_STORE = 'blobs';
 const VAULT_MAX_FILE = 10 * 1024 * 1024; // 10MB per file
 const VAULT_SOFT_CAP = 100 * 1024 * 1024; // 100MB soft cap
+let _lastQuotaToast = 0; // debounce quota toasts — prevents spam on retry loops: saveDirty stays true
+function toastQuota(msg){ const now=Date.now(); if(now - _lastQuotaToast < 3000) return; _lastQuotaToast = now; toast(msg,'error'); }
 function vaultDb() {
   return new Promise((res, rej) => {
     if (_vaultDb) return res(_vaultDb);
@@ -817,15 +819,12 @@ function vaultGuessType(fileName, mime) {
   if (m.startsWith('image/')) return 'image';
   if (m.startsWith('video/')) return 'video';
   // 2) exact mime set (then loose includes as fallback) — sheet before doc to avoid officedocument false-positive for xlsx
-  if (m === 'application/pdf' || m === 'text/plain') return m === 'application/pdf' ? 'pdf' : 'doc';
+  if (m === 'application/pdf') return 'pdf';
+  if (m === 'text/plain') return 'doc';
   const docMimes = new Set(['application/msword','application/vnd.openxmlformats-officedocument.wordprocessingml.document','application/vnd.oasis.opendocument.text','application/rtf','text/markdown']);
   const sheetMimes = new Set(['application/vnd.ms-excel','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','application/vnd.oasis.opendocument.spreadsheet','text/csv']);
-  if (m.includes('pdf')) return 'pdf';
-  if (sheetMimes.has(m) || m.includes('sheet') || m.includes('excel') || m === 'text/csv') return 'sheet';
-  if (docMimes.has(m) || m.includes('word') || m.includes('document')) {
-    // image/svg+xml already returned, sheet already returned, so 'document' here is safe for word docs
-    return 'doc';
-  }
+  if (sheetMimes.has(m)) return 'sheet';
+  if (docMimes.has(m)) return 'doc';
   // 3) extension fallback
   if (['pdf'].includes(ext)) return 'pdf';
   if (['doc','docx','odt','rtf','txt','md'].includes(ext)) return 'doc';
@@ -1730,10 +1729,19 @@ const ACCENT_COLORS = [
 
 let _themesLoaded = false;
 function ensureThemesCSS() {
-  if (_themesLoaded || document.querySelector('link[rel="stylesheet"][href^="themes.css"]')) { _themesLoaded = true; return; }
+  const existing = document.querySelector('link[href^="themes.css"]');
+  if (_themesLoaded || existing) {
+    if (existing && existing.rel === 'preload') {
+      existing.rel = 'stylesheet';
+      existing.removeAttribute('as');
+      existing.removeAttribute('onload');
+    }
+    _themesLoaded = true;
+    return;
+  }
   const link = document.createElement('link');
   link.rel = 'stylesheet';
-  link.href = 'themes.css?v=109';
+  link.href = 'themes.css?v=111';
   link.onload = () => { _themesLoaded = true; };
   document.head.appendChild(link);
 }
@@ -7288,8 +7296,8 @@ function renderVault(){
   const handleVaultFiles = async (files)=>{
     for(const f of [...files]){
       if(f.size>VAULT_MAX_FILE){ toast(`"${f.name}" too large — 10MB max, link instead`, 'error'); continue; }
-      if(vaultQuotaUsed()+f.size>VAULT_SOFT_CAP+5*1024*1024){ toast('Vault quota exceeded — 100MB soft cap', 'error'); break; }
-      if(vaultQuotaUsed()+f.size>VAULT_SOFT_CAP) toast('Vault near quota — remove files or increase cap in Settings', 'error');
+      if(vaultQuotaUsed()+f.size>VAULT_SOFT_CAP+5*1024*1024){ toastQuota('Vault quota exceeded — 100MB soft cap'); break; }
+      if(vaultQuotaUsed()+f.size>VAULT_SOFT_CAP) toastQuota('Vault near quota — remove files or increase cap in Settings');
       const existing = state.vaultItems.find(v=>v.fileName===f.name && v.size===f.size);
       if(existing){ toast(`"${f.name}" already in vault`, 'error'); continue; }
       // prefill modal with file
@@ -7451,11 +7459,11 @@ function openVaultModal(existing, preFile, preUrl){
     let newFileName=v.fileName||'', newMime=v.mime||'', newSize=v.size||0;
     let oldBlobToDelete=null;
     if(pendingFile){
-      if(vaultQuotaUsed() + pendingFile.size - (existing? (existing.size||0):0) > VAULT_SOFT_CAP+5*1024*1024){ toast('Vault quota exceeded — 100MB cap','error'); return; }
-      if(vaultQuotaUsed()+pendingFile.size > VAULT_SOFT_CAP) toast('Vault near quota — consider removing old files','error');
+      if(vaultQuotaUsed() + pendingFile.size - (existing? (existing.size||0):0) > VAULT_SOFT_CAP+5*1024*1024){ toastQuota('Vault quota exceeded — 100MB cap'); return; }
+      if(vaultQuotaUsed()+pendingFile.size > VAULT_SOFT_CAP) toastQuota('Vault near quota — consider removing old files');
       newBlobId='vault-'+uid();
       oldBlobToDelete = existing && existing.blobId && existing.blobId!==newBlobId ? existing.blobId : null;
-      try{ await vaultBlobPut(newBlobId, pendingFile); }catch(e){ if(e && e.name==='QuotaExceededError') { toast('Quota exceeded — link instead','error'); return; } toast('Save failed','error'); return; }
+      try{ await vaultBlobPut(newBlobId, pendingFile); }catch(e){ if(e && e.name==='QuotaExceededError') { toastQuota('Quota exceeded — link instead'); return; } toast('Save failed','error'); return; }
       newFileName=pendingFile.name; newMime=pendingFile.type; newSize=pendingFile.size;
     }
     const tags=$('#vm-tags').value.split(',').map(s=>s.trim()).filter(Boolean);
@@ -7527,9 +7535,10 @@ function vaultLinkPickerHTML(selectedIds){
   return `<div class="vault-picker">${items.map(v=>`<label class="vault-picker-row"><input type="checkbox" value="${v.id}" ${selectedIds.includes(v.id)?'checked':''}> <span>${vaultTypeIcon(v.type)}</span> <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(v.title)}</span> <span class="muted" style="font-size:11px">${esc(v.type)}</span></label>`).join('')}</div>`;
 }
 
-// expose for tests/debug
+// expose for tests/debug — Vite seam: src/vault/store.js + view.js are the source of truth, app.js shims for now
 window.LumenLib = window.LumenLib || {};
-window.LumenLib.vault = { vaultGuessType, vaultTypeIcon, getVaultItems, getVaultCollections, getVaultFiltered, vaultBlobPut, vaultBlobGet, vaultBlobDelete, openVaultModal, renderVault };
+window.LumenLib.vault = window.LumenLib.vault || {};
+Object.assign(window.LumenLib.vault, { vaultGuessType, vaultTypeIcon, getVaultItems, getVaultCollections, getVaultFiltered, vaultBlobPut, vaultBlobGet, vaultBlobDelete, openVaultModal, renderVault });
 
 /* Lightweight markdown */
 function renderMd(md) {

@@ -97,3 +97,47 @@ describe('merge.applyMerge — incomeTypes union + tombstone', () => {
     assert.deepEqual([...state.incomeTypes].sort(), ['ESL', 'IELTS']);
   });
 });
+
+describe('merge.applyMerge — vaultItems/Collections LWW + tombstone migration', () => {
+  it('vaultItems: newer updatedAt wins', () => {
+    const state = baseState();
+    state.vaultItems = [{ id: 'v1', title: 'local', updatedAt: 20 }];
+    state._vaultItemsMeta = { v1: 20 };
+    const syncMeta = baseSyncMeta();
+    syncMeta.tombstones.vaultItems = [];
+    syncMeta.tombstones.vaultCollections = {};
+    applyMerge({ state, syncMeta, inc: { vaultItems: [{ id: 'v1', title: 'remote-old', updatedAt: 10 }], _vaultItemsMeta: { v1: 10 } }, incomingRev: 2 });
+    assert.equal(state.vaultItems[0].title, 'local');
+    applyMerge({ state, syncMeta, inc: { vaultItems: [{ id: 'v1', title: 'remote-new', updatedAt: 30 }], _vaultItemsMeta: { v1: 30 } }, incomingRev: 3 });
+    assert.equal(state.vaultItems[0].title, 'remote-new');
+  });
+  it('vaultItems tombstone array blocks re-add', () => {
+    const state = baseState();
+    const syncMeta = baseSyncMeta();
+    syncMeta.tombstones.vaultItems = ['v1'];
+    syncMeta.tombstones.vaultCollections = {};
+    const changed = applyMerge({ state, syncMeta, inc: { vaultItems: [{ id: 'v1', title: 'zombie', updatedAt: 99 }], _vaultItemsMeta: { v1: 99 } }, incomingRev: 2 });
+    assert.equal(state.vaultItems.length, 0);
+    // meta still advances, so overall changed is true (item blocked but meta updated)
+    assert.equal(changed, true);
+  });
+  it('vaultCollections tombstone object blocks re-add and migrates [] vs {}', () => {
+    const state = baseState();
+    state.vaultCollections = [{ id: 'col1', title: 'Keep', updatedAt: 10 }];
+    state._vaultCollectionsMeta = { col1: 10 };
+    const syncMeta = baseSyncMeta();
+    syncMeta.tombstones.vaultItems = [];
+    syncMeta.tombstones.vaultCollections = { col1: Date.now() };
+    const changed = applyMerge({ state, syncMeta, inc: { vaultCollections: [{ id: 'col1', title: 'zombie', updatedAt: 99 }], _vaultCollectionsMeta: { col1: 99 } }, incomingRev: 2 });
+    assert.equal(state.vaultCollections.length, 0);
+    assert.equal(changed, true);
+  });
+  it('migrates legacy vault tombstones [] vs {} without throwing', () => {
+    const state = baseState();
+    const syncMeta = baseSyncMeta();
+    syncMeta.tombstones.vaultItems = ['old1'];
+    syncMeta.tombstones.vaultCollections = ['oldCol'];
+    assert.doesNotThrow(() => applyMerge({ state, syncMeta, inc: { vaultItems: [], vaultCollections: [] }, incomingRev: 2 }));
+    assert.ok(typeof syncMeta.tombstones.vaultCollections === 'object' && !Array.isArray(syncMeta.tombstones.vaultCollections));
+  });
+});
