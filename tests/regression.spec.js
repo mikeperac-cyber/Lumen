@@ -247,7 +247,7 @@ test('module bootstrap: window.LumenLib exists before app boot with all namespac
     keys: window.LumenLib ? Object.keys(window.LumenLib).sort() : [],
   }));
   expect(shape.hasLib).toBe(true);
-  expect(shape.keys).toEqual(['crypto', 'gemini', 'merge', 'parser', 'schedule']);
+  expect(shape.keys).toEqual(['crypto', 'gemini', 'merge', 'parser', 'schedule', 'students']);
   expect(errors).toEqual([]);
 });
 

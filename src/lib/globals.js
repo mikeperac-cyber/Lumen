@@ -8,6 +8,7 @@ import * as scheduleLib from './schedule.js';
 import * as parserLib from './parser.js';
 import * as mergeLib from './merge.js';
 import * as geminiLib from './gemini.js';
+import * as studentsLib from './students.js';
 
 window.LumenLib = {
   crypto: cryptoLib,
@@ -15,4 +16,5 @@ window.LumenLib = {
   parser: parserLib,
   merge: mergeLib,
   gemini: geminiLib,
+  students: studentsLib,
 };

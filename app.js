@@ -580,6 +580,12 @@ function normalizeState(parsed) {
   if (!Array.isArray(state.assignments)) state.assignments = [];
   if (!Array.isArray(state.lessonPlans)) state.lessonPlans = [];
   getStudentsList();
+  // v105: canonicalize legacy `student` name strings to `studentId` FKs.
+  try {
+    const { linked, orphans } = window.LumenLib.students.backfillStudentIds(state);
+    if (linked && typeof logActivity === 'function') logActivity('finance.fk', `Linked ${linked} finance/attendance rows to students`, 'finance');
+    if (orphans.length && typeof logActivity === 'function') logActivity('finance.orphan', `${orphans.length} rows reference an unknown student: ${orphans.slice(0, 3).join(', ')}`, 'finance');
+  } catch (e) { console.warn('studentId backfill skipped', e); }
   // Ensure all habits have required defaults
   if (Array.isArray(state.habits)) {
     state.habits.forEach(h => {
@@ -590,7 +596,7 @@ function normalizeState(parsed) {
     });
   }
   // Ensure all goals have required defaults
-  if (Array.isArray(state.goals)) state.goals.forEach(g => { if (!Array.isArray(g.keyResults)) g.keyResults = []; });
+  if (Array.isArray(state.goals)) state.goals.forEach(g => { if (!Array.isArray(g.keyResults)) g.keyResults = []; if (!Array.isArray(g.linkedStudentIds)) g.linkedStudentIds = []; });
   // Ensure kanban lists exist (Trello board)
   ensureKanbanLists();
   // Ensure tasks have subtasks array + Trello fields
@@ -8750,9 +8756,10 @@ function openFinanceModal(kind = 'income') {
     const category = $('#fin-cat').value;
     const date = $('#fin-date').value || today;
     const student = isIncome ? ($('#fin-student')?.value || undefined) : undefined;
+    const studentId = student ? (studentList.find(x => x.name === student) || {}).id : undefined;
     const description = $('#fin-desc').value.trim();
     captureUndo(title);
-    const entry = { id: uid(), amount: Math.round(amount * 100) / 100, currency, type: isIncome ? category : undefined, category: !isIncome ? category : undefined, student: student || undefined, date, description, createdAt: Date.now(), updatedAt: Date.now() };
+    const entry = { id: uid(), amount: Math.round(amount * 100) / 100, currency, type: isIncome ? category : undefined, category: !isIncome ? category : undefined, student: student || undefined, studentId: studentId || undefined, date, description, createdAt: Date.now(), updatedAt: Date.now() };
     const arr = kind === 'income' ? state.income : kind === 'expense' ? state.expenses : kind === 'expectedIncome' ? state.expectedIncome : state.expectedExpenses;
     arr.push(entry);
     save();
@@ -9502,11 +9509,12 @@ function openAttendanceModal(record, presetStudent) {
     if (!Array.isArray(state.attendance)) state.attendance = [];
 
     if (isEdit) {
-      Object.assign(record, { studentName, date, time, duration, status, topic, notes, billed: autoBill, rate: billedAmount, currency, updatedAt: Date.now() });
+      Object.assign(record, { studentName, studentId: matchedStudent?.id, date, time, duration, status, topic, notes, billed: autoBill, rate: billedAmount, currency, updatedAt: Date.now() });
     } else {
       state.attendance.unshift({
         id: uid(),
         studentName,
+        studentId: matchedStudent?.id,
         date,
         time,
         duration,
@@ -9528,6 +9536,7 @@ function openAttendanceModal(record, presetStudent) {
         currency,
         type: 'ESL Lesson',
         student: studentName,
+        studentId: matchedStudent?.id,
         date,
         description: `Lesson fee: ${topic || 'Tutoring session'} (${duration}m)`,
         createdAt: Date.now(),
@@ -9970,6 +9979,7 @@ function deliverLessonPlan(planId) {
       state.attendance.unshift({
         id: uid(),
         studentName: plan.studentName,
+        studentId: matchedStudent?.id,
         date: todayISO(),
         time: new Date().toTimeString().slice(0, 5),
         duration: plan.duration || 60,
@@ -9991,6 +10001,7 @@ function deliverLessonPlan(planId) {
         currency,
         type: 'ESL Lesson',
         student: plan.studentName,
+        studentId: matchedStudent?.id,
         date: todayISO(),
         description: `Delivered lesson: ${plan.title}`,
         createdAt: Date.now(),
