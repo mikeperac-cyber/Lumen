@@ -113,17 +113,20 @@ python3 -m http.server 8092
 
 ## 🧪 Testing & Quality Assurance
 
-Lumen includes comprehensive end-to-end tests powered by Playwright covering smoke navigation, task CRUD, undo/redo, AES-GCM crypto encryption, natural language parsing, and batch operations.
+Lumen includes comprehensive end-to-end tests powered by Playwright covering smoke navigation, task CRUD, undo/redo, AES-GCM crypto encryption, natural language parsing, and batch operations, plus a fast unit layer (Node's built-in test runner) for the pure logic in `src/lib/` — vault crypto, the natural-language parser, schedule generation, P2P merge, and the Gemini client.
 
 ```bash
-# Run all Playwright tests
+# Unit tests (Node's built-in runner — no deps, milliseconds)
+npm run test:unit
+npm run test:unit:watch
+
+# End-to-end tests (Playwright)
 npm test
+npm run test:ui        # interactive UI
+npm run test:report    # latest HTML report
 
-# Run tests with interactive UI
-npm run test:ui
-
-# View latest HTML test report
-npm run test:report
+# Everything
+npm run test:all
 ```
 
 ---
