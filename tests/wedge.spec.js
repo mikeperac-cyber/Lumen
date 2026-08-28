@@ -80,6 +80,27 @@ test('finance shows a per-student Paid / Expected / Outstanding rollup', async (
   await page.evaluate(() => { state.students = []; state.income = []; state.expectedIncome = []; save(); flushSave(); });
 });
 
+test('student dossier shows linked-goal chips with progress', async ({ page }) => {
+  await page.goto('/');
+  await page.waitForLoadState('domcontentloaded');
+  await page.waitForTimeout(400);
+  await page.evaluate(() => {
+    state.students = [{ id: 's-d', name: 'Deniz', status: 'active', currency: 'USD', rate: 40, level: 'ESL' }];
+    state.goals = [{ id: 'g-d', title: 'CEFR C1', color: '#605dff',
+      keyResults: [{ id: 'k1', title: 'Vocab', target: 100, current: 40 }],
+      linkedStudentIds: ['s-d'], createdAt: Date.now(), updatedAt: Date.now() }];
+    save(); flushSave();
+  });
+  await page.goto('/#students');
+  await page.waitForTimeout(400);
+  await page.evaluate(() => openStudentDossier('s-d'));
+  await page.waitForTimeout(400);
+  const modal = await page.locator('.modal').innerText();
+  expect(modal).toContain('CEFR C1');
+  expect(modal).toMatch(/\d+%/);
+  await page.evaluate(() => { state.students = []; state.goals = []; save(); flushSave(); });
+});
+
 test('an income entry with an unknown student name still renders without error', async ({ page }) => {
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));

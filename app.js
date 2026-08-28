@@ -8729,7 +8729,7 @@ function renderFinance() {
   }));
 }
 
-function openFinanceModal(kind = 'income') {
+function openFinanceModal(kind = 'income', prefill = null) {
   const isIncome = kind === 'income' || kind === 'expectedIncome';
   const isExpected = kind === 'expectedIncome' || kind === 'expectedExpense';
   const title = isExpected
@@ -8785,6 +8785,12 @@ function openFinanceModal(kind = 'income') {
     else openExpenseCategoryModal();
   });
   $('#fin-add-student-inline')?.addEventListener('click', () => { closeModal(); openStudentEditModal(null); });
+  if (prefill && isIncome) {
+    if (prefill.studentName && $('#fin-student')) $('#fin-student').value = prefill.studentName;
+    if (prefill.currency && $('#fin-curr')) $('#fin-curr').value = prefill.currency;
+    if (prefill.rate && $('#fin-amt') && !$('#fin-amt').value) $('#fin-amt').value = prefill.rate;
+    if (prefill.studentName && $('#fin-desc') && !$('#fin-desc').value) $('#fin-desc').value = `Lesson fee: ${prefill.studentName}`;
+  }
   $('#fin-student')?.addEventListener('change', e => {
     const sName = e.target.value;
     if (!sName) return;
@@ -10085,8 +10091,9 @@ function openStudentDossier(studentId) {
   const s = students.find(x => x.id === studentId || x.name === studentId);
   if (!s) return;
 
-  const inc = (state.income || []).filter(e => e.student === s.name || e.student === s.id);
-  const expInc = (state.expectedIncome || []).filter(e => e.student === s.name || e.student === s.id);
+  const inc = (state.income || []).filter(e => e.studentId ? e.studentId === s.id : (e.student === s.name || e.student === s.id));
+  const expInc = (state.expectedIncome || []).filter(e => e.studentId ? e.studentId === s.id : (e.student === s.name || e.student === s.id));
+  const linkedGoals = (state.goals || []).filter(g => (g.linkedStudentIds || []).includes(s.id));
   const studentTasks = (state.tasks || []).filter(t => t.student === s.name);
   const studentNotes = (state.notes || []).filter(n => n.student === s.name);
   const studentAttendance = (state.attendance || []).filter(a => a.studentName === s.name || a.studentId === s.id);
@@ -10122,8 +10129,16 @@ function openStudentDossier(studentId) {
               <div><span class="muted">Total USD Paid:</span> <b style="color:#34d399">$${usdPaid.toLocaleString()}</b></div>
               <div><span class="muted">Total TRY Paid:</span> <b style="color:#518DBF">₺${tryPaid.toLocaleString()}</b></div>
             </div>
+            <button class="btn btn-sm btn-accent" id="dossier-fin-add" style="margin-top:10px">${ic('plus', 13)} Log income for ${esc(s.name)}</button>
           </div>
         </div>
+
+        ${linkedGoals.length ? `<div class="card" style="margin-top:14px;padding:14px">
+          <h4 style="margin:0 0 8px;font-size:13px;color:var(--muted)">🎯 LINKED GOALS</h4>
+          <div class="dossier-goals">
+            ${linkedGoals.map(g => `<span class="chip chip-student">🎯 ${esc(g.title)} · ${goalProgress(g)}%</span>`).join('')}
+          </div>
+        </div>` : ''}
 
         ${s.goals ? `
           <div class="card" style="margin-top:14px;padding:14px">
