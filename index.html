@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
 <meta name="theme-color" content="#605DFF">
-<script>try{var s=localStorage.getItem("lumen.state.v1");var th=null;if(s){try{th=JSON.parse(s).settings.theme}catch(e){}}if(!th){try{th=localStorage.getItem("lumen.theme")}catch(e){}} if(th) document.documentElement.dataset.theme=th;}catch(e){}</script>
+<script>try{var s=null;try{s=localStorage.getItem("lumen.state.v1");}catch(e){}var th=null;if(s){try{var j=JSON.parse(s);th=j&&j.settings&&j.settings.theme;}catch(e){try{localStorage.removeItem("lumen.state.v1");}catch(e2){}th=null;}}if(!th){try{th=localStorage.getItem("lumen.theme");}catch(e){}}if(th)document.documentElement.dataset.theme=th;}catch(e){}</script>
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -33,8 +33,8 @@
   #view-root{padding:16px}
   .card{background:var(--surface);border-radius:12px;padding:14px;margin-bottom:12px}
 </style>
-<link rel="preload" href="styles.css?v=108" as="style"><link rel="stylesheet" href="styles.css?v=108" fetchpriority="high">
-<link rel="stylesheet" href="themes.css?v=108">
+<link rel="preload" href="styles.css?v=109" as="style"><link rel="stylesheet" href="styles.css?v=109" fetchpriority="high">
+<link rel="stylesheet" href="themes.css?v=109">
 <link rel="preload" href="peerjs.min.js" as="script" fetchpriority="low">
 </head>
 <body>
@@ -167,8 +167,8 @@
   <button class="btn-icon fp-close" id="fp-close" title="Dismiss">✕</button>
 </div>
 
-<script type="module" src="src/lib/globals.js?v=108"></script>
-<script src="app.js?v=108" fetchpriority="high" defer></script>
+<script type="module" src="src/lib/globals.js?v=109"></script>
+<script src="app.js?v=109" fetchpriority="high" defer></script>
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function () {
