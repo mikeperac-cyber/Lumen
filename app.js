@@ -1069,27 +1069,9 @@ function getScheduleConfig() {
     breaks: cfg.breaks || []
   };
 }
-function timeToMin(t) { const [h,m]=t.split(':').map(Number); return h*60+m; }
-function minToTime(min) { const h=Math.floor(min/60)%24, m=min%60; return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0'); }
-function generatePeriods(start, end, interval, breaks) {
-  const sMin = timeToMin(start), eMin = timeToMin(end);
-  if (eMin <= sMin || interval < 5 || interval > 240) return null;
-  const out = []; let cur = sMin, idx=1;
-  while (cur + interval <= eMin) {
-    const st = minToTime(cur), en = minToTime(cur+interval);
-    // skip if overlaps a break (e.g., lunch)
-    let isBreak = false, breakLabel = '';
-    for (const b of (breaks||[])) {
-      const bS=timeToMin(b.start), bE=timeToMin(b.end);
-      if (cur >= bS && cur < bE) { isBreak=true; breakLabel=b.label||'Break'; break; }
-    }
-    if (isBreak) { cur += interval; continue; }
-    const id = 'p'+idx;
-    out.push({ id, label: 'Block '+idx, time: st+' – '+en, start: st, end: en });
-    idx++; cur += interval;
-  }
-  return out.length ? out : null;
-}
+function timeToMin(t) { return window.LumenLib.schedule.timeToMin(t); }
+function minToTime(min) { return window.LumenLib.schedule.minToTime(min); }
+function generatePeriods(start, end, interval, breaks) { return window.LumenLib.schedule.generatePeriods(start, end, interval, breaks); }
 function savePersonalSchedule(periods, config) {
   if (periods && periods.length) {
     state.schedulePeriods = periods;
