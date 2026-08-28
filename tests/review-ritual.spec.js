@@ -53,6 +53,31 @@ test('protected tasks from the weekly review lead the Brief candidates', async (
   await page.evaluate(() => { state.tasks = []; delete state.settings.reviewCommit; save(); flushSave(); });
 });
 
+test('weekly review markdown includes a Protecting Next Week section', async ({ page }) => {
+  await page.goto('/');
+  await page.waitForLoadState('domcontentloaded');
+  await page.waitForTimeout(400);
+  await page.evaluate(() => {
+    const now = Date.now();
+    state.habits = [{ id: 'h1', emoji: '📚', name: 'Read', color: '#605dff', dates: {}, createdAt: now }];
+    if (!state.settings) state.settings = {};
+    state.settings.reviewCommit = { weekStart: 'x', taskIds: [], habitIds: ['h1'], goalIds: [], at: now };
+    save(); flushSave();
+  });
+  await page.goto('/#review');
+  await page.waitForTimeout(400);
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.click('#rev-export-md'),
+  ]);
+  const stream = await download.createReadStream();
+  let text = '';
+  for await (const c of stream) text += c;
+  expect(text).toContain('## 🛡️ Protecting Next Week');
+  expect(text).toContain('Read');
+  await page.evaluate(() => { state.habits = []; delete state.settings.reviewCommit; save(); flushSave(); });
+});
+
 test('reviewCtx exposes slipped items and protect candidates', async ({ page }) => {
   await page.goto('/');
   await page.waitForLoadState('domcontentloaded');

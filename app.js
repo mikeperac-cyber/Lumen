@@ -3489,7 +3489,15 @@ function renderReview() {
       md += `- **Sessions Taught**: ${weeklyAtt.length} sessions\n`;
       md += `- **Tutoring Revenue**: $${weeklyUsd.toLocaleString()} / ₺${weeklyTry.toLocaleString()}\n`;
       md += `- **Homework Graded**: ${weeklyHwGraded.length} assignments\n`;
-      
+
+      const rc = (state.settings && state.settings.reviewCommit) || null;
+      if (rc && (rc.taskIds.length || rc.habitIds.length || rc.goalIds.length)) {
+        md += `\n## 🛡️ Protecting Next Week\n`;
+        rc.taskIds.forEach(id => { const t = state.tasks.find(x => x.id === id); if (t) md += `- [ ] **${t.title}**\n`; });
+        rc.habitIds.forEach(id => { const h = state.habits.find(x => x.id === id); if (h) md += `- ${h.emoji} **${h.name}** — keep the streak\n`; });
+        rc.goalIds.forEach(id => { const g = state.goals.find(x => x.id === id); if (g) md += `- 🎯 **${g.title}** — deadline approaching\n`; });
+      }
+
       const blob = new Blob([md], { type: 'text/markdown' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
