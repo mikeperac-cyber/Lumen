@@ -14,6 +14,7 @@ const SHELL = [
   './src/lib/schedule.js',
   './src/lib/parser.js',
   './src/lib/merge.js',
+  './src/lib/gemini.js',
   './peerjs.min.js',
   './manifest.webmanifest',
   './icon-192.png',

@@ -7,10 +7,12 @@ import * as cryptoLib from './crypto.js';
 import * as scheduleLib from './schedule.js';
 import * as parserLib from './parser.js';
 import * as mergeLib from './merge.js';
+import * as geminiLib from './gemini.js';
 
 window.LumenLib = {
   crypto: cryptoLib,
   schedule: scheduleLib,
   parser: parserLib,
   merge: mergeLib,
+  gemini: geminiLib,
 };
