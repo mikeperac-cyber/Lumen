@@ -44,6 +44,23 @@ test('goal modal links students and persists linkedStudentIds', async ({ page })
   await page.evaluate(() => { state.students = []; state.goals = []; save(); });
 });
 
+test('teaching hub weave uses the explicit goal-student link', async ({ page }) => {
+  await page.goto('/');
+  await page.waitForLoadState('domcontentloaded');
+  await page.waitForTimeout(400);
+  await page.evaluate(() => {
+    state.students = [{ id: 's-x', name: 'Zeynep', status: 'active', currency: 'TRY', rate: 1200, level: 'IELTS' }];
+    state.goals = [{ id: 'g-x', title: 'Band 7 by December', color: '#605dff', keyResults: [], linkedStudentIds: ['s-x'], createdAt: Date.now(), updatedAt: Date.now() }];
+    state.income = [{ id: 'i-x', studentId: 's-x', student: 'Zeynep', amount: 1200, currency: 'TRY', date: '2026-08-10' }];
+    save();
+  });
+  const hub = await page.evaluate(() => teachingDashboardHTML());
+  expect(hub).toContain('Zeynep');
+  expect(hub).toContain('Band 7 by December'); // explicit link, not the word-overlap heuristic
+  expect(hub).toMatch(/₺1,?200/);
+  await page.evaluate(() => { state.students = []; state.goals = []; state.income = []; save(); flushSave(); });
+});
+
 test('an income entry with an unknown student name still renders without error', async ({ page }) => {
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));

@@ -2486,17 +2486,19 @@ function teachingDashboardHTML() {
   const activeHw = (state.assignments || []).filter(a => a.status === 'assigned' || a.status === 'submitted');
   const plannedLessons = (state.lessonPlans || []).filter(p => p.status === 'planned');
   const weaveRows = students.slice(0, 3).map(s => {
-    const linkedGoals = state.goals.filter(g => {
+    const explicit = state.goals.filter(g => (g.linkedStudentIds || []).includes(s.id)).slice(0, 2);
+    const linkedGoals = explicit.length ? explicit : state.goals.filter(g => {
       const q = (s.name + ' ' + (s.level || '') + ' ' + (s.goals || '')).toLowerCase();
       const gt = g.title.toLowerCase();
       return q.split(/\s+/).some(w => w.length > 3 && gt.includes(w));
     }).slice(0, 2);
-    const incFor = (state.income || []).filter(e => e.student === s.name || e.student === s.id);
-    const totalPaid = incFor.reduce((sum, e) => sum + (e.amount || 0), 0);
+    const incFor = (state.income || []).filter(e => e.studentId ? e.studentId === s.id : (e.student === s.name));
+    const paidByCur = incFor.reduce((m, e) => { const c = e.currency || 'USD'; m[c] = (m[c] || 0) + (e.amount || 0); return m; }, {});
+    const paidStr = Object.entries(paidByCur).map(([c, v]) => fmtM(v, c)).join(' · ');
     const goalChips = linkedGoals.map(g => `<span class="badge" style="background:${g.color}22;color:${g.color};border:1px solid ${g.color}44;font-size:10px">🎯 ${esc(g.title)} ${goalProgress(g)}%</span>`).join(' ');
     return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;background:var(--surface2);border-radius:8px;margin-top:6px">
       <span style="font-size:12px"><b>🎓 ${esc(s.name)}</b> <span class="muted">${esc(s.level || '')}</span></span>
-      <span style="display:flex;gap:4px;align-items:center">${goalChips}${incFor.length ? `<span class="muted" style="font-size:11px">💰 ${incFor.length} · $${totalPaid}</span>` : ''}</span>
+      <span style="display:flex;gap:4px;align-items:center">${goalChips}${incFor.length ? `<span class="muted" style="font-size:11px">💰 ${incFor.length} · ${paidStr}</span>` : ''}</span>
     </div>`;
   }).join('');
   const html = `<div class="card" data-dw="teaching">
