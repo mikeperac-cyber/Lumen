@@ -2887,3 +2887,44 @@ html.focus-mode .topbar { justify-content: center; }
   .ps-preview-item { padding:7px 8px; }
   #ps-preview { max-height:190px; }
 }
+
+/* v105 — teaching wedge weave */
+.g-student-toggles { display: flex; flex-wrap: wrap; gap: 6px; }
+.g-student-toggle { font-size: 12px; padding: 4px 9px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface2); color: var(--text); cursor: pointer; }
+.g-student-toggle.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.chip-student { display: inline-block; background: rgba(96,93,255,.12); color: var(--accent); border: 1px solid rgba(96,93,255,.28); font-size: 11px; padding: 2px 8px; border-radius: 999px; }
+.fps-row { display: grid; grid-template-columns: minmax(90px,1fr) 2fr minmax(150px,auto); gap: 10px; align-items: center; padding: 5px 0; font-size: 12.5px; }
+.fps-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fps-bar { height: 7px; background: var(--surface2); border-radius: 4px; overflow: hidden; }
+.fps-fill { height: 100%; background: #34d399; }
+.fps-nums { text-align: right; color: var(--muted); white-space: nowrap; }
+.dossier-goals { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+@media (max-width: 640px) {
+  .fps-row { grid-template-columns: 1fr; }
+  .fps-nums { text-align: left; }
+}
+
+/* v106 — mobile reach: heavy views one-handed on a phone */
+@media (max-width: 860px) {
+  .topbar { position: sticky; top: 0; z-index: 30; background: var(--bg); }
+  .topbar-right { flex-wrap: wrap; gap: 6px; }
+  .search-btn { flex: 1 1 100%; min-width: 0; }
+  .fin-tx-table, .students-table, table { max-width: 100%; }
+}
+@media (max-width: 640px) {
+  .btn, .btn-sm { min-height: 38px; }
+  .btn-icon { min-width: 34px; min-height: 34px; }
+  .stats { grid-template-columns: repeat(2, 1fr); }
+  .ritual-nav { flex-wrap: wrap; }
+}
+
+/* v106 — weekly review ritual */
+.ritual-strip { border-left: 3px solid var(--accent); }
+.ritual-head { display: flex; justify-content: space-between; align-items: center; font-weight: 600; margin-bottom: 8px; }
+.ritual-panel { background: var(--surface2); border-radius: 9px; padding: 10px 12px; font-size: 13px; }
+.slip-row { display: flex; gap: 8px; align-items: center; padding: 4px 0; cursor: pointer; }
+.slip-row .t-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.protect-picks { display: flex; flex-wrap: wrap; gap: 6px; }
+.protect-pick { font-size: 12px; padding: 5px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--text); cursor: pointer; }
+.protect-pick.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.ritual-nav { display: flex; gap: 8px; margin-top: 10px; }

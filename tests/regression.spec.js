@@ -235,3 +235,36 @@ test('undo/redo stays consistent across many rapid actions', async ({ page }) =>
   expect(afterRedo).toBe(50);
   expect(errors).toEqual([]);
 });
+
+test('module bootstrap: window.LumenLib exists before app boot with all namespaces', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('/');
+  await page.waitForLoadState('domcontentloaded');
+  await page.waitForTimeout(400);
+  const shape = await page.evaluate(() => ({
+    hasLib: typeof window.LumenLib === 'object' && window.LumenLib !== null,
+    keys: window.LumenLib ? Object.keys(window.LumenLib).sort() : [],
+  }));
+  expect(shape.hasLib).toBe(true);
+  expect(shape.keys).toEqual(['crypto', 'gemini', 'merge', 'parser', 'schedule', 'students']);
+  expect(errors).toEqual([]);
+});
+
+test('sync passphrase is salted (v2) after being set', async ({ page }) => {
+  await page.goto('/#settings');
+  await page.waitForTimeout(500);
+  await page.evaluate(async () => {
+    if (!syncMeta.passSalt) syncMeta.passSalt = window.LumenLib.crypto.randomSaltB64();
+    syncMeta.passHash = await window.LumenLib.crypto.hashPass('test-pass', syncMeta.passSalt);
+    syncMeta.passHashV = 2;
+    saveSyncMeta();
+  });
+  await page.reload();
+  await page.waitForTimeout(500);
+  const meta = await page.evaluate(() => ({ salt: syncMeta.passSalt, hash: syncMeta.passHash, v: syncMeta.passHashV }));
+  expect(meta.salt.length).toBeGreaterThan(10);
+  expect(meta.hash).toMatch(/^[0-9a-f]{64}$/);
+  expect(meta.v).toBe(2);
+  await page.evaluate(() => { syncMeta.passHash = ''; syncMeta.passSalt = ''; syncMeta.passHashV = 1; saveSyncMeta(); });
+});

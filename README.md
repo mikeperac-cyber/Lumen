@@ -41,6 +41,7 @@ Built with pure vanilla web standards (HTML5, CSS3, ES2022 JavaScript) — **no 
 ### 🎯 Goals & OKRs
 - **Key Result Tracking**: Automatic progress updates as linked tasks are completed.
 - **Health Indicators & Target Dates**: One-tap deadline bumping and status monitoring.
+- **Student Links**: Goals link directly to students; finance rolls up Paid / Expected / Outstanding per student and currency.
 
 ### 🔥 Habits & Consistency
 - **GitHub-Style Heatmaps**: 365-day check-in visualizations with custom color themes.
@@ -54,10 +55,12 @@ Built with pure vanilla web standards (HTML5, CSS3, ES2022 JavaScript) — **no 
 
 ### 🌅 Morning Brief & 📅 Weekly Review
 - **Daily Briefing**: High-priority tasks, habits to protect, and active goals at a glance each morning.
+- **Guided Weekly Ritual**: Shipped → Slipped → Protect Next Week — a three-step review that feeds tomorrow's Brief.
 - **Weekly Review Markdown Exporter**: Download itemized `.md` reports of your weekly accomplishments and habit consistency.
 
 ### 🔐 Security & Peer Sync
-- **AES-GCM Encrypted Vaults**: Client-side password encryption using PBKDF2 (SHA-256) + 256-bit AES-GCM for portable JSON backups.
+- **AES-GCM Encrypted Vaults**: Client-side password encryption using PBKDF2 (SHA-256) + 256-bit AES-GCM for portable JSON backups — run in a Web Worker so the UI never freezes.
+- **Salted Sync Handshake**: The peer passphrase is hashed with PBKDF2 over a per-device salt.
 - **Peer-to-Peer Sync**: Direct browser-to-browser data sync via WebRTC (PeerJS) without a middleman database.
 - **100% Data Sovereignty**: All data lives strictly in your browser's `localStorage` and `IndexedDB`.
 
@@ -113,17 +116,20 @@ python3 -m http.server 8092
 
 ## 🧪 Testing & Quality Assurance
 
-Lumen includes comprehensive end-to-end tests powered by Playwright covering smoke navigation, task CRUD, undo/redo, AES-GCM crypto encryption, natural language parsing, and batch operations.
+Lumen includes comprehensive end-to-end tests powered by Playwright covering smoke navigation, task CRUD, undo/redo, AES-GCM crypto encryption, natural language parsing, and batch operations, plus a fast unit layer (Node's built-in test runner) for the pure logic in `src/lib/` — vault crypto, the natural-language parser, schedule generation, P2P merge, and the Gemini client.
 
 ```bash
-# Run all Playwright tests
+# Unit tests (Node's built-in runner — no deps, milliseconds)
+npm run test:unit
+npm run test:unit:watch
+
+# End-to-end tests (Playwright)
 npm test
+npm run test:ui        # interactive UI
+npm run test:report    # latest HTML report
 
-# Run tests with interactive UI
-npm run test:ui
-
-# View latest HTML test report
-npm run test:report
+# Everything
+npm run test:all
 ```
 
 ---

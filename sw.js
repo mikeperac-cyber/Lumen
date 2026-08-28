@@ -2,13 +2,21 @@
    Versioning: bump VERSION alone to ship a new build. Asset requests carry a ?v=
    cache-buster, but matching and caching below normalize it away (ignoreSearch),
    so index.html query params never need manual coordination with this file. */
-const VERSION = 'lumen-cache-v103';
+const VERSION = 'lumen-cache-v106';
 const SHELL = [
   './',
   './index.html',
   './styles.css',
   './themes.css',
   './app.js',
+  './src/lib/globals.js',
+  './src/lib/crypto.js',
+  './src/lib/schedule.js',
+  './src/lib/parser.js',
+  './src/lib/merge.js',
+  './src/lib/gemini.js',
+  './src/lib/students.js',
+  './src/lib/vault-worker.js',
   './peerjs.min.js',
   './manifest.webmanifest',
   './icon-192.png',

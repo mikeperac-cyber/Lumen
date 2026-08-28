@@ -417,242 +417,31 @@ function openFocusHubModal() {
   });
 }
 
-/* ---------- Web Crypto Vault Encryption ---------- */
-function buf2b64(buf) {
-  const bytes = new Uint8Array(buf);
-  let binary = '';
-  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary);
-}
-function b642buf(b64) {
-  const binary = atob(b64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes.buffer;
-}
-async function deriveVaultKey(password, salt) {
-  const enc = new TextEncoder();
-  const keyMaterial = await crypto.subtle.importKey(
-    'raw', enc.encode(password), { name: 'PBKDF2' }, false, ['deriveKey']
-  );
-  return crypto.subtle.deriveKey(
-    { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
-    keyMaterial,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['encrypt', 'decrypt']
-  );
-}
-async function encryptVaultBackup(plainText, password) {
-  const salt = crypto.getRandomValues(new Uint8Array(16));
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const key = await deriveVaultKey(password, salt);
-  const enc = new TextEncoder();
-  const ciphertext = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv },
-    key,
-    enc.encode(plainText)
-  );
-  return JSON.stringify({
-    lumenEncrypted: true,
-    version: 1,
-    salt: buf2b64(salt),
-    iv: buf2b64(iv),
-    data: buf2b64(ciphertext),
-    exportedAt: Date.now()
-  }, null, 2);
-}
-async function decryptVaultBackup(envelopeObj, password) {
-  if (!envelopeObj.lumenEncrypted || !envelopeObj.salt || !envelopeObj.iv || !envelopeObj.data) {
-    throw new Error('Not a valid Lumen encrypted vault file.');
-  }
-  const salt = new Uint8Array(b642buf(envelopeObj.salt));
-  const iv = new Uint8Array(b642buf(envelopeObj.iv));
-  const ciphertext = b642buf(envelopeObj.data);
-  const key = await deriveVaultKey(password, salt);
-  try {
-    const decrypted = await crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv },
-      key,
-      ciphertext
-    );
-    const dec = new TextDecoder();
-    return dec.decode(decrypted);
-  } catch (e) {
-    throw new Error('Incorrect vault password or damaged data.');
-  }
-}
+/* ---------- Web Crypto Vault Encryption (delegated to src/lib/crypto.js) ---------- */
+function buf2b64(buf) { return window.LumenLib.crypto.buf2b64(buf); }
+function b642buf(b64) { return window.LumenLib.crypto.b642buf(b64); }
+function deriveVaultKey(password, salt) { return window.LumenLib.crypto.deriveVaultKey(password, salt); }
+function encryptVaultBackup(plainText, password) { return window.LumenLib.crypto.encryptVaultBackup(plainText, password); }
+function decryptVaultBackup(envelopeObj, password) { return window.LumenLib.crypto.decryptVaultBackup(envelopeObj, password); }
 
 /* ---------- Natural Language Task Parser ---------- */
 function parseNaturalLanguageTask(rawText) {
-  let text = String(rawText || '').trim();
-  if (!text) return null;
-
-  let due = '';
-  let startTime = '';
-  let priority = 'med';
-  const tags = [];
-  let category = '';
-  let goalId = '';
-  let projectId = '';
-  let status = 'backlog';
-
-  // Extract Priority: !urgent, !high, !p1, !med, !p2, !low, !p3
-  text = text.replace(/!(urgent|high|p1|med|medium|p2|low|p3)\b/gi, (_, p) => {
-    const pl = p.toLowerCase();
-    if (pl === 'urgent' || pl === 'high' || pl === 'p1') priority = 'high';
-    else if (pl === 'med' || pl === 'medium' || pl === 'p2') priority = 'med';
-    else if (pl === 'low' || pl === 'p3') priority = 'low';
-    return '';
+  return window.LumenLib.parser.parseNaturalLanguageTask(rawText, {
+    students: getStudentsList(),
+    projects: state.projects || [],
+    goals: state.goals || [],
+    now: new Date(),
   });
-
-  // Extract Tags: #tagname
-  text = text.replace(/#([\w-]+)/g, (_, tag) => {
-    tags.push(tag.toLowerCase());
-    return '';
-  });
-
-  // Extract Student: @StudentName or matching existing student name
-  let student = '';
-  const studentsList = getStudentsList();
-  text = text.replace(/@([\w-]+)/g, (match, name) => {
-    const q = name.toLowerCase();
-    const matchedStudent = studentsList.find(s => s.name && s.name.toLowerCase().replace(/\s+/g, '') === q);
-    if (matchedStudent) {
-      student = matchedStudent.name;
-      return '';
-    }
-    const prj = (state.projects || []).find(p => p.name && p.name.toLowerCase().includes(q));
-    if (prj) { projectId = prj.id; return ''; }
-    const gl = (state.goals || []).find(g => g.title && g.title.toLowerCase().includes(q));
-    if (gl) { goalId = gl.id; return ''; }
-    return match;
-  });
-
-  if (!student && studentsList.length) {
-    for (const s of studentsList) {
-      if (s.name && s.name.length >= 3) {
-        const re = new RegExp(`\\b(?:with|for|student:)?\\s*${s.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
-        if (re.test(text)) {
-          student = s.name;
-          break;
-        }
-      }
-    }
-  }
-
-  // Extract Time: at 3pm, at 3:30pm, at 14:00, at 9am
-  text = text.replace(/\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/gi, (_, h, m, ampm) => {
-    let hr = parseInt(h, 10);
-    const mn = m ? m.padStart(2, '0') : '00';
-    if (ampm) {
-      const ap = ampm.toLowerCase();
-      if (ap === 'pm' && hr < 12) hr += 12;
-      if (ap === 'am' && hr === 12) hr = 0;
-    }
-    startTime = `${String(hr).padStart(2, '0')}:${mn}`;
-    return '';
-  });
-
-  // Extract Dates: today, tomorrow, tonight, in X days, in X weeks, next monday/etc.
-  const today = new Date();
-  const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-  const shortDays = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
-
-  text = text.replace(/\bin\s+(\d+)\s*(days?|weeks?|d|w)\b/gi, (_, num, unit) => {
-    const n = parseInt(num, 10);
-    const d = new Date();
-    if (unit.startsWith('w')) d.setDate(d.getDate() + n * 7);
-    else d.setDate(d.getDate() + n);
-    due = isoDate(d);
-    return '';
-  });
-
-  if (!due) {
-    text = text.replace(/\b(today|tonight)\b/gi, () => {
-      due = todayISO();
-      status = 'today';
-      return '';
-    });
-  }
-  if (!due) {
-    text = text.replace(/\btomorrow\b/gi, () => {
-      due = isoDate(shiftDays(1));
-      return '';
-    });
-  }
-
-  if (!due) {
-    text = text.replace(/\b(?:next|on|this)?\s*(sunday|monday|tuesday|wednesday|thursday|friday|saturday|sun|mon|tue|wed|thu|fri|sat)\b/gi, (match, dayName) => {
-      const dn = dayName.toLowerCase();
-      let targetDow = dayNames.indexOf(dn);
-      if (targetDow === -1) targetDow = shortDays.indexOf(dn);
-      if (targetDow !== -1) {
-        const curDow = today.getDay();
-        let diff = targetDow - curDow;
-        if (diff <= 0) diff += 7;
-        due = isoDate(shiftDays(diff));
-        return '';
-      }
-      return match;
-    });
-  }
-
-  if (!due) {
-    text = text.replace(/\b(\d{4}-\d{2}-\d{2})\b/g, (_, dt) => {
-      due = dt;
-      return '';
-    });
-  }
-
-  const title = text.replace(/\s+/g, ' ').trim();
-  if (!title) return null;
-
-  return {
-    title,
-    due,
-    startTime,
-    priority,
-    tags,
-    category: category || (student ? 'work' : 'personal'),
-    goalId,
-    projectId,
-    student: student || undefined,
-    status: due === todayISO() ? 'today' : status
-  };
 }
 
-/* ---------- Gemini AI Assistant (BYO-Key Direct Client) ---------- */
+/* ---------- Gemini AI Assistant (BYO-Key Direct Client, delegated to src/lib/gemini.js) ---------- */
+function geminiKeyMissingHTML() {
+  return '<a href="#settings" class="link-btn" onclick="typeof closeModal===\'function\'&&closeModal()">Add your Gemini API key in Settings →</a>';
+}
 async function callGemini(prompt, systemInstruction = '') {
   const apiKey = state.settings && state.settings.geminiApiKey;
-  if (!apiKey) {
-    throw new Error('NO_API_KEY');
-  }
   const model = (state.settings && state.settings.geminiModel) || 'gemini-2.5-flash';
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
-
-  const body = {
-    contents: [{ role: 'user', parts: [{ text: prompt }] }]
-  };
-  if (systemInstruction) {
-    body.systemInstruction = { parts: [{ text: systemInstruction }] };
-  }
-
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error?.message || `Gemini API returned status ${res.status}`);
-  }
-
-  const data = await res.json();
-  const candidate = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!candidate) throw new Error('No response generated by Gemini.');
-  return candidate.trim();
+  return window.LumenLib.gemini.requestGemini({ apiKey, model, prompt, systemInstruction });
 }
 
 /* ---------- State & persistence ---------- */
@@ -765,6 +554,7 @@ function normalizeState(parsed) {
     geminiApiKey: '',
     geminiModel: 'gemini-2.5-flash'
   }, parsed.settings || {});
+  if (state.settings.reviewCommit === undefined) state.settings.reviewCommit = null;
   if (!Array.isArray(state.krHistory)) state.krHistory = [];
   if (!state.tagColors) state.tagColors = {};
   if (!state._tagColorMeta) state._tagColorMeta = {};
@@ -791,6 +581,12 @@ function normalizeState(parsed) {
   if (!Array.isArray(state.assignments)) state.assignments = [];
   if (!Array.isArray(state.lessonPlans)) state.lessonPlans = [];
   getStudentsList();
+  // v105: canonicalize legacy `student` name strings to `studentId` FKs.
+  try {
+    const { linked, orphans } = window.LumenLib.students.backfillStudentIds(state);
+    if (linked && typeof logActivity === 'function') logActivity('finance.fk', `Linked ${linked} finance/attendance rows to students`, 'finance');
+    if (orphans.length && typeof logActivity === 'function') logActivity('finance.orphan', `${orphans.length} rows reference an unknown student: ${orphans.slice(0, 3).join(', ')}`, 'finance');
+  } catch (e) { console.warn('studentId backfill skipped', e); }
   // Ensure all habits have required defaults
   if (Array.isArray(state.habits)) {
     state.habits.forEach(h => {
@@ -801,7 +597,7 @@ function normalizeState(parsed) {
     });
   }
   // Ensure all goals have required defaults
-  if (Array.isArray(state.goals)) state.goals.forEach(g => { if (!Array.isArray(g.keyResults)) g.keyResults = []; });
+  if (Array.isArray(state.goals)) state.goals.forEach(g => { if (!Array.isArray(g.keyResults)) g.keyResults = []; if (!Array.isArray(g.linkedStudentIds)) g.linkedStudentIds = []; });
   // Ensure kanban lists exist (Trello board)
   ensureKanbanLists();
   // Ensure tasks have subtasks array + Trello fields
@@ -1128,27 +924,9 @@ function getScheduleConfig() {
     breaks: cfg.breaks || []
   };
 }
-function timeToMin(t) { const [h,m]=t.split(':').map(Number); return h*60+m; }
-function minToTime(min) { const h=Math.floor(min/60)%24, m=min%60; return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0'); }
-function generatePeriods(start, end, interval, breaks) {
-  const sMin = timeToMin(start), eMin = timeToMin(end);
-  if (eMin <= sMin || interval < 5 || interval > 240) return null;
-  const out = []; let cur = sMin, idx=1;
-  while (cur + interval <= eMin) {
-    const st = minToTime(cur), en = minToTime(cur+interval);
-    // skip if overlaps a break (e.g., lunch)
-    let isBreak = false, breakLabel = '';
-    for (const b of (breaks||[])) {
-      const bS=timeToMin(b.start), bE=timeToMin(b.end);
-      if (cur >= bS && cur < bE) { isBreak=true; breakLabel=b.label||'Break'; break; }
-    }
-    if (isBreak) { cur += interval; continue; }
-    const id = 'p'+idx;
-    out.push({ id, label: 'Block '+idx, time: st+' – '+en, start: st, end: en });
-    idx++; cur += interval;
-  }
-  return out.length ? out : null;
-}
+function timeToMin(t) { return window.LumenLib.schedule.timeToMin(t); }
+function minToTime(min) { return window.LumenLib.schedule.minToTime(min); }
+function generatePeriods(start, end, interval, breaks) { return window.LumenLib.schedule.generatePeriods(start, end, interval, breaks); }
 function savePersonalSchedule(periods, config) {
   if (periods && periods.length) {
     state.schedulePeriods = periods;
@@ -1839,7 +1617,7 @@ function getBriefCandidates() {
   const pool = state.tasks.filter(t => t.status !== 'done' && t.status !== 'today' && t.due !== today);
   // exclude already overdue (they go in overdue bucket)
   const nonOverdue = pool.filter(t => !t.due || t.due >= today);
-  return nonOverdue.sort((a, b) => {
+  const ranked = nonOverdue.sort((a, b) => {
     const pa = prScore[a.priority] || 2, pb = prScore[b.priority] || 2;
     if (pb !== pa) return pb - pa;
     // goal-linked tasks first (goal health heuristic)
@@ -1849,7 +1627,11 @@ function getBriefCandidates() {
     if (a.due && !b.due) return -1;
     if (!a.due && b.due) return 1;
     return (b.updatedAt || 0) - (a.updatedAt || 0);
-  }).slice(0, 5);
+  });
+  // Tasks carried forward from the weekly review ritual lead the list (stable pass).
+  const protectedIds = new Set(((state.settings && state.settings.reviewCommit) || {}).taskIds || []);
+  if (protectedIds.size) ranked.sort((a, b) => (protectedIds.has(b.id) ? 1 : 0) - (protectedIds.has(a.id) ? 1 : 0));
+  return ranked.slice(0, 5);
 }
 function getHabitsToProtect() {
   const today = todayISO();
@@ -2281,13 +2063,19 @@ function renderBrief() {
   const aiBriefBtn = $('#brief-ai-generate');
   if (aiBriefBtn) {
     aiBriefBtn.addEventListener('click', async () => {
+      const contentEl = $('#brief-ai-content');
       if (!state.settings.geminiApiKey) {
-        toast('Set your Gemini API key in Settings → AI Assistant 🤖', 'error');
+        if (contentEl) contentEl.innerHTML = geminiKeyMissingHTML();
+        return;
+      }
+      // Reuse today's cached focus instead of paying for another call.
+      if (state.settings.aiDailyFocus && state.settings.aiDailyFocusAt === todayISO()) {
+        if (contentEl) { contentEl.textContent = state.settings.aiDailyFocus; contentEl.classList.remove('ai-shimmer'); }
+        toast('Showing today’s focus — already generated', 'info');
         return;
       }
       aiBriefBtn.disabled = true;
       aiBriefBtn.textContent = '✨ Synthesizing…';
-      const contentEl = $('#brief-ai-content');
       if (contentEl) contentEl.classList.add('ai-shimmer');
       try {
         const taskTitles = todayTasks.map(t => t.title).slice(0, 5).join(', ') || 'No tasks due today';
@@ -2296,6 +2084,7 @@ function renderBrief() {
         const prompt = `You are an elite productivity strategist. Give the user a motivating, ultra-concise 2-sentence morning briefing and game plan for today. Context: Tasks due: [${taskTitles}]. Habits to protect: [${habitNames}]. Goals needing attention: [${riskTitles}]. Return ONLY the 2 sentences.`;
         const res = await callGemini(prompt, 'You are an executive coach. Output exactly two motivating, strategic sentences.');
         state.settings.aiDailyFocus = res;
+        state.settings.aiDailyFocusAt = todayISO();
         save();
         if (contentEl) {
           contentEl.textContent = res;
@@ -2304,7 +2093,9 @@ function renderBrief() {
         toast('✨ Daily focus updated!', 'success');
       } catch (err) {
         if (contentEl) contentEl.classList.remove('ai-shimmer');
-        toast(`AI Error: ${err.message}`, 'error');
+        if (err.message === 'NO_API_KEY') { if (contentEl) contentEl.innerHTML = geminiKeyMissingHTML(); }
+        else if (err.message === 'GEMINI_TIMEOUT') toast('AI timed out — try again in a moment', 'error');
+        else toast(`AI Error: ${err.message}`, 'error');
       } finally {
         aiBriefBtn.disabled = false;
         aiBriefBtn.textContent = '✨ Refresh Focus';
@@ -2700,17 +2491,19 @@ function teachingDashboardHTML() {
   const activeHw = (state.assignments || []).filter(a => a.status === 'assigned' || a.status === 'submitted');
   const plannedLessons = (state.lessonPlans || []).filter(p => p.status === 'planned');
   const weaveRows = students.slice(0, 3).map(s => {
-    const linkedGoals = state.goals.filter(g => {
+    const explicit = state.goals.filter(g => (g.linkedStudentIds || []).includes(s.id)).slice(0, 2);
+    const linkedGoals = explicit.length ? explicit : state.goals.filter(g => {
       const q = (s.name + ' ' + (s.level || '') + ' ' + (s.goals || '')).toLowerCase();
       const gt = g.title.toLowerCase();
       return q.split(/\s+/).some(w => w.length > 3 && gt.includes(w));
     }).slice(0, 2);
-    const incFor = (state.income || []).filter(e => e.student === s.name || e.student === s.id);
-    const totalPaid = incFor.reduce((sum, e) => sum + (e.amount || 0), 0);
+    const incFor = (state.income || []).filter(e => e.studentId ? e.studentId === s.id : (e.student === s.name));
+    const paidByCur = incFor.reduce((m, e) => { const c = e.currency || 'USD'; m[c] = (m[c] || 0) + (e.amount || 0); return m; }, {});
+    const paidStr = Object.entries(paidByCur).map(([c, v]) => fmtM(v, c)).join(' · ');
     const goalChips = linkedGoals.map(g => `<span class="badge" style="background:${g.color}22;color:${g.color};border:1px solid ${g.color}44;font-size:10px">🎯 ${esc(g.title)} ${goalProgress(g)}%</span>`).join(' ');
     return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;background:var(--surface2);border-radius:8px;margin-top:6px">
       <span style="font-size:12px"><b>🎓 ${esc(s.name)}</b> <span class="muted">${esc(s.level || '')}</span></span>
-      <span style="display:flex;gap:4px;align-items:center">${goalChips}${incFor.length ? `<span class="muted" style="font-size:11px">💰 ${incFor.length} · $${totalPaid}</span>` : ''}</span>
+      <span style="display:flex;gap:4px;align-items:center">${goalChips}${incFor.length ? `<span class="muted" style="font-size:11px">💰 ${incFor.length} · ${paidStr}</span>` : ''}</span>
     </div>`;
   }).join('');
   const html = `<div class="card" data-dw="teaching">
@@ -3545,6 +3338,31 @@ function reviewCtx(off) {
   const achHTML = (achRows || '<div class="empty-state"><div class="es-icon">🎁</div>Nothing unlocked this week — check-ins, completions and memos earn badges.</div>') +
     (streakAtEnd >= 1 || off === 0 ? `<div class="muted" style="font-size:12px;margin-top:8px">🔁 Weekly unlock streak: <b>${streakAtEnd}</b> week${streakAtEnd === 1 ? '' : 's'}${off === 0 && streakAtEnd >= 2 ? ' and counting' : ''}</div>` : '');
   const deltaTxt = delta === 0 ? 'same as last week' : delta > 0 ? `+${delta} vs last week` : `${delta} vs last week`;
+
+  // ---- Slipped: work that fell behind in this window ----
+  const slippedTasks = state.tasks.filter(t => t.due && t.due >= w.startISO && t.due <= w.endISO && t.status !== 'done');
+  const slippedHabits = state.habits.filter(h => {
+    let misses = 0;
+    for (let i = 0; i < 7; i++) { const k = wkKeys[i]; if (k <= today && !h.dates[k]) misses++; }
+    return misses >= 2;
+  });
+  const stalledKRs = [];
+  state.goals.forEach(g => (g.keyResults || []).forEach(kr => {
+    const moved = (state.krHistory || []).some(x => x.krId === kr.id && x.at >= wkStartMs && x.at <= wkEndMs);
+    if (!moved && (kr.current || 0) < (kr.target || 1)) stalledKRs.push({ goal: g, kr });
+  }));
+  const slippedRows =
+    (slippedTasks.slice(0, 6).map(t => `<div class="slip-row" data-goto="tasks">⛔ <span class="t-title">${esc(t.title)}</span><span class="due-chip overdue">${fmtShort(t.due)}</span></div>`).join('')) +
+    (slippedHabits.map(h => `<div class="slip-row" data-goto="habits">${h.emoji} <span class="t-title">${esc(h.name)}</span><span class="muted">2+ misses</span></div>`).join('')) +
+    (stalledKRs.slice(0, 4).map(({ goal, kr }) => `<div class="slip-row" data-goto="goals">🎯 <span class="t-title">${esc(goal.title)} — ${esc(kr.title)}</span><span class="muted">no progress</span></div>`).join(''))
+    || '<div class="muted" style="font-size:12px;padding:6px 0">Nothing slipped. Clean week.</div>';
+  const soonISO = isoDate(shiftDays(14));
+  const protectCandidates = [
+    ...slippedHabits.map(h => ({ id: h.id, kind: 'habit', label: `${h.emoji} ${h.name}` })),
+    ...state.goals.filter(g => g.due && g.due >= today && g.due <= soonISO).map(g => ({ id: g.id, kind: 'goal', label: `🎯 ${g.title}` })),
+    ...slippedTasks.slice(0, 5).map(t => ({ id: t.id, kind: 'task', label: `⛔ ${t.title}` })),
+  ];
+
   ctx = {
     today, label: w.label,
     statTasks: String(weekTasks.length), statTasksLabel: 'tasks completed · ' + deltaTxt,
@@ -3553,7 +3371,8 @@ function reviewCtx(off) {
     statNotes: String(notesCreated), statNotesLabel: 'notes created',
     statOverdue: String(hiddenOverdue), hiddenOverdue,
     dhRows: deadlineHealthRowsHTML(w, krIdx),
-    completedHTML, completedSig, goalRows, achHTML, habitRows, weekTasksSorted
+    completedHTML, completedSig, goalRows, achHTML, habitRows, weekTasksSorted,
+    slipped: { tasks: slippedTasks, habits: slippedHabits, stalledKRs }, slippedRows, protectCandidates
   };
   if (reviewWeekCache.size > 24) reviewWeekCache.clear();
   reviewWeekCache.set(off, ctx);
@@ -3569,6 +3388,13 @@ function reviewSkeletonHTML() {
       <button class="btn btn-sm btn-ghost" id="rev-today">This week</button>
       <div style="flex:1"></div>
       <button class="btn btn-sm btn-ghost" id="rev-export-md">${ic('download', 14)} Export Markdown</button>
+    </div>
+    <div class="card ritual-strip" id="ritual-strip">
+      <div class="ritual-head">
+        <span>🧭 Weekly ritual</span>
+        <span class="muted" id="ritual-status"></span>
+      </div>
+      <div id="ritual-body"></div>
     </div>
     <div class="stats">
       ${stat('✅', 'rgba(52,211,153,.14)', 'rev-v-tasks', 'rev-l-tasks')}
@@ -3663,7 +3489,15 @@ function renderReview() {
       md += `- **Sessions Taught**: ${weeklyAtt.length} sessions\n`;
       md += `- **Tutoring Revenue**: $${weeklyUsd.toLocaleString()} / ₺${weeklyTry.toLocaleString()}\n`;
       md += `- **Homework Graded**: ${weeklyHwGraded.length} assignments\n`;
-      
+
+      const rc = (state.settings && state.settings.reviewCommit) || null;
+      if (rc && (rc.taskIds.length || rc.habitIds.length || rc.goalIds.length)) {
+        md += `\n## 🛡️ Protecting Next Week\n`;
+        rc.taskIds.forEach(id => { const t = state.tasks.find(x => x.id === id); if (t) md += `- [ ] **${t.title}**\n`; });
+        rc.habitIds.forEach(id => { const h = state.habits.find(x => x.id === id); if (h) md += `- ${h.emoji} **${h.name}** — keep the streak\n`; });
+        rc.goalIds.forEach(id => { const g = state.goals.find(x => x.id === id); if (g) md += `- 🎯 **${g.title}** — deadline approaching\n`; });
+      }
+
       const blob = new Blob([md], { type: 'text/markdown' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
@@ -3671,6 +3505,11 @@ function renderReview() {
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 4000);
       toast('📄 Weekly review markdown downloaded!', 'success');
+    });
+    // ritual strip: navigate to a view when a slipped row is clicked
+    $('#ritual-strip').addEventListener('click', e => {
+      const row = e.target.closest('.slip-row');
+      if (row && row.dataset.goto) location.hash = '#' + row.dataset.goto;
     });
   }
   // toolbar in place
@@ -3695,6 +3534,70 @@ function renderReview() {
   setSec('#rev-goals', ctx.goalRows);
   setSec('#rev-ach', ctx.achHTML);
   setSec('#rev-habit', ctx.habitRows);
+  renderRitual(ctx);
+}
+
+let ritualStep = 0;
+function currentWeekStartISO() { return weekRange(0).startISO; }
+function renderRitual(ctx) {
+  const body = document.querySelector('#ritual-body');
+  const statusEl = document.querySelector('#ritual-status');
+  if (!body) return;
+  const rc = (state.settings && state.settings.reviewCommit) || null;
+  const doneThisWeek = rc && rc.weekStart === currentWeekStartISO();
+  if (doneThisWeek && ritualStep === 0) {
+    statusEl.textContent = `✅ done · protecting ${rc.taskIds.length + rc.habitIds.length + rc.goalIds.length}`;
+    body.innerHTML = `<button class="btn btn-ghost btn-sm" id="ritual-restart">Review again</button>`;
+    body.querySelector('#ritual-restart').onclick = () => { ritualStep = 1; renderRitual(ctx); };
+    return;
+  }
+  if (ritualStep === 0) {
+    statusEl.textContent = '';
+    body.innerHTML = `<button class="btn btn-accent btn-sm" id="ritual-start">Start weekly review</button>`;
+    body.querySelector('#ritual-start').onclick = () => { ritualStep = 1; renderRitual(ctx); };
+    return;
+  }
+  const steps = ['Shipped', 'Slipped', 'Protect next week'];
+  statusEl.textContent = `Step ${ritualStep}/3 · ${steps[ritualStep - 1]}`;
+  let inner = '';
+  if (ritualStep === 1) {
+    inner = `<div class="ritual-panel"><b>✅ ${ctx.statTasks} tasks shipped</b> · ${ctx.statHabitsLabel} · ${ctx.statGoals} avg goal progress</div>`;
+  } else if (ritualStep === 2) {
+    inner = `<div class="ritual-panel">${ctx.slippedRows}</div>`;
+  } else {
+    const picks = ctx.protectCandidates.map(c =>
+      `<button type="button" class="protect-pick" data-kind="${c.kind}" data-id="${c.id}">${esc(c.label)}</button>`).join('')
+      || '<span class="muted">Nothing to carry forward — you are on top of it.</span>';
+    inner = `<div class="ritual-panel"><div class="muted" style="font-size:12px;margin-bottom:6px">Pick up to 3 to surface first in tomorrow's Brief:</div><div class="protect-picks">${picks}</div></div>`;
+  }
+  const nav = ritualStep < 3
+    ? `<button class="btn btn-sm" id="ritual-next">Next →</button>`
+    : `<button class="btn btn-sm btn-accent" id="ritual-finish">Finish & commit</button>`;
+  body.innerHTML = inner + `<div class="ritual-nav">${nav}<button class="btn btn-sm btn-ghost" id="ritual-cancel">Cancel</button></div>`;
+  body.querySelectorAll('.protect-pick').forEach(b => b.onclick = () => {
+    const active = body.querySelectorAll('.protect-pick.active').length;
+    if (!b.classList.contains('active') && active >= 3) return;
+    b.classList.toggle('active');
+  });
+  const next = body.querySelector('#ritual-next');
+  if (next) next.onclick = () => { ritualStep++; renderRitual(ctx); };
+  const fin = body.querySelector('#ritual-finish');
+  if (fin) fin.onclick = () => {
+    const picked = [...body.querySelectorAll('.protect-pick.active')];
+    if (!state.settings) state.settings = {};
+    state.settings.reviewCommit = {
+      weekStart: currentWeekStartISO(),
+      taskIds: picked.filter(p => p.dataset.kind === 'task').map(p => p.dataset.id),
+      habitIds: picked.filter(p => p.dataset.kind === 'habit').map(p => p.dataset.id),
+      goalIds: picked.filter(p => p.dataset.kind === 'goal').map(p => p.dataset.id),
+      at: Date.now(),
+    };
+    save();
+    ritualStep = 0;
+    renderRitual(ctx);
+    toast('Weekly review committed 🧭');
+  };
+  body.querySelector('#ritual-cancel').onclick = () => { ritualStep = 0; renderRitual(ctx); };
 }
 
 /* Desktop notifications for newly-overdue deadlines */
@@ -5547,6 +5450,7 @@ function goalCardHTML(g) {
       ${krs}
     </div>
     ${(g.tags && g.tags.length) ? `<div class="goal-tags">${g.tags.map(t => `<span class="tag kr-tag" data-goal-tag="${esc(t)}" title="Filter goals by #${esc(t)}">${esc(t)}</span>`).join('')}</div>` : ''}
+    ${(g.linkedStudentIds && g.linkedStudentIds.length) ? `<div class="goal-tags">${g.linkedStudentIds.map(id => { const s = getStudentsList().find(x => x.id === id); return s ? `<span class="chip chip-student">🎓 ${esc(s.name)}</span>` : ''; }).join('')}</div>` : ''}
     <div class="goal-foot">
       <span class="goal-created">Started ${fmtShort(isoDate(new Date(g.createdAt)))}${g.due ? ` · ${goalOverdue ? '<span class="kr-overdue">⚠ overdue ' : 'due '}${fmtShort(g.due)}${goalOverdue ? '</span>' : ''}` : ''}</span>
       <div style="display:flex;gap:4px">
@@ -5736,9 +5640,17 @@ function renderGoals() {
 }
 
 function openGoalModal(goal) {
-  const g = goal || { title: '', desc: '', color: COLORS[0], keyResults: [{ id: uid(), title: '', target: 10, current: 0 }] };
+  const g = goal || { title: '', desc: '', color: COLORS[0], keyResults: [{ id: uid(), title: '', target: 10, current: 0 }], linkedStudentIds: [] };
   const swatches = COLORS.map(c => `<button class="swatch ${c === g.color ? 'active' : ''}" data-color="${c}" style="background:${c}"></button>`).join('');
   const krRows = (g.keyResults || []).map(kr => krRowHTML(kr)).join('');
+  const _goalStudents = getStudentsList();
+  const _goalLinked = new Set(g.linkedStudentIds || []);
+  const studentToggles = _goalStudents.length ? `
+        <div class="field"><label class="field-label">Linked students</label>
+          <div class="g-student-toggles">
+            ${_goalStudents.map(s => `<button type="button" class="g-student-toggle${_goalLinked.has(s.id) ? ' active' : ''}" data-sid="${s.id}">🎓 ${esc(s.name)}</button>`).join('')}
+          </div>
+        </div>` : '';
   openModal(`
     <div class="modal">
       <div class="modal-head"><h3>${goal ? 'Edit goal' : 'New goal'}</h3><button class="btn-icon" onclick="closeModal()">${ic('x', 16)}</button></div>
@@ -5754,6 +5666,7 @@ function openGoalModal(goal) {
           <div id="kr-rows">${krRows}</div>
           <button class="btn btn-sm btn-ghost" id="kr-add">${ic('plus', 13)} Add key result</button>
         </div>
+        ${studentToggles}
       </div>
       <div class="modal-foot">
         ${goal ? `<button class="btn btn-danger" id="g-delete">Delete</button>` : ''}
@@ -5766,6 +5679,7 @@ function openGoalModal(goal) {
     $$('.swatch').forEach(x => x.classList.remove('active'));
     s.classList.add('active');
   }));
+  $$('.g-student-toggle').forEach(b => b.addEventListener('click', () => b.classList.toggle('active')));
   $('#kr-add').addEventListener('click', () => {
     $('#kr-rows').insertAdjacentHTML('beforeend', krRowHTML({ id: uid(), title: '', target: 10, current: 0 }));
     bindKrRemove();
@@ -5783,7 +5697,8 @@ function openGoalModal(goal) {
       due: $('input.kr-due-inp', row).value || ''
     })).filter(k => k.title);
     const tags = [...new Set($('#g-tags').value.split(',').map(s => s.trim().toLowerCase().replace(/^#/, '')).filter(Boolean))];
-    const data = { title, desc: $('#g-desc').value.trim(), color, keyResults: krs, due: $('#g-due').value || '', tags };
+    const linkedStudentIds = $$('.g-student-toggle.active').map(b => b.dataset.sid);
+    const data = { title, desc: $('#g-desc').value.trim(), color, keyResults: krs, due: $('#g-due').value || '', tags, linkedStudentIds };
     let target;
     if (goal) { Object.assign(goal, data); goal.updatedAt = Date.now(); target = goal; logActivity('goal.edit', title, 'goal'); }
     else { target = Object.assign({ id: uid(), createdAt: Date.now(), updatedAt: Date.now() }, data); state.goals.push(target); logActivity('goal.create', title, 'goal'); }
@@ -7579,7 +7494,7 @@ function genPeerId() {
   return 'lumen-' + hex;
 }
 function defaultSyncMeta() {
-  return { peerId: genPeerId(), rev: 1, autoSync: true, deviceName: '', passHash: '', tombstones: { tasks: [], goals: [], habits: [], notes: [], recordings: [] }, syncQueue: [] };
+  return { peerId: genPeerId(), rev: 1, autoSync: true, deviceName: '', passHash: '', passSalt: '', passHashV: 1, tombstones: { tasks: [], goals: [], habits: [], notes: [], recordings: [] }, syncQueue: [] };
 }
 function loadSyncMeta() {
   try {
@@ -7589,14 +7504,17 @@ function loadSyncMeta() {
   return defaultSyncMeta();
 }
 function saveSyncMeta() { try { localStorage.setItem(SYNC_KEY, JSON.stringify(syncMeta)); } catch (e) { /* ignore */ } }
-async function hashPass(p) {
-  const data = new TextEncoder().encode('lumen-sync::' + p);
-  const buf = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
-}
+async function hashPass(p) { return window.LumenLib.crypto.hashPassLegacy(p); }
 
 let syncMeta = loadSyncMeta();
 if (!localStorage.getItem(SYNC_KEY)) saveSyncMeta(); // persist the ID immediately so it survives reloads
+// v104: nudge legacy (unsalted) sync passphrases to be re-entered so they upgrade to PBKDF2.
+if (syncMeta.passHash && !syncMeta.passSalt && !localStorage.getItem('lumen.passUpgradeNudged')) {
+  setTimeout(() => {
+    try { toast('Re-enter your sync passphrase (Settings → Sync) to upgrade its security', 'info'); } catch (_) {}
+    try { localStorage.setItem('lumen.passUpgradeNudged', '1'); } catch (_) {}
+  }, 2500);
+}
 let peer = null, conn = null, peerStatus = 'offline', peerStatusDetail = '';
 let suppressAutoPush = false, autoPushTimer = null;
 /* PeerJS (~92KB) is loaded on demand — only when sync is actually used — instead of
@@ -7663,7 +7581,7 @@ function adoptConnection(c) {
     peerStatusDetail = 'Connected to ' + (c.peer || 'device');
     updateSyncUI();
     toast('Sync connected 🔗');
-    try { c.send({ type: 'hello', name: syncMeta.deviceName, pass: syncMeta.passHash }); } catch (_) {}
+    try { c.send({ type: 'hello', name: syncMeta.deviceName, pass: syncMeta.passHash, passV: syncMeta.passHashV || 1, salt: syncMeta.passSalt || '' }); } catch (_) {}
     // Auto-flush any queued offline changes
     if (syncMeta.syncQueue && syncMeta.syncQueue.length) {
       setTimeout(flushSyncQueue, 500);
@@ -7703,13 +7621,21 @@ function connectToDevice(id) {
 function handleData(d, c) {
   if (!d || typeof d !== 'object') return;
   if (d.type === 'hello') {
-    if (syncMeta.passHash && d.pass !== syncMeta.passHash) {
-      toast('Sync passphrase mismatch — closing connection', 'error');
-      try { c.close(); } catch (_) {}
-      return;
-    }
-    if (!syncMeta.passHash && d.pass) {
-      toast('Other device has a passphrase set — set the same one here to connect', 'error');
+    const localHas = !!syncMeta.passHash;
+    const remoteHas = !!d.pass;
+    if (localHas && remoteHas) {
+      const localV = syncMeta.passHashV || 1;
+      const remoteV = d.passV || 1;
+      const match = (localV === remoteV) && (d.pass === syncMeta.passHash);
+      if (!match) {
+        toast(localV !== remoteV
+          ? 'One device needs its sync passphrase re-entered (Settings → Sync) to upgrade security'
+          : 'Sync passphrase mismatch — closing connection', 'error');
+        try { c.close(); } catch (_) {}
+        return;
+      }
+    } else if (localHas !== remoteHas) {
+      toast('One device has a passphrase set — set the same one on both to connect', 'error');
       try { c.close(); } catch (_) {}
       return;
     }
@@ -7746,148 +7672,11 @@ function handleData(d, c) {
 }
 
 function applyMerge(inc, incomingRev) {
-  const key = arr => JSON.stringify([...(arr || [])].sort((a, b) => (a.id < b.id ? -1 : 1)));
-  const keyAch = a => JSON.stringify(Object.entries(a || {}).sort((x, y) => (x[0] < y[0] ? -1 : 1)));
-  const before = key(state.tasks) + key(state.goals) + key(state.habits) + key(state.notes) + key(state.recordings) + key(state.projects) + key(state.krHistory) + key(state.income) + key(state.expenses) + key(state.students) + key(state.attendance) + key(state.assignments) + key(state.lessonPlans) + JSON.stringify(state.kanbanLists||[]) + JSON.stringify(state.tagColors || {}) + keyAch(state.achievements);
-  const mergeOne = (local, incoming, tombKey) => {
-    const tomb = new Set(syncMeta.tombstones[tombKey] || []);
-    ((inc.deleted && inc.deleted[tombKey]) || []).forEach(id => tomb.add(id));
-    syncMeta.tombstones[tombKey] = [...tomb];
-    const byId = new Map();
-    (local || []).forEach(it => { if (!tomb.has(it.id)) byId.set(it.id, it); });
-    (incoming || []).forEach(it => {
-      if (!it || !it.id || tomb.has(it.id)) return;
-      const ex = byId.get(it.id);
-      if (!ex || (it.updatedAt || 0) > (ex.updatedAt || 0)) byId.set(it.id, it);
-    });
-    return [...byId.values()];
-  };
-  state.tasks = mergeOne(state.tasks, inc.tasks, 'tasks');
-  state.goals = mergeOne(state.goals, inc.goals, 'goals');
-  state.habits = mergeOne(state.habits, inc.habits, 'habits');
-  state.notes = mergeOne(state.notes, inc.notes, 'notes');
-  state.recordings = mergeOne(state.recordings, inc.recordings, 'recordings');
-  state.projects = mergeOne(state.projects, inc.projects, 'projects');
-  state.krHistory = mergeOne(state.krHistory, inc.krHistory, 'krHistory');
-  state.income = mergeOne(state.income, inc.income, 'income');
-  state.expenses = mergeOne(state.expenses, inc.expenses, 'expenses');
-  state.expectedIncome = mergeOne(state.expectedIncome, inc.expectedIncome, 'expectedIncome');
-  state.expectedExpenses = mergeOne(state.expectedExpenses, inc.expectedExpenses, 'expectedExpenses');
-  state.students = mergeOne(state.students, inc.students, 'students');
-  state.attendance = mergeOne(state.attendance, inc.attendance, 'attendance');
-  state.assignments = mergeOne(state.assignments, inc.assignments, 'assignments');
-  state.lessonPlans = mergeOne(state.lessonPlans, inc.lessonPlans, 'lessonPlans');
-  // Merge income types (per-field timestamp) — deterministic LWW with deletions
-  if (!state._incomeTypesMeta) state._incomeTypesMeta = {};
-  if (!state._expenseCategoriesMeta) state._expenseCategoriesMeta = {};
-  if (!state._tagColorMeta) state._tagColorMeta = {};
-  if (!syncMeta.tombstones) syncMeta.tombstones = { tasks: [], goals: [], habits: [], notes: [], recordings: [] };
-  if (!syncMeta.tombstones.tagColors) syncMeta.tombstones.tagColors = {};
-  if (!syncMeta.tombstones.incomeTypes) syncMeta.tombstones.incomeTypes = {};
-  if (!syncMeta.tombstones.expenseCategories) syncMeta.tombstones.expenseCategories = {};
-  const incTagMeta = inc._tagColorMeta || {};
-  const incIncomeMeta = inc._incomeTypesMeta || {};
-  const incExpenseMeta = inc._expenseCategoriesMeta || {};
-  // tagColors per-key LWW
-  if (inc.tagColors || Object.keys(incTagMeta).length || inc.deleted) {
-    if (!state.tagColors) state.tagColors = {};
-    const incomingDeletes = (inc.deleted && inc.deleted.tagColors) || incTagMeta._deleted || {};
-    // handle explicit deletions via tombstones
-    const allKeys = new Set([...Object.keys(state.tagColors), ...Object.keys(inc.tagColors || {}), ...Object.keys(incTagMeta), ...Object.keys(syncMeta.tombstones.tagColors || {})]);
-    // also merge incoming deletes
-    Object.entries(incomingDeletes).forEach(([k, ts]) => {
-      const localTs = state._tagColorMeta[k] || 0;
-      const tombTs = syncMeta.tombstones.tagColors[k] || 0;
-      if (ts > localTs && ts > tombTs) { delete state.tagColors[k]; state._tagColorMeta[k] = ts; syncMeta.tombstones.tagColors[k] = ts; }
-    });
-    // merge tombstones from inc.deleted.tagColors if it's object map
-    if (inc.deleted && inc.deleted.tagColors && typeof inc.deleted.tagColors === 'object' && !Array.isArray(inc.deleted.tagColors)) {
-      Object.entries(inc.deleted.tagColors).forEach(([k, ts]) => {
-        const cur = syncMeta.tombstones.tagColors[k] || 0;
-        if (ts > cur) syncMeta.tombstones.tagColors[k] = ts;
-        const localTs = state._tagColorMeta[k] || 0;
-        if (ts > localTs) { delete state.tagColors[k]; state._tagColorMeta[k] = ts; }
-      });
-    }
-    Object.entries(inc.tagColors || {}).forEach(([k, v]) => {
-      const incTs = incTagMeta[k] || incomingRev || 0;
-      const localTs = state._tagColorMeta[k] || 0;
-      const tombTs = syncMeta.tombstones.tagColors[k] || 0;
-      if (incTs > localTs && incTs > tombTs) {
-        if (v) { state.tagColors[k] = v; state._tagColorMeta[k] = incTs; delete syncMeta.tombstones.tagColors[k]; }
-        else { delete state.tagColors[k]; state._tagColorMeta[k] = incTs; syncMeta.tombstones.tagColors[k] = incTs; }
-      }
-    });
-    // deletions represented as null in inc.tagColors with timestamp
-    Object.entries(inc.tagColors || {}).forEach(([k, v]) => {
-      if (v == null) {
-        const incTs = incTagMeta[k] || incomingRev || 0;
-        const localTs = state._tagColorMeta[k] || 0;
-        if (incTs > localTs) { delete state.tagColors[k]; state._tagColorMeta[k] = incTs; syncMeta.tombstones.tagColors[k] = incTs; }
-      }
-    });
-  }
-  // incomeTypes per-item LWW (union + deletions via meta)
-  if (Array.isArray(inc.incomeTypes)) {
-    const curSet = new Set(state.incomeTypes || []);
-    inc.incomeTypes.forEach(item => {
-      const incTs = incIncomeMeta[item] || incomingRev || 0;
-      const localTs = state._incomeTypesMeta[item] || 0;
-      const tombTs = syncMeta.tombstones.incomeTypes[item] || 0;
-      if (incTs > localTs && incTs > tombTs) { curSet.add(item); state._incomeTypesMeta[item] = incTs; delete syncMeta.tombstones.incomeTypes[item]; }
-    });
-    // handle deletions: if inc is missing an item that we have but tombstone newer
-    Object.entries(syncMeta.tombstones.incomeTypes).forEach(([item, ts]) => {
-      const localTs = state._incomeTypesMeta[item] || 0;
-      if (ts > localTs) curSet.delete(item);
-    });
-    // also check for explicit deletes in inc.deleted
-    const incDel = (inc.deleted && inc.deleted.incomeTypes) || {};
-    if (typeof incDel === 'object' && !Array.isArray(incDel)) {
-      Object.entries(incDel).forEach(([item, ts]) => {
-        const cur = syncMeta.tombstones.incomeTypes[item] || 0;
-        if (ts > cur) { syncMeta.tombstones.incomeTypes[item] = ts; curSet.delete(item); state._incomeTypesMeta[item] = ts; }
-      });
-    }
-    state.incomeTypes = [...curSet];
-  }
-  // expenseCategories per-item LWW
-  if (Array.isArray(inc.expenseCategories)) {
-    const curSet = new Set(state.expenseCategories || []);
-    inc.expenseCategories.forEach(item => {
-      const incTs = incExpenseMeta[item] || incomingRev || 0;
-      const localTs = state._expenseCategoriesMeta[item] || 0;
-      const tombTs = syncMeta.tombstones.expenseCategories[item] || 0;
-      if (incTs > localTs && incTs > tombTs) { curSet.add(item); state._expenseCategoriesMeta[item] = incTs; delete syncMeta.tombstones.expenseCategories[item]; }
-    });
-    Object.entries(syncMeta.tombstones.expenseCategories).forEach(([item, ts]) => {
-      const localTs = state._expenseCategoriesMeta[item] || 0;
-      if (ts > localTs) curSet.delete(item);
-    });
-    const incDel2 = (inc.deleted && inc.deleted.expenseCategories) || {};
-    if (typeof incDel2 === 'object' && !Array.isArray(incDel2)) {
-      Object.entries(incDel2).forEach(([item, ts]) => {
-        const cur = syncMeta.tombstones.expenseCategories[item] || 0;
-        if (ts > cur) { syncMeta.tombstones.expenseCategories[item] = ts; curSet.delete(item); state._expenseCategoriesMeta[item] = ts; }
-      });
-    }
-    state.expenseCategories = [...curSet];
-  }
-  // Merge kanban lists (Trello) — union, incoming wins for same id
-  if (Array.isArray(inc.kanbanLists) && inc.kanbanLists.length) {
-    const map = new Map((state.kanbanLists||[]).map(l=>[l.id,l]));
-    inc.kanbanLists.forEach(l=> { if(l && l.id) map.set(l.id, l); });
-    state.kanbanLists = [...map.values()];
-  }
-  state.achievements = Object.assign({}, state.achievements || {});
-  Object.keys(inc.achievements || {}).forEach(k => {
-    const iu = (inc.achievements[k] || {}).unlockedAt || 0;
-    if (!state.achievements[k] || iu > ((state.achievements[k] || {}).unlockedAt || 0)) state.achievements[k] = inc.achievements[k];
-  });
-  const changed = before !== key(state.tasks) + key(state.goals) + key(state.habits) + key(state.notes) + key(state.recordings) + key(state.projects) + key(state.krHistory) + key(state.income) + key(state.expenses) + key(state.students) + key(state.attendance) + key(state.assignments) + key(state.lessonPlans) + JSON.stringify(state.kanbanLists||[]) + JSON.stringify(state.tagColors || {}) + keyAch(state.achievements);
+  const rev = incomingRev || 0;
+  const changed = window.LumenLib.merge.applyMerge({ state, syncMeta, inc, incomingRev: rev });
   saveSyncMeta();
   if (changed) {
-    syncMeta.rev = Math.max(syncMeta.rev || 0, incomingRev) + 1;
+    syncMeta.rev = Math.max(syncMeta.rev || 0, rev) + 1;
     save();
     if (currentView() === 'settings') renderSettings(); else renderView();
   }
@@ -8569,13 +8358,15 @@ function renderFinance() {
   const today = todayISO();
   const thisMonth = today.slice(0, 7);
 
-  // Filter by currency & student if set
+  // Filter by currency & student if set (student filter matches by name or by FK id)
+  const _finFilterStudentId = _finStudentFilter !== 'ALL' && _finStudentFilter !== '__NONE__'
+    ? (getStudentsList().find(s => s.name === _finStudentFilter) || {}).id : null;
   const filterFn = e => {
     if (_finCurrFilter !== 'ALL' && (e.currency || 'USD') !== _finCurrFilter) return false;
     if (_finStudentFilter !== 'ALL') {
       if (_finStudentFilter === '__NONE__') {
-        if (e.student) return false;
-      } else if (e.student !== _finStudentFilter) {
+        if (e.student || e.studentId) return false;
+      } else if (e.student !== _finStudentFilter && !(e.studentId && e.studentId === _finFilterStudentId)) {
         return false;
       }
     }
@@ -8759,6 +8550,34 @@ function renderFinance() {
     ...studentList.map(s => `<option value="${esc(s.name)}" ${_finStudentFilter === s.name ? 'selected' : ''}>🎓 ${esc(s.name)}</option>`)
   ].join('');
 
+  // Per-student balance rollup: Paid / Expected / Outstanding, split by currency.
+  const _matchStudent = (e, s) => e.studentId ? e.studentId === s.id : e.student === s.name;
+  const perStudentHTML = studentList
+    .filter(s => (s.status || 'active') === 'active')
+    .map(s => {
+      const paidBy = {}, expBy = {};
+      (state.income || []).filter(e => _matchStudent(e, s)).forEach(e => { const c = e.currency || 'USD'; paidBy[c] = (paidBy[c] || 0) + (e.amount || 0); });
+      (state.expectedIncome || []).filter(e => _matchStudent(e, s)).forEach(e => { const c = e.currency || 'USD'; expBy[c] = (expBy[c] || 0) + (e.amount || 0); });
+      const curs = [...new Set([...Object.keys(paidBy), ...Object.keys(expBy)])];
+      if (!curs.length) return '';
+      return curs.map(c => {
+        const paid = paidBy[c] || 0, expd = expBy[c] || 0, out = Math.max(0, expd - paid);
+        const pct = expd ? Math.min(100, Math.round(paid / expd * 100)) : (paid ? 100 : 0);
+        return `<div class="fps-row">
+          <span class="fps-name">🎓 ${esc(s.name)}</span>
+          <div class="fps-bar"><div class="fps-fill" style="width:${pct}%"></div></div>
+          <span class="fps-nums">${fmtM(paid, c)} / ${fmtM(expd, c)} · <b>${fmtM(out, c)} due</b></span>
+        </div>`;
+      }).join('');
+    }).filter(Boolean).join('');
+  const perStudentCard = perStudentHTML ? `<div id="fin-per-student" style="margin-bottom:14px;padding:10px 12px;background:var(--surface2);border-radius:10px;border:1px solid var(--border)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <span style="font-weight:700;font-size:13px">🎓 Per-student balance</span>
+      <a class="link-btn" href="#students">Students →</a>
+    </div>
+    ${perStudentHTML}
+  </div>` : '';
+
   root.innerHTML = `
     <!-- Top Workstation: Recent Transactions & Quick Logging (ON TOP) -->
     <div class="card" style="margin-bottom:20px">
@@ -8793,6 +8612,8 @@ function renderFinance() {
           </select>
         </div>
       </div>
+
+      ${perStudentCard}
 
       <!-- Transaction Table -->
       ${recent.length ? `<div style="overflow-x:auto"><table class="fin-tx-table">
@@ -9023,7 +8844,7 @@ function renderFinance() {
   }));
 }
 
-function openFinanceModal(kind = 'income') {
+function openFinanceModal(kind = 'income', prefill = null) {
   const isIncome = kind === 'income' || kind === 'expectedIncome';
   const isExpected = kind === 'expectedIncome' || kind === 'expectedExpense';
   const title = isExpected
@@ -9079,6 +8900,12 @@ function openFinanceModal(kind = 'income') {
     else openExpenseCategoryModal();
   });
   $('#fin-add-student-inline')?.addEventListener('click', () => { closeModal(); openStudentEditModal(null); });
+  if (prefill && isIncome) {
+    if (prefill.studentName && $('#fin-student')) $('#fin-student').value = prefill.studentName;
+    if (prefill.currency && $('#fin-curr')) $('#fin-curr').value = prefill.currency;
+    if (prefill.rate && $('#fin-amt') && !$('#fin-amt').value) $('#fin-amt').value = prefill.rate;
+    if (prefill.studentName && $('#fin-desc') && !$('#fin-desc').value) $('#fin-desc').value = `Lesson fee: ${prefill.studentName}`;
+  }
   $('#fin-student')?.addEventListener('change', e => {
     const sName = e.target.value;
     if (!sName) return;
@@ -9096,9 +8923,10 @@ function openFinanceModal(kind = 'income') {
     const category = $('#fin-cat').value;
     const date = $('#fin-date').value || today;
     const student = isIncome ? ($('#fin-student')?.value || undefined) : undefined;
+    const studentId = student ? (studentList.find(x => x.name === student) || {}).id : undefined;
     const description = $('#fin-desc').value.trim();
     captureUndo(title);
-    const entry = { id: uid(), amount: Math.round(amount * 100) / 100, currency, type: isIncome ? category : undefined, category: !isIncome ? category : undefined, student: student || undefined, date, description, createdAt: Date.now(), updatedAt: Date.now() };
+    const entry = { id: uid(), amount: Math.round(amount * 100) / 100, currency, type: isIncome ? category : undefined, category: !isIncome ? category : undefined, student: student || undefined, studentId: studentId || undefined, date, description, createdAt: Date.now(), updatedAt: Date.now() };
     const arr = kind === 'income' ? state.income : kind === 'expense' ? state.expenses : kind === 'expectedIncome' ? state.expectedIncome : state.expectedExpenses;
     arr.push(entry);
     save();
@@ -9848,11 +9676,12 @@ function openAttendanceModal(record, presetStudent) {
     if (!Array.isArray(state.attendance)) state.attendance = [];
 
     if (isEdit) {
-      Object.assign(record, { studentName, date, time, duration, status, topic, notes, billed: autoBill, rate: billedAmount, currency, updatedAt: Date.now() });
+      Object.assign(record, { studentName, studentId: matchedStudent?.id, date, time, duration, status, topic, notes, billed: autoBill, rate: billedAmount, currency, updatedAt: Date.now() });
     } else {
       state.attendance.unshift({
         id: uid(),
         studentName,
+        studentId: matchedStudent?.id,
         date,
         time,
         duration,
@@ -9874,6 +9703,7 @@ function openAttendanceModal(record, presetStudent) {
         currency,
         type: 'ESL Lesson',
         student: studentName,
+        studentId: matchedStudent?.id,
         date,
         description: `Lesson fee: ${topic || 'Tutoring session'} (${duration}m)`,
         createdAt: Date.now(),
@@ -9968,17 +9798,19 @@ function openAssignmentModal(assignment, presetStudent) {
     const scoreType = $('#as-scoretype').value;
     const tags = $('#as-tags').value.split(',').map(x => x.trim()).filter(Boolean);
     const createTask = $('#as-create-task')?.checked;
+    const _asStudentId = (getStudentsList().find(s => s.name === studentName) || {}).id;
 
     captureUndo('Save assignment');
     if (!Array.isArray(state.assignments)) state.assignments = [];
 
     const assignId = isEdit ? assignment.id : uid();
     if (isEdit) {
-      Object.assign(assignment, { studentName, title, assignedDate, dueDate, description, scoreType, tags, updatedAt: Date.now() });
+      Object.assign(assignment, { studentName, studentId: _asStudentId, title, assignedDate, dueDate, description, scoreType, tags, updatedAt: Date.now() });
     } else {
       state.assignments.unshift({
         id: assignId,
         studentName,
+        studentId: _asStudentId,
         title,
         assignedDate,
         dueDate,
@@ -10003,6 +9835,7 @@ function openAssignmentModal(assignment, presetStudent) {
           due: dueDate || todayISO(),
           tags: ['Homework', studentName],
           student: studentName,
+          studentId: _asStudentId,
           assignmentId: assignId,
           subtasks: [
             { text: 'Check student submission', done: false, id: uid() },
@@ -10316,6 +10149,7 @@ function deliverLessonPlan(planId) {
       state.attendance.unshift({
         id: uid(),
         studentName: plan.studentName,
+        studentId: matchedStudent?.id,
         date: todayISO(),
         time: new Date().toTimeString().slice(0, 5),
         duration: plan.duration || 60,
@@ -10337,6 +10171,7 @@ function deliverLessonPlan(planId) {
         currency,
         type: 'ESL Lesson',
         student: plan.studentName,
+        studentId: matchedStudent?.id,
         date: todayISO(),
         description: `Delivered lesson: ${plan.title}`,
         createdAt: Date.now(),
@@ -10350,6 +10185,7 @@ function deliverLessonPlan(planId) {
       state.assignments.unshift({
         id: uid(),
         studentName: plan.studentName,
+        studentId: matchedStudent?.id,
         title: `Homework: ${plan.title}`,
         description: plan.wrapUpHomework,
         assignedDate: todayISO(),
@@ -10374,8 +10210,9 @@ function openStudentDossier(studentId) {
   const s = students.find(x => x.id === studentId || x.name === studentId);
   if (!s) return;
 
-  const inc = (state.income || []).filter(e => e.student === s.name || e.student === s.id);
-  const expInc = (state.expectedIncome || []).filter(e => e.student === s.name || e.student === s.id);
+  const inc = (state.income || []).filter(e => e.studentId ? e.studentId === s.id : (e.student === s.name || e.student === s.id));
+  const expInc = (state.expectedIncome || []).filter(e => e.studentId ? e.studentId === s.id : (e.student === s.name || e.student === s.id));
+  const linkedGoals = (state.goals || []).filter(g => (g.linkedStudentIds || []).includes(s.id));
   const studentTasks = (state.tasks || []).filter(t => t.student === s.name);
   const studentNotes = (state.notes || []).filter(n => n.student === s.name);
   const studentAttendance = (state.attendance || []).filter(a => a.studentName === s.name || a.studentId === s.id);
@@ -10411,8 +10248,16 @@ function openStudentDossier(studentId) {
               <div><span class="muted">Total USD Paid:</span> <b style="color:#34d399">$${usdPaid.toLocaleString()}</b></div>
               <div><span class="muted">Total TRY Paid:</span> <b style="color:#518DBF">₺${tryPaid.toLocaleString()}</b></div>
             </div>
+            <button class="btn btn-sm btn-accent" id="dossier-fin-add" style="margin-top:10px">${ic('plus', 13)} Log income for ${esc(s.name)}</button>
           </div>
         </div>
+
+        ${linkedGoals.length ? `<div class="card" style="margin-top:14px;padding:14px">
+          <h4 style="margin:0 0 8px;font-size:13px;color:var(--muted)">🎯 LINKED GOALS</h4>
+          <div class="dossier-goals">
+            ${linkedGoals.map(g => `<span class="chip chip-student">🎯 ${esc(g.title)} · ${goalProgress(g)}%</span>`).join('')}
+          </div>
+        </div>` : ''}
 
         ${s.goals ? `
           <div class="card" style="margin-top:14px;padding:14px">
@@ -12221,8 +12066,14 @@ function renderSettings() {
   $('#sync-name').addEventListener('change', e => { syncMeta.deviceName = e.target.value.trim(); saveSyncMeta(); });
   $('#sync-pass').addEventListener('change', async e => {
     const v = e.target.value.trim();
-    if (!v) { syncMeta.passHash = ''; saveSyncMeta(); toast('Passphrase removed'); return; }
-    try { syncMeta.passHash = await hashPass(v); saveSyncMeta(); toast('Passphrase set — enter the same one on your other device'); } catch(err) { console.error('Hash failed:', err); }
+    if (!v) { syncMeta.passHash = ''; syncMeta.passSalt = ''; syncMeta.passHashV = 1; saveSyncMeta(); toast('Passphrase removed'); return; }
+    try {
+      if (!syncMeta.passSalt) syncMeta.passSalt = window.LumenLib.crypto.randomSaltB64();
+      syncMeta.passHash = await window.LumenLib.crypto.hashPass(v, syncMeta.passSalt);
+      syncMeta.passHashV = 2;
+      saveSyncMeta();
+      toast('Passphrase set — enter the same one on your other device');
+    } catch(err) { console.error('Hash failed:', err); }
     e.target.value = '';
   });
   $('#sync-auto').addEventListener('change', e => { syncMeta.autoSync = e.target.checked; saveSyncMeta(); });

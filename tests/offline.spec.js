@@ -66,6 +66,15 @@ test('offline shell: reload AND fresh navigation boot the app with the server de
     await page2.waitForSelector('.app', { timeout: 15000 });
     expect(await page2.evaluate(() => !!document.querySelector('.app'))).toBe(true);
     await page2.close();
+
+    // Vault crypto (worker path) still works with the server dead — proves
+    // src/lib/vault-worker.js is precached in the offline shell.
+    await page.waitForTimeout(500);
+    const roundTrip = await page.evaluate(async () => {
+      const env = await window.LumenLib.crypto.encryptVaultBackup('{"offline":true}', 'pw');
+      return window.LumenLib.crypto.decryptVaultBackup(JSON.parse(env), 'pw');
+    });
+    expect(roundTrip).toBe('{"offline":true}');
   } finally {
     // Robust stop — don't hang if already dead
     await Promise.race([
