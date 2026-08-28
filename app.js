@@ -554,6 +554,7 @@ function normalizeState(parsed) {
     geminiApiKey: '',
     geminiModel: 'gemini-2.5-flash'
   }, parsed.settings || {});
+  if (state.settings.reviewCommit === undefined) state.settings.reviewCommit = null;
   if (!Array.isArray(state.krHistory)) state.krHistory = [];
   if (!state.tagColors) state.tagColors = {};
   if (!state._tagColorMeta) state._tagColorMeta = {};
@@ -3384,6 +3385,13 @@ function reviewSkeletonHTML() {
       <div style="flex:1"></div>
       <button class="btn btn-sm btn-ghost" id="rev-export-md">${ic('download', 14)} Export Markdown</button>
     </div>
+    <div class="card ritual-strip" id="ritual-strip">
+      <div class="ritual-head">
+        <span>🧭 Weekly ritual</span>
+        <span class="muted" id="ritual-status"></span>
+      </div>
+      <div id="ritual-body"></div>
+    </div>
     <div class="stats">
       ${stat('✅', 'rgba(52,211,153,.14)', 'rev-v-tasks', 'rev-l-tasks')}
       ${stat('🔥', 'rgba(96,93,255,.14)', 'rev-v-habits', 'rev-l-habits')}
@@ -3486,6 +3494,11 @@ function renderReview() {
       setTimeout(() => URL.revokeObjectURL(a.href), 4000);
       toast('📄 Weekly review markdown downloaded!', 'success');
     });
+    // ritual strip: navigate to a view when a slipped row is clicked
+    $('#ritual-strip').addEventListener('click', e => {
+      const row = e.target.closest('.slip-row');
+      if (row && row.dataset.goto) location.hash = '#' + row.dataset.goto;
+    });
   }
   // toolbar in place
   const lbl = $('#rev-label');
@@ -3509,6 +3522,70 @@ function renderReview() {
   setSec('#rev-goals', ctx.goalRows);
   setSec('#rev-ach', ctx.achHTML);
   setSec('#rev-habit', ctx.habitRows);
+  renderRitual(ctx);
+}
+
+let ritualStep = 0;
+function currentWeekStartISO() { return weekRange(0).startISO; }
+function renderRitual(ctx) {
+  const body = document.querySelector('#ritual-body');
+  const statusEl = document.querySelector('#ritual-status');
+  if (!body) return;
+  const rc = (state.settings && state.settings.reviewCommit) || null;
+  const doneThisWeek = rc && rc.weekStart === currentWeekStartISO();
+  if (doneThisWeek && ritualStep === 0) {
+    statusEl.textContent = `✅ done · protecting ${rc.taskIds.length + rc.habitIds.length + rc.goalIds.length}`;
+    body.innerHTML = `<button class="btn btn-ghost btn-sm" id="ritual-restart">Review again</button>`;
+    body.querySelector('#ritual-restart').onclick = () => { ritualStep = 1; renderRitual(ctx); };
+    return;
+  }
+  if (ritualStep === 0) {
+    statusEl.textContent = '';
+    body.innerHTML = `<button class="btn btn-accent btn-sm" id="ritual-start">Start weekly review</button>`;
+    body.querySelector('#ritual-start').onclick = () => { ritualStep = 1; renderRitual(ctx); };
+    return;
+  }
+  const steps = ['Shipped', 'Slipped', 'Protect next week'];
+  statusEl.textContent = `Step ${ritualStep}/3 · ${steps[ritualStep - 1]}`;
+  let inner = '';
+  if (ritualStep === 1) {
+    inner = `<div class="ritual-panel"><b>✅ ${ctx.statTasks} tasks shipped</b> · ${ctx.statHabitsLabel} · ${ctx.statGoals} avg goal progress</div>`;
+  } else if (ritualStep === 2) {
+    inner = `<div class="ritual-panel">${ctx.slippedRows}</div>`;
+  } else {
+    const picks = ctx.protectCandidates.map(c =>
+      `<button type="button" class="protect-pick" data-kind="${c.kind}" data-id="${c.id}">${esc(c.label)}</button>`).join('')
+      || '<span class="muted">Nothing to carry forward — you are on top of it.</span>';
+    inner = `<div class="ritual-panel"><div class="muted" style="font-size:12px;margin-bottom:6px">Pick up to 3 to surface first in tomorrow's Brief:</div><div class="protect-picks">${picks}</div></div>`;
+  }
+  const nav = ritualStep < 3
+    ? `<button class="btn btn-sm" id="ritual-next">Next →</button>`
+    : `<button class="btn btn-sm btn-accent" id="ritual-finish">Finish & commit</button>`;
+  body.innerHTML = inner + `<div class="ritual-nav">${nav}<button class="btn btn-sm btn-ghost" id="ritual-cancel">Cancel</button></div>`;
+  body.querySelectorAll('.protect-pick').forEach(b => b.onclick = () => {
+    const active = body.querySelectorAll('.protect-pick.active').length;
+    if (!b.classList.contains('active') && active >= 3) return;
+    b.classList.toggle('active');
+  });
+  const next = body.querySelector('#ritual-next');
+  if (next) next.onclick = () => { ritualStep++; renderRitual(ctx); };
+  const fin = body.querySelector('#ritual-finish');
+  if (fin) fin.onclick = () => {
+    const picked = [...body.querySelectorAll('.protect-pick.active')];
+    if (!state.settings) state.settings = {};
+    state.settings.reviewCommit = {
+      weekStart: currentWeekStartISO(),
+      taskIds: picked.filter(p => p.dataset.kind === 'task').map(p => p.dataset.id),
+      habitIds: picked.filter(p => p.dataset.kind === 'habit').map(p => p.dataset.id),
+      goalIds: picked.filter(p => p.dataset.kind === 'goal').map(p => p.dataset.id),
+      at: Date.now(),
+    };
+    save();
+    ritualStep = 0;
+    renderRitual(ctx);
+    toast('Weekly review committed 🧭');
+  };
+  body.querySelector('#ritual-cancel').onclick = () => { ritualStep = 0; renderRitual(ctx); };
 }
 
 /* Desktop notifications for newly-overdue deadlines */
