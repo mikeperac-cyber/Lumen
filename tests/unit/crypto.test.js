@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buf2b64, b642buf, randomSaltB64,
-  encryptVaultBackup, decryptVaultBackup, hashPassLegacy,
+  encryptVaultBackup, decryptVaultBackup, hashPassLegacy, hashPass,
 } from '../../src/lib/crypto.js';
 
 describe('crypto.buf2b64 / b642buf', () => {
@@ -51,5 +51,22 @@ describe('crypto.hashPassLegacy', () => {
     const h2 = await hashPassLegacy('passphrase');
     assert.equal(h1, h2);
     assert.match(h1, /^[0-9a-f]{64}$/);
+  });
+});
+
+describe('crypto.hashPass (v2, salted)', () => {
+  const saltA = 'AAAAAAAAAAAAAAAAAAAAAA==';
+  const saltB = 'BBBBBBBBBBBBBBBBBBBBBB==';
+
+  it('is deterministic for the same passphrase + salt', async () => {
+    assert.equal(await hashPass('pw', saltA), await hashPass('pw', saltA));
+  });
+  it('differs when the salt differs', async () => {
+    assert.notEqual(await hashPass('pw', saltA), await hashPass('pw', saltB));
+  });
+  it('differs from the legacy hash and is 64 hex chars', async () => {
+    const h = await hashPass('pw', saltA);
+    assert.notEqual(h, await hashPassLegacy('pw'));
+    assert.match(h, /^[0-9a-f]{64}$/);
   });
 });

@@ -103,3 +103,20 @@ export async function hashPassLegacy(passphrase) {
   const buf = await crypto.subtle.digest('SHA-256', data);
   return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
+
+/**
+ * v2 sync-passphrase hash — PBKDF2(SHA-256, 100k) over a per-device salt.
+ * @param {string} passphrase
+ * @param {string} saltB64
+ * @returns {Promise<string>} 64 hex chars
+ */
+export async function hashPass(passphrase, saltB64) {
+  const salt = new Uint8Array(b642buf(saltB64));
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw', new TextEncoder().encode('lumen-sync::' + passphrase), { name: 'PBKDF2' }, false, ['deriveBits'],
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' }, keyMaterial, 256,
+  );
+  return Array.from(new Uint8Array(bits)).map((b) => b.toString(16).padStart(2, '0')).join('');
+}

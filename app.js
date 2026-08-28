@@ -7520,7 +7520,7 @@ function genPeerId() {
   return 'lumen-' + hex;
 }
 function defaultSyncMeta() {
-  return { peerId: genPeerId(), rev: 1, autoSync: true, deviceName: '', passHash: '', tombstones: { tasks: [], goals: [], habits: [], notes: [], recordings: [] }, syncQueue: [] };
+  return { peerId: genPeerId(), rev: 1, autoSync: true, deviceName: '', passHash: '', passSalt: '', passHashV: 1, tombstones: { tasks: [], goals: [], habits: [], notes: [], recordings: [] }, syncQueue: [] };
 }
 function loadSyncMeta() {
   try {
@@ -7534,6 +7534,13 @@ async function hashPass(p) { return window.LumenLib.crypto.hashPassLegacy(p); }
 
 let syncMeta = loadSyncMeta();
 if (!localStorage.getItem(SYNC_KEY)) saveSyncMeta(); // persist the ID immediately so it survives reloads
+// v104: nudge legacy (unsalted) sync passphrases to be re-entered so they upgrade to PBKDF2.
+if (syncMeta.passHash && !syncMeta.passSalt && !localStorage.getItem('lumen.passUpgradeNudged')) {
+  setTimeout(() => {
+    try { toast('Re-enter your sync passphrase (Settings → Sync) to upgrade its security', 'info'); } catch (_) {}
+    try { localStorage.setItem('lumen.passUpgradeNudged', '1'); } catch (_) {}
+  }, 2500);
+}
 let peer = null, conn = null, peerStatus = 'offline', peerStatusDetail = '';
 let suppressAutoPush = false, autoPushTimer = null;
 /* PeerJS (~92KB) is loaded on demand — only when sync is actually used — instead of
@@ -7600,7 +7607,7 @@ function adoptConnection(c) {
     peerStatusDetail = 'Connected to ' + (c.peer || 'device');
     updateSyncUI();
     toast('Sync connected 🔗');
-    try { c.send({ type: 'hello', name: syncMeta.deviceName, pass: syncMeta.passHash }); } catch (_) {}
+    try { c.send({ type: 'hello', name: syncMeta.deviceName, pass: syncMeta.passHash, passV: syncMeta.passHashV || 1, salt: syncMeta.passSalt || '' }); } catch (_) {}
     // Auto-flush any queued offline changes
     if (syncMeta.syncQueue && syncMeta.syncQueue.length) {
       setTimeout(flushSyncQueue, 500);
@@ -7640,13 +7647,21 @@ function connectToDevice(id) {
 function handleData(d, c) {
   if (!d || typeof d !== 'object') return;
   if (d.type === 'hello') {
-    if (syncMeta.passHash && d.pass !== syncMeta.passHash) {
-      toast('Sync passphrase mismatch — closing connection', 'error');
-      try { c.close(); } catch (_) {}
-      return;
-    }
-    if (!syncMeta.passHash && d.pass) {
-      toast('Other device has a passphrase set — set the same one here to connect', 'error');
+    const localHas = !!syncMeta.passHash;
+    const remoteHas = !!d.pass;
+    if (localHas && remoteHas) {
+      const localV = syncMeta.passHashV || 1;
+      const remoteV = d.passV || 1;
+      const match = (localV === remoteV) && (d.pass === syncMeta.passHash);
+      if (!match) {
+        toast(localV !== remoteV
+          ? 'One device needs its sync passphrase re-entered (Settings → Sync) to upgrade security'
+          : 'Sync passphrase mismatch — closing connection', 'error');
+        try { c.close(); } catch (_) {}
+        return;
+      }
+    } else if (localHas !== remoteHas) {
+      toast('One device has a passphrase set — set the same one on both to connect', 'error');
       try { c.close(); } catch (_) {}
       return;
     }
@@ -12158,8 +12173,14 @@ function renderSettings() {
   $('#sync-name').addEventListener('change', e => { syncMeta.deviceName = e.target.value.trim(); saveSyncMeta(); });
   $('#sync-pass').addEventListener('change', async e => {
     const v = e.target.value.trim();
-    if (!v) { syncMeta.passHash = ''; saveSyncMeta(); toast('Passphrase removed'); return; }
-    try { syncMeta.passHash = await hashPass(v); saveSyncMeta(); toast('Passphrase set — enter the same one on your other device'); } catch(err) { console.error('Hash failed:', err); }
+    if (!v) { syncMeta.passHash = ''; syncMeta.passSalt = ''; syncMeta.passHashV = 1; saveSyncMeta(); toast('Passphrase removed'); return; }
+    try {
+      if (!syncMeta.passSalt) syncMeta.passSalt = window.LumenLib.crypto.randomSaltB64();
+      syncMeta.passHash = await window.LumenLib.crypto.hashPass(v, syncMeta.passSalt);
+      syncMeta.passHashV = 2;
+      saveSyncMeta();
+      toast('Passphrase set — enter the same one on your other device');
+    } catch(err) { console.error('Hash failed:', err); }
     e.target.value = '';
   });
   $('#sync-auto').addEventListener('change', e => { syncMeta.autoSync = e.target.checked; saveSyncMeta(); });
