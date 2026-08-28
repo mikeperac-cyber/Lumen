@@ -19,6 +19,31 @@ test('legacy income is FK-linked to a student on load', async ({ page }) => {
   await page.evaluate(() => { state.students = []; state.income = []; save(); });
 });
 
+test('goal modal links students and persists linkedStudentIds', async ({ page }) => {
+  await page.goto('/');
+  await page.waitForLoadState('domcontentloaded');
+  await page.waitForTimeout(400);
+  await page.evaluate(() => {
+    state.students = [{ id: 's-ana', name: 'Ana', status: 'active', currency: 'USD', rate: 35, level: 'ESL' }];
+    state.goals = [];
+    save();
+  });
+  await page.goto('/#goals');
+  await page.waitForTimeout(400);
+  await page.evaluate(() => openGoalModal());
+  await page.waitForTimeout(300);
+  await page.fill('#g-title', 'IELTS 8.0');
+  await page.click('.g-student-toggle[data-sid="s-ana"]');
+  await page.click('#g-save');
+  await page.waitForTimeout(400);
+  const linked = await page.evaluate(() => state.goals[0].linkedStudentIds);
+  expect(linked).toEqual(['s-ana']);
+  // chip renders on the card
+  await page.waitForTimeout(200);
+  expect(await page.locator('.goal-card .chip-student').innerText()).toContain('Ana');
+  await page.evaluate(() => { state.students = []; state.goals = []; save(); });
+});
+
 test('an income entry with an unknown student name still renders without error', async ({ page }) => {
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));

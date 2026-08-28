@@ -5333,6 +5333,7 @@ function goalCardHTML(g) {
       ${krs}
     </div>
     ${(g.tags && g.tags.length) ? `<div class="goal-tags">${g.tags.map(t => `<span class="tag kr-tag" data-goal-tag="${esc(t)}" title="Filter goals by #${esc(t)}">${esc(t)}</span>`).join('')}</div>` : ''}
+    ${(g.linkedStudentIds && g.linkedStudentIds.length) ? `<div class="goal-tags">${g.linkedStudentIds.map(id => { const s = getStudentsList().find(x => x.id === id); return s ? `<span class="chip chip-student">🎓 ${esc(s.name)}</span>` : ''; }).join('')}</div>` : ''}
     <div class="goal-foot">
       <span class="goal-created">Started ${fmtShort(isoDate(new Date(g.createdAt)))}${g.due ? ` · ${goalOverdue ? '<span class="kr-overdue">⚠ overdue ' : 'due '}${fmtShort(g.due)}${goalOverdue ? '</span>' : ''}` : ''}</span>
       <div style="display:flex;gap:4px">
@@ -5522,9 +5523,17 @@ function renderGoals() {
 }
 
 function openGoalModal(goal) {
-  const g = goal || { title: '', desc: '', color: COLORS[0], keyResults: [{ id: uid(), title: '', target: 10, current: 0 }] };
+  const g = goal || { title: '', desc: '', color: COLORS[0], keyResults: [{ id: uid(), title: '', target: 10, current: 0 }], linkedStudentIds: [] };
   const swatches = COLORS.map(c => `<button class="swatch ${c === g.color ? 'active' : ''}" data-color="${c}" style="background:${c}"></button>`).join('');
   const krRows = (g.keyResults || []).map(kr => krRowHTML(kr)).join('');
+  const _goalStudents = getStudentsList();
+  const _goalLinked = new Set(g.linkedStudentIds || []);
+  const studentToggles = _goalStudents.length ? `
+        <div class="field"><label class="field-label">Linked students</label>
+          <div class="g-student-toggles">
+            ${_goalStudents.map(s => `<button type="button" class="g-student-toggle${_goalLinked.has(s.id) ? ' active' : ''}" data-sid="${s.id}">🎓 ${esc(s.name)}</button>`).join('')}
+          </div>
+        </div>` : '';
   openModal(`
     <div class="modal">
       <div class="modal-head"><h3>${goal ? 'Edit goal' : 'New goal'}</h3><button class="btn-icon" onclick="closeModal()">${ic('x', 16)}</button></div>
@@ -5540,6 +5549,7 @@ function openGoalModal(goal) {
           <div id="kr-rows">${krRows}</div>
           <button class="btn btn-sm btn-ghost" id="kr-add">${ic('plus', 13)} Add key result</button>
         </div>
+        ${studentToggles}
       </div>
       <div class="modal-foot">
         ${goal ? `<button class="btn btn-danger" id="g-delete">Delete</button>` : ''}
@@ -5552,6 +5562,7 @@ function openGoalModal(goal) {
     $$('.swatch').forEach(x => x.classList.remove('active'));
     s.classList.add('active');
   }));
+  $$('.g-student-toggle').forEach(b => b.addEventListener('click', () => b.classList.toggle('active')));
   $('#kr-add').addEventListener('click', () => {
     $('#kr-rows').insertAdjacentHTML('beforeend', krRowHTML({ id: uid(), title: '', target: 10, current: 0 }));
     bindKrRemove();
@@ -5569,7 +5580,8 @@ function openGoalModal(goal) {
       due: $('input.kr-due-inp', row).value || ''
     })).filter(k => k.title);
     const tags = [...new Set($('#g-tags').value.split(',').map(s => s.trim().toLowerCase().replace(/^#/, '')).filter(Boolean))];
-    const data = { title, desc: $('#g-desc').value.trim(), color, keyResults: krs, due: $('#g-due').value || '', tags };
+    const linkedStudentIds = $$('.g-student-toggle.active').map(b => b.dataset.sid);
+    const data = { title, desc: $('#g-desc').value.trim(), color, keyResults: krs, due: $('#g-due').value || '', tags, linkedStudentIds };
     let target;
     if (goal) { Object.assign(goal, data); goal.updatedAt = Date.now(); target = goal; logActivity('goal.edit', title, 'goal'); }
     else { target = Object.assign({ id: uid(), createdAt: Date.now(), updatedAt: Date.now() }, data); state.goals.push(target); logActivity('goal.create', title, 'goal'); }
