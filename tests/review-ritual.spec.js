@@ -32,6 +32,27 @@ test('weekly review ritual: start → protect a habit → commit persists', asyn
   await page.evaluate(() => { state.habits = []; state.tasks = []; delete state.settings.reviewCommit; save(); flushSave(); });
 });
 
+test('protected tasks from the weekly review lead the Brief candidates', async ({ page }) => {
+  await page.goto('/');
+  await page.waitForLoadState('domcontentloaded');
+  await page.waitForTimeout(400);
+  await page.evaluate(() => {
+    const now = Date.now();
+    state.tasks = [
+      { id: 'a', title: 'Ordinary backlog', status: 'backlog', priority: 'high', due: '', createdAt: now, updatedAt: now, subtasks: [] },
+      { id: 'b', title: 'Protected carryover', status: 'backlog', priority: 'low', due: '', createdAt: now, updatedAt: now, subtasks: [] },
+    ];
+    if (!state.settings) state.settings = {};
+    state.settings.reviewCommit = { weekStart: 'x', taskIds: ['b'], habitIds: [], goalIds: [], at: now };
+    save(); flushSave();
+  });
+  await page.goto('/#brief');
+  await page.waitForTimeout(500);
+  const first = await page.evaluate(() => getBriefCandidates()[0].title);
+  expect(first).toBe('Protected carryover');
+  await page.evaluate(() => { state.tasks = []; delete state.settings.reviewCommit; save(); flushSave(); });
+});
+
 test('reviewCtx exposes slipped items and protect candidates', async ({ page }) => {
   await page.goto('/');
   await page.waitForLoadState('domcontentloaded');

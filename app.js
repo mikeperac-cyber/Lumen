@@ -1617,7 +1617,7 @@ function getBriefCandidates() {
   const pool = state.tasks.filter(t => t.status !== 'done' && t.status !== 'today' && t.due !== today);
   // exclude already overdue (they go in overdue bucket)
   const nonOverdue = pool.filter(t => !t.due || t.due >= today);
-  return nonOverdue.sort((a, b) => {
+  const ranked = nonOverdue.sort((a, b) => {
     const pa = prScore[a.priority] || 2, pb = prScore[b.priority] || 2;
     if (pb !== pa) return pb - pa;
     // goal-linked tasks first (goal health heuristic)
@@ -1627,7 +1627,11 @@ function getBriefCandidates() {
     if (a.due && !b.due) return -1;
     if (!a.due && b.due) return 1;
     return (b.updatedAt || 0) - (a.updatedAt || 0);
-  }).slice(0, 5);
+  });
+  // Tasks carried forward from the weekly review ritual lead the list (stable pass).
+  const protectedIds = new Set(((state.settings && state.settings.reviewCommit) || {}).taskIds || []);
+  if (protectedIds.size) ranked.sort((a, b) => (protectedIds.has(b.id) ? 1 : 0) - (protectedIds.has(a.id) ? 1 : 0));
+  return ranked.slice(0, 5);
 }
 function getHabitsToProtect() {
   const today = todayISO();
