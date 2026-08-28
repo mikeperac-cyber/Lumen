@@ -4,6 +4,7 @@ const { test, expect } = require('@playwright/test');
 const VIEWS = [
   'brief',
   'dashboard',
+  'vault',
   'review',
   'tasks',
   'projects',

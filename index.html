@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
 <meta name="theme-color" content="#605DFF">
+<script>try{var s=localStorage.getItem("lumen.state.v1");var th=null;if(s){try{th=JSON.parse(s).settings.theme}catch(e){}}if(!th){try{th=localStorage.getItem("lumen.theme")}catch(e){}} if(th) document.documentElement.dataset.theme=th;}catch(e){}</script>
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -32,8 +33,8 @@
   #view-root{padding:16px}
   .card{background:var(--surface);border-radius:12px;padding:14px;margin-bottom:12px}
 </style>
-<link rel="preload" href="styles.css?v=106" as="style"><link rel="stylesheet" href="styles.css?v=106" fetchpriority="high">
-<link rel="prefetch" href="themes.css?v=106" as="style">
+<link rel="preload" href="styles.css?v=107" as="style"><link rel="stylesheet" href="styles.css?v=107" fetchpriority="high">
+<link rel="prefetch" href="themes.css?v=107" as="style">
 <link rel="preload" href="peerjs.min.js" as="script" fetchpriority="low">
 </head>
 <body>
@@ -47,6 +48,7 @@
       <button class="nav-item" data-view="brief" id="nav-brief"></button>
       <button class="nav-item" data-view="dashboard" id="nav-dashboard"></button>
       <button class="nav-item" data-view="students" id="nav-students"></button>
+      <button class="nav-item" data-view="vault" id="nav-vault"></button>
       <button class="nav-item" data-view="tasks" id="nav-tasks"></button>
       <button class="nav-item" data-view="projects" id="nav-projects"></button>
       <button class="nav-item" data-view="schedule" id="nav-schedule"></button>
@@ -96,12 +98,14 @@
               <button class="quick-item" data-action="goal">🎯 Goal</button>
               <button class="quick-item" data-action="habit">🔥 Habit</button>
               <button class="quick-item" data-action="note">📝 Note</button>
+              <button class="quick-item" data-action="vault">🔐 Vault item</button>
               <button class="quick-item" data-action="tag">🏷️ Tag</button>
               <button class="quick-item" data-action="finance">💰 Income/expense</button>
               <button class="quick-item" data-action="voice">🎙️ Voice memo</button>
             </div>
             <div class="quick-menu-section">Go to</div>
             <div class="quick-menu-grid">
+              <button class="quick-item" data-action="go-vault">🔐 Vault</button>
               <button class="quick-item" data-action="go-brief">✦ Brief</button>
               <button class="quick-item" data-action="go-students">🎓 Students</button>
               <button class="quick-item" data-action="go-dashboard">📊 Dashboard</button>
@@ -163,8 +167,8 @@
   <button class="btn-icon fp-close" id="fp-close" title="Dismiss">✕</button>
 </div>
 
-<script type="module" src="src/lib/globals.js?v=106"></script>
-<script src="app.js?v=106" fetchpriority="high" defer></script>
+<script type="module" src="src/lib/globals.js?v=107"></script>
+<script src="app.js?v=107" fetchpriority="high" defer></script>
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function () {
