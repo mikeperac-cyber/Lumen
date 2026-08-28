@@ -41,6 +41,7 @@ Built with pure vanilla web standards (HTML5, CSS3, ES2022 JavaScript) — **no 
 ### 🎯 Goals & OKRs
 - **Key Result Tracking**: Automatic progress updates as linked tasks are completed.
 - **Health Indicators & Target Dates**: One-tap deadline bumping and status monitoring.
+- **Student Links**: Goals link directly to students; finance rolls up Paid / Expected / Outstanding per student and currency.
 
 ### 🔥 Habits & Consistency
 - **GitHub-Style Heatmaps**: 365-day check-in visualizations with custom color themes.

@@ -128,6 +128,37 @@ test('a Kanban task created from an assignment carries the studentId FK', async 
   await page.evaluate(() => { state.students = []; state.assignments = []; state.tasks = []; save(); flushSave(); });
 });
 
+test('end-to-end: student ↔ linked goal ↔ income agree across hub, finance, dossier', async ({ page }) => {
+  await page.goto('/');
+  await page.waitForLoadState('domcontentloaded');
+  await page.waitForTimeout(400);
+  await page.evaluate(() => {
+    state.students = [{ id: 's-caner', name: 'Caner Yilmaz', status: 'active', currency: 'TRY', rate: 1500, level: 'IELTS' }];
+    state.goals = [{ id: 'g-ielts', title: 'IELTS 8.0', color: '#605dff',
+      keyResults: [{ id: 'k1', title: 'Mock score', target: 8, current: 6 }],
+      linkedStudentIds: ['s-caner'], createdAt: Date.now(), updatedAt: Date.now() }];
+    state.income = [{ id: 'i1', studentId: 's-caner', student: 'Caner Yilmaz', amount: 1500, currency: 'TRY', date: '2026-08-05' }];
+    state.expectedIncome = [{ id: 'e1', studentId: 's-caner', student: 'Caner Yilmaz', amount: 6000, currency: 'TRY', date: '2026-08-01' }];
+    save(); flushSave();
+  });
+
+  const hub = await page.evaluate(() => teachingDashboardHTML());
+  expect(hub).toContain('IELTS 8.0');
+
+  await page.goto('/#finance');
+  await page.waitForTimeout(600);
+  const fin = await page.locator('#fin-per-student').innerText();
+  expect(fin).toMatch(/₺4,?500 due/); // 6000 - 1500
+
+  await page.goto('/#students');
+  await page.waitForTimeout(300);
+  await page.evaluate(() => openStudentDossier('s-caner'));
+  await page.waitForTimeout(300);
+  expect(await page.locator('.modal').innerText()).toContain('IELTS 8.0');
+
+  await page.evaluate(() => { state.students = []; state.goals = []; state.income = []; state.expectedIncome = []; save(); flushSave(); });
+});
+
 test('an income entry with an unknown student name still renders without error', async ({ page }) => {
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
