@@ -706,6 +706,7 @@ function save() {
   _teachingMemo = null;
   _deadlinesMemo = null;
   _searchIndex = null; // invalidate search index
+  _vaultQuota = null; _vaultQuotaRev = -1; // invalidate vault quota memo like _dashMemo:676
   saveDirty = true;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(flushSave, 150);
@@ -790,22 +791,47 @@ function vaultDb() {
     if (_vaultDb) return res(_vaultDb);
     let rq; try { rq = indexedDB.open(VAULT_DB, 1); } catch (e) { return rej(e); }
     rq.onupgradeneeded = e => { const db = e.target.result; if (!db.objectStoreNames.contains(VAULT_STORE)) db.createObjectStore(VAULT_STORE); };
-    rq.onsuccess = e => { _vaultDb = e.target.result; res(_vaultDb); };
+    rq.onblocked = () => { /* another tab holds old version — wait */ };
+    rq.onsuccess = e => {
+      _vaultDb = e.target.result;
+      _vaultDb.onversionchange = () => { try{ _vaultDb.close(); }catch(_){} _vaultDb = null; };
+      _vaultDb.onclose = () => { _vaultDb = null; };
+      res(_vaultDb);
+    };
     rq.onerror = () => rej(rq.error);
   });
 }
 function vaultBlobPut(key, blob) { return vaultDb().then(db => new Promise((res, rej) => { const tx = db.transaction(VAULT_STORE, 'readwrite'); tx.objectStore(VAULT_STORE).put(blob, key); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); })); }
 function vaultBlobGet(key) { return vaultDb().then(db => new Promise((res, rej) => { const tx = db.transaction(VAULT_STORE, 'readonly'); const rq = tx.objectStore(VAULT_STORE).get(key); rq.onsuccess = () => res(rq.result || null); rq.onerror = () => rej(rq.error); })); }
 function vaultBlobDelete(key) { return vaultDb().then(db => new Promise((res, rej) => { const tx = db.transaction(VAULT_STORE, 'readwrite'); tx.objectStore(VAULT_STORE).delete(key); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); })); }
-function vaultQuotaUsed() { return (state.vaultItems || []).reduce((s, v) => s + (v.size || 0), 0); }
+function vaultQuotaUsed() {
+  if (_vaultQuota !== null && _vaultQuotaRev === _stateRev) return _vaultQuota;
+  const bytes = (state.vaultItems || []).reduce((s, v) => s + (v.size || 0), 0);
+  _vaultQuota = bytes; _vaultQuotaRev = _stateRev;
+  return bytes;
+}
 function vaultGuessType(fileName, mime) {
   const ext = (fileName || '').split('.').pop().toLowerCase();
-  const m = (mime || '').toLowerCase();
-  if (['pdf'].includes(ext) || m.includes('pdf')) return 'pdf';
-  if (['doc','docx','odt','rtf','txt','md'].includes(ext) || m.includes('word') || m.includes('document') || m === 'text/plain') return 'doc';
-  if (['xls','xlsx','csv','ods'].includes(ext) || m.includes('sheet') || m.includes('excel') || m.includes('csv')) return 'sheet';
-  if (['png','jpg','jpeg','gif','webp','svg','bmp','ico'].includes(ext) || m.startsWith('image/')) return 'image';
-  if (['mp4','mov','avi','webm','mkv'].includes(ext) || m.startsWith('video/')) return 'video';
+  const m = (mime || '').toLowerCase().trim();
+  // 1) mime prefix wins — prevents image/svg+xml → doc via xml/document false-positive
+  if (m.startsWith('image/')) return 'image';
+  if (m.startsWith('video/')) return 'video';
+  // 2) exact mime set (then loose includes as fallback) — sheet before doc to avoid officedocument false-positive for xlsx
+  if (m === 'application/pdf' || m === 'text/plain') return m === 'application/pdf' ? 'pdf' : 'doc';
+  const docMimes = new Set(['application/msword','application/vnd.openxmlformats-officedocument.wordprocessingml.document','application/vnd.oasis.opendocument.text','application/rtf','text/markdown']);
+  const sheetMimes = new Set(['application/vnd.ms-excel','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','application/vnd.oasis.opendocument.spreadsheet','text/csv']);
+  if (m.includes('pdf')) return 'pdf';
+  if (sheetMimes.has(m) || m.includes('sheet') || m.includes('excel') || m === 'text/csv') return 'sheet';
+  if (docMimes.has(m) || m.includes('word') || m.includes('document')) {
+    // image/svg+xml already returned, sheet already returned, so 'document' here is safe for word docs
+    return 'doc';
+  }
+  // 3) extension fallback
+  if (['pdf'].includes(ext)) return 'pdf';
+  if (['doc','docx','odt','rtf','txt','md'].includes(ext)) return 'doc';
+  if (['xls','xlsx','csv','ods'].includes(ext)) return 'sheet';
+  if (['png','jpg','jpeg','gif','webp','svg','bmp','ico'].includes(ext)) return 'image';
+  if (['mp4','mov','avi','webm','mkv'].includes(ext)) return 'video';
   return 'link';
 }
 function vaultTypeIcon(type) {
@@ -1707,7 +1733,7 @@ function ensureThemesCSS() {
   if (_themesLoaded || document.querySelector('link[rel="stylesheet"][href^="themes.css"]')) { _themesLoaded = true; return; }
   const link = document.createElement('link');
   link.rel = 'stylesheet';
-  link.href = 'themes.css?v=108';
+  link.href = 'themes.css?v=109';
   link.onload = () => { _themesLoaded = true; };
   document.head.appendChild(link);
 }
@@ -2891,6 +2917,8 @@ let _timeTrackMemo = null; // { rev, html }
 let _teachingMemo = null; // { rev, html }
 let _deadlinesMemo = null;
 let _searchIndex = null; // { rev, tasksHay, vaultHay } — lower-cased haystacks for global search
+let _vaultQuota = null; // { rev, bytes } — memoized vault quota, invalidated on _stateRev like _dashMemo:676
+let _vaultQuotaRev = -1;
 function getSearchTasksHay() {
   if (_searchIndex && _searchIndex.rev === _stateRev) { _memoHits.search++; return _searchIndex.tasksHay; }
   const hay = state.tasks.map(t => ({ t, hay: (t.title + ' ' + (t.tags || []).join(' ') + ' ' + (t.desc || '') + ' ' + (t.members||[]).join(' ') + ' ' + (t.comments||[]).map(c=>c.text).join(' ') + ' ' + (t.attachments||[]).map(a=>a.name).join(' ')).toLowerCase() }));
@@ -5967,8 +5995,9 @@ function openGoalModal(goal) {
       due: $('input.kr-due-inp', row).value || ''
     })).filter(k => k.title);
     const tags = [...new Set($('#g-tags').value.split(',').map(s => s.trim().toLowerCase().replace(/^#/, '')).filter(Boolean))];
-    const linkedStudentIds = $$('.g-student-toggle.active').map(b => b.dataset.sid);
-    const vaultIds = [...document.querySelectorAll('#g-vault-picker input:checked')].map(i=>i.value);
+    const linkedStudentIds = $$('.g-student-toggle.active', $('#modal-root') || document).map(b => b.dataset.sid);
+    const modalRoot = $('#modal-root');
+    const vaultIds = [...(modalRoot ? modalRoot.querySelectorAll('#g-vault-picker input:checked') : document.querySelectorAll('#g-vault-picker input:checked'))].map(i=>i.value);
     const data = { title, desc: $('#g-desc').value.trim(), color, keyResults: krs, due: $('#g-due').value || '', tags, linkedStudentIds, vaultIds };
     let target;
     const prevVaultIdsGoal = goal ? (goal.vaultIds||[]) : [];
@@ -7417,48 +7446,59 @@ function openVaultModal(existing, preFile, preUrl){
     const url=urlEl.value.trim();
     if(url && !/^https?:\/\/.+/i.test(url)){ toast('URL must start with https://','error'); urlEl.focus(); return; }
     if(!url && !pendingFile && !v.blobId){ toast('Add a URL or file','error'); return; }
-    // quota check if new file
+    // quota check if new file — atomic put then metadata
     let newBlobId=v.blobId || null;
     let newFileName=v.fileName||'', newMime=v.mime||'', newSize=v.size||0;
+    let oldBlobToDelete=null;
     if(pendingFile){
       if(vaultQuotaUsed() + pendingFile.size - (existing? (existing.size||0):0) > VAULT_SOFT_CAP+5*1024*1024){ toast('Vault quota exceeded — 100MB cap','error'); return; }
       if(vaultQuotaUsed()+pendingFile.size > VAULT_SOFT_CAP) toast('Vault near quota — consider removing old files','error');
       newBlobId='vault-'+uid();
+      oldBlobToDelete = existing && existing.blobId && existing.blobId!==newBlobId ? existing.blobId : null;
       try{ await vaultBlobPut(newBlobId, pendingFile); }catch(e){ if(e && e.name==='QuotaExceededError') { toast('Quota exceeded — link instead','error'); return; } toast('Save failed','error'); return; }
-      // delete old blob if replacing
-      if(existing && existing.blobId && existing.blobId!==newBlobId) try{ await vaultBlobDelete(existing.blobId); }catch(_){}
       newFileName=pendingFile.name; newMime=pendingFile.type; newSize=pendingFile.size;
     }
     const tags=$('#vm-tags').value.split(',').map(s=>s.trim()).filter(Boolean);
     const col=$('#vm-col').value || null;
     const type=typeEl.value || vaultGuessType(newFileName,newMime) || 'link';
     const pinned=$('#vm-pinned').checked;
-    const linkedTaskIds=[...document.querySelectorAll('#vm-tasks input:checked')].map(i=>i.value);
-    const linkedGoalIds=[...document.querySelectorAll('#vm-goals input:checked')].map(i=>i.value);
-    const linkedNoteIds=[...document.querySelectorAll('#vm-notes input:checked')].map(i=>i.value);
-    const linkedStudentIds=[...document.querySelectorAll('#vm-students input:checked')].map(i=>i.value);
+    const mrVault = $('#modal-root');
+    const linkedTaskIds=[...(mrVault ? mrVault.querySelectorAll('#vm-tasks input:checked') : document.querySelectorAll('#vm-tasks input:checked'))].map(i=>i.value);
+    const linkedGoalIds=[...(mrVault ? mrVault.querySelectorAll('#vm-goals input:checked') : document.querySelectorAll('#vm-goals input:checked'))].map(i=>i.value);
+    const linkedNoteIds=[...(mrVault ? mrVault.querySelectorAll('#vm-notes input:checked') : document.querySelectorAll('#vm-notes input:checked'))].map(i=>i.value);
+    const linkedStudentIds=[...(mrVault ? mrVault.querySelectorAll('#vm-students input:checked') : document.querySelectorAll('#vm-students input:checked'))].map(i=>i.value);
     const now=Date.now();
     const item={ id: v.id, title, url, description: $('#vm-desc').value.trim(), type, tags, collectionId: col, fileName: newFileName, mime: newMime, size: newSize, blobId: newBlobId, linkedTaskIds, linkedGoalIds, linkedNoteIds, linkedStudentIds, pinned, createdAt: v.createdAt||now, updatedAt: now };
-    captureUndo(isEdit? 'Edit vault item':'Add vault item');
-    if(isEdit){
-      const idx=state.vaultItems.findIndex(x=>x.id===existing.id); if(idx>=0) state.vaultItems[idx]=item;
-    } else {
-      state.vaultItems.unshift(item);
+    try{
+      captureUndo(isEdit? 'Edit vault item':'Add vault item');
+      if(isEdit){
+        const idx=state.vaultItems.findIndex(x=>x.id===existing.id); if(idx>=0) state.vaultItems[idx]=item;
+      } else {
+        state.vaultItems.unshift(item);
+      }
+      if(!state._vaultItemsMeta) state._vaultItemsMeta={}; state._vaultItemsMeta[item.id]=now;
+      // two-way sync for tasks: update task.vaultIds
+      const allTaskIds=new Set([...linkedTaskIds, ...(existing? existing.linkedTaskIds||[] : [])]);
+      allTaskIds.forEach(tid=>{
+        const t=state.tasks.find(x=>x.id===tid); if(!t) return; if(!Array.isArray(t.vaultIds)) t.vaultIds=[];
+        const shouldHave=linkedTaskIds.includes(tid);
+        const has=t.vaultIds.includes(item.id);
+        if(shouldHave && !has) t.vaultIds.push(item.id);
+        if(!shouldHave && has) t.vaultIds=t.vaultIds.filter(id=>id!==item.id);
+        t.updatedAt=now;
+      });
+      save();
+      // old blob is now orphan — delete after metadata is in-memory and save() queued
+      if(oldBlobToDelete) { try{ await vaultBlobDelete(oldBlobToDelete); }catch(_){} }
+      closeModal();
+      if(currentView()==='vault') renderVault(); else if(currentView()==='dashboard') renderDashboard(); else renderView();
+      toast(isEdit?'Vault item updated':'Vault item added ✅');
+    }catch(e){
+      // rollback new blob if we just put it and metadata failed — prevents orphan blob without metadata or metadata without blob
+      if(pendingFile && newBlobId) { try{ await vaultBlobDelete(newBlobId); }catch(_){} }
+      console.error('[Vault] atomic save failed', e);
+      toast('Save failed — rolled back','error');
     }
-    if(!state._vaultItemsMeta) state._vaultItemsMeta={}; state._vaultItemsMeta[item.id]=now;
-    // two-way sync for tasks: update task.vaultIds
-    const allTaskIds=new Set([...linkedTaskIds, ...(existing? existing.linkedTaskIds||[] : [])]);
-    allTaskIds.forEach(tid=>{
-      const t=state.tasks.find(x=>x.id===tid); if(!t) return; if(!Array.isArray(t.vaultIds)) t.vaultIds=[];
-      const shouldHave=linkedTaskIds.includes(tid);
-      const has=t.vaultIds.includes(item.id);
-      if(shouldHave && !has) t.vaultIds.push(item.id);
-      if(!shouldHave && has) t.vaultIds=t.vaultIds.filter(id=>id!==item.id);
-      t.updatedAt=now;
-    });
-    save(); closeModal();
-    if(currentView()==='vault') renderVault(); else if(currentView()==='dashboard') renderDashboard(); else renderView();
-    toast(isEdit?'Vault item updated':'Vault item added ✅');
   });
 }
 function linkGraphForVault(v){
@@ -13055,6 +13095,32 @@ function openSearch() {
     // ---- Normal search ----
     const results = [];
     const push = r => results.push(r);
+    // vault-only prefix — isolate vault before any other pushes (prevents overdue/tags pollution)
+    if (q.startsWith('>vault')) {
+      const vq = q.replace(/^>vault\s*/,'').replace(/^vault[:\s]+/,'');
+      const vaultOnlyHay = getSearchVaultHay().filter(e => !vq || e.hay.includes(vq));
+      if(vq){
+        vaultOnlyHay.sort((a,b)=>{
+          const aTitle=a.v.title.toLowerCase(), bTitle=b.v.title.toLowerCase();
+          const aScore = aTitle===vq?3: aTitle.startsWith(vq)?2: aTitle.includes(vq)?1:0;
+          const bScore = bTitle===vq?3: bTitle.startsWith(vq)?2: bTitle.includes(vq)?1:0;
+          if(bScore!==aScore) return bScore-aScore;
+          return b.v.updatedAt - a.v.updatedAt;
+        });
+      }
+      vaultOnlyHay.forEach(({v})=> push({ type:'Vault', icon:'folder', title: v.title, sub: (v.type? vaultTypeLabel(v.type)+' · ':'')+ (v.url? vaultHost(v.url): (v.fileName||'')), act: ()=>{ closeSearch(); location.hash='#vault'; openVaultModal(v); }}));
+      if (!results.length) {
+        $('#search-results').innerHTML = '<div class="search-empty">No vault items for “' + esc(vq||q) + '”.</div>';
+        searchRows = [];
+        searchVirt.setItems([], searchRowHTML, q + '|0');
+        return;
+      }
+      searchResults = results.slice(0, 50);
+      searchRows = buildSearchRows(searchResults);
+      searchVirt.setItems(searchRows, searchRowHTML, q + '|vaultOnly|' + results.length);
+      searchVirt.render();
+      return;
+    }
     const overdue = deadlineInfo().overdue;
     if (!q) {
       // opening search surfaces what needs attention
@@ -13116,32 +13182,16 @@ function openSearch() {
         });
       }
       taskHits.forEach(t => push({ type: 'Task', icon: 'check-square', title: t.title, sub: (STATUSES.find(s => s.id === t.status) || {}).title || t.status || 'Task', act: () => { openTaskModal(t); } }));
-      // vault hits — supports >vault prefix via normal search fallback and boosts title matches
-      const vaultHits = getSearchVaultHay().filter(e => {
-        if(!q) return true;
-        // if query starts with vault prefix, strip it for vault matching but keep original q for other types?
-        const vq = q.replace(/^>vault\s*/,'').replace(/^vault[:\s]+/,'');
-        const hay = e.hay;
-        const match = vq ? hay.includes(vq) : hay.includes(q);
-        // if user typed >vault, only vault hits should surface in normal search (but command palette also handles)
-        if(q.startsWith('>vault')) return match;
-        return match;
-      });
+      // vault hits — normal search (vault-only already returned early)
+      const vaultHits = getSearchVaultHay().filter(e => !q || e.hay.includes(q));
       if(q) {
         vaultHits.sort((a,b)=>{
           const aTitle=a.v.title.toLowerCase(), bTitle=b.v.title.toLowerCase();
-          const vq=q.replace(/^>vault\s*/,'').replace(/^vault[:\s]+/,'');
-          const aScore = aTitle===vq?3: aTitle.startsWith(vq)?2: aTitle.includes(vq)?1:0;
-          const bScore = bTitle===vq?3: bTitle.startsWith(vq)?2: bTitle.includes(vq)?1:0;
+          const aScore = aTitle===q?3: aTitle.startsWith(q)?2: aTitle.includes(q)?1:0;
+          const bScore = bTitle===q?3: bTitle.startsWith(q)?2: bTitle.includes(q)?1:0;
           if(bScore!==aScore) return bScore-aScore;
           return b.v.updatedAt - a.v.updatedAt;
         });
-      }
-      // if vault-only query, don't push other types beyond vault? But keep other pushes earlier; for >vault we prioritize vault but still show others? Spec wants >vault vault only. So if >vault, isolate vault.
-      if(q.startsWith('>vault')){
-        // clear previous types? Results already has overdue/tags/tasks — we want vault only when >vault. So filter to keep only vault if requested.
-        // Remove non-vault entries added so far when vault-only: keep only overdue not? Actually spec says >vault prefix filters vault only. So we should clear results before pushing vault.
-        results.length=0;
       }
       vaultHits.forEach(({v})=> push({ type:'Vault', icon:'folder', title: v.title, sub: (v.type? vaultTypeLabel(v.type)+' · ':'')+ (v.url? vaultHost(v.url): (v.fileName||'')), act: ()=>{ closeSearch(); location.hash='#vault'; openVaultModal(v); }}));
       state.notes.filter(n => matches(n.title + ' ' + n.content + ' ' + (n.tags || []).join(' ')))
