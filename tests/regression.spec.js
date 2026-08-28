@@ -235,3 +235,18 @@ test('undo/redo stays consistent across many rapid actions', async ({ page }) =>
   expect(afterRedo).toBe(50);
   expect(errors).toEqual([]);
 });
+
+test('module bootstrap: window.LumenLib exists before app boot with all namespaces', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('/');
+  await page.waitForLoadState('domcontentloaded');
+  await page.waitForTimeout(400);
+  const shape = await page.evaluate(() => ({
+    hasLib: typeof window.LumenLib === 'object' && window.LumenLib !== null,
+    keys: window.LumenLib ? Object.keys(window.LumenLib).sort() : [],
+  }));
+  expect(shape.hasLib).toBe(true);
+  expect(shape.keys).toEqual(['crypto', 'merge', 'parser', 'schedule']);
+  expect(errors).toEqual([]);
+});
