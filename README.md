@@ -55,10 +55,12 @@ Built with pure vanilla web standards (HTML5, CSS3, ES2022 JavaScript) — **no 
 
 ### 🌅 Morning Brief & 📅 Weekly Review
 - **Daily Briefing**: High-priority tasks, habits to protect, and active goals at a glance each morning.
+- **Guided Weekly Ritual**: Shipped → Slipped → Protect Next Week — a three-step review that feeds tomorrow's Brief.
 - **Weekly Review Markdown Exporter**: Download itemized `.md` reports of your weekly accomplishments and habit consistency.
 
 ### 🔐 Security & Peer Sync
-- **AES-GCM Encrypted Vaults**: Client-side password encryption using PBKDF2 (SHA-256) + 256-bit AES-GCM for portable JSON backups.
+- **AES-GCM Encrypted Vaults**: Client-side password encryption using PBKDF2 (SHA-256) + 256-bit AES-GCM for portable JSON backups — run in a Web Worker so the UI never freezes.
+- **Salted Sync Handshake**: The peer passphrase is hashed with PBKDF2 over a per-device salt.
 - **Peer-to-Peer Sync**: Direct browser-to-browser data sync via WebRTC (PeerJS) without a middleman database.
 - **100% Data Sovereignty**: All data lives strictly in your browser's `localStorage` and `IndexedDB`.
 

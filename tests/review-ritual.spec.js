@@ -78,6 +78,38 @@ test('weekly review markdown includes a Protecting Next Week section', async ({ 
   await page.evaluate(() => { state.habits = []; delete state.settings.reviewCommit; save(); flushSave(); });
 });
 
+test('end-to-end: ritual commit persists and the strip shows the done state on reload', async ({ page }) => {
+  await page.goto('/');
+  await page.waitForLoadState('domcontentloaded');
+  await page.waitForTimeout(400);
+  await page.evaluate(() => {
+    const now = Date.now();
+    state.habits = [{ id: 'h1', emoji: '📚', name: 'Read', color: '#605dff', dates: {}, createdAt: now - 20 * 864e5, freqType: 'daily' }];
+    if (!state.settings) state.settings = {};
+    delete state.settings.reviewCommit;
+    save(); flushSave();
+  });
+  await page.goto('/#review');
+  await page.waitForTimeout(400);
+  await page.click('#ritual-start');
+  await page.click('#ritual-next');
+  await page.click('#ritual-next');
+  await page.waitForTimeout(150);
+  await page.click('.protect-pick[data-kind="habit"][data-id="h1"]');
+  await page.click('#ritual-finish');
+  await page.waitForTimeout(300);
+
+  await page.reload();
+  await page.goto('/#review');
+  await page.waitForTimeout(600);
+  const status = await page.locator('#ritual-status').innerText();
+  expect(status).toContain('done');
+  const rc = await page.evaluate(() => state.settings.reviewCommit);
+  expect(rc.habitIds).toEqual(['h1']);
+
+  await page.evaluate(() => { state.habits = []; delete state.settings.reviewCommit; save(); flushSave(); });
+});
+
 test('reviewCtx exposes slipped items and protect candidates', async ({ page }) => {
   await page.goto('/');
   await page.waitForLoadState('domcontentloaded');
