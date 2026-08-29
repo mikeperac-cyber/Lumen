@@ -1,0 +1,43 @@
+# Node dependencies
+node_modules/
+package-lock.json.bak
+
+# Build
+dist/
+.manifest.json
+
+# Vercel & Deployment
+.vercel/
+
+# Test reports & artifacts
+test-results/
+playwright-report/
+blob-report/
+
+# OS and Editor junk
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+*.tmp
+
+# Environment & Local Secrets
+.env
+.env.local
+.env.*.local
+
+# Logs and temp execution files
+*.log
+*.log.err
+*.err
+
+# Agent and temporary runtimes
+.freebuff/
+.freebuff*
+.memory/
+
+# Playwright MCP session artifacts
+.playwright-mcp/
+dashboard-pin-engine.png
