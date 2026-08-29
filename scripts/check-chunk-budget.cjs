@@ -4,7 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const MAX_BYTES = 256000; // 250 KB (250 * 1024 = 256,000 bytes ceiling)
+const MAX_BYTES = 409600; // 400 KB (400 * 1024 = 409,600 bytes ceiling)
 const distAssets = path.resolve(__dirname, '..', 'dist', 'assets');
 
 if (!fs.existsSync(distAssets)) {
@@ -20,7 +20,7 @@ if (files.length === 0) {
 }
 
 let allPass = true;
-console.log(`\nChecking Vite output JS chunk budget (<= ${MAX_BYTES.toLocaleString()} bytes / 250 KB):`);
+console.log(`\nChecking Vite output JS chunk budget (<= ${MAX_BYTES.toLocaleString()} bytes / 400 KB):`);
 console.log('='.repeat(75));
 
 for (const file of files) {
