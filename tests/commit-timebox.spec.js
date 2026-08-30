@@ -9,7 +9,7 @@ test('Commit → Timebox: commit three → unplaced tray → drop onto today →
   await page.waitForTimeout(800);
 
   // reset: clear commit flag, inject 3 backlog tasks that will be candidates
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     try { localStorage.removeItem('lumen.brief.commitDate'); } catch(_){}
     // remove prior CommitTest tasks
     state.tasks = state.tasks.filter(t => !String(t.title||'').startsWith('CommitTest'));
@@ -53,11 +53,10 @@ test('Commit → Timebox: commit three → unplaced tray → drop onto today →
     if (!state.habits.find(h=>h.name==='CommitTest habit')) {
       state.habits.push({ id:'h-commit', name:'CommitTest habit', emoji:'🔥', color:'#ff5d6c', freqType:'daily', weeklyTarget:5, dates:{}, freezes:{}, updatedAt: now });
     }
-    save();
+    await flushSave();
   });
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(900);
-
   // Brief should show commit button with 3 candidates (we pushed 3 high prio)
   const commitBtn = page.locator('#brief-commit-btn');
   await expect(commitBtn).toBeVisible({ timeout: 4000 });
@@ -126,7 +125,7 @@ test('Commit → Timebox: commit three → unplaced tray → drop onto today →
   expect(filteredErrors, `Console errors during commit→timebox flow: ${filteredErrors.join('\n')}`).toEqual([]);
 
   // cleanup: remove test data
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     state.tasks = state.tasks.filter(t => !String(t.title||'').startsWith('CommitTest'));
     state.goals = state.goals.filter(g => g.id !== 'g-commit');
     state.habits = state.habits.filter(h => h.id !== 'h-commit');

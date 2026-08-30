@@ -202,8 +202,8 @@ export function vaultWidgetHTML(allItems, isPinned = true) {
   const headerCounts = total ? `${total} items · ${counts.link} links · ${counts.pdf} PDFs · ${counts.sheet} Sheets · ${counts.pinned} pinned` : 'No items yet';
   const body = total ? top.map(v=>`<div class="vault-mini" data-vault-mini="${v.id}"><span>${vaultTypeIcon(v.type)}</span><span class="vault-mini-title">${esc(v.title)}</span><span class="muted" style="font-size:11px">${esc(vaultHost(v.url||''))}</span><span class="tag">${esc(v.type)}</span>${(v.linkedTaskIds||[]).length?`<span class="muted">↗${v.linkedTaskIds.length}</span>`:''}</div>`).join('') : `<div class="empty-state" style="padding:18px"><div class="es-icon">🔐</div>No vault items — drop a PDF or paste a link<div style="margin-top:10px;display:flex;gap:8px;justify-content:center"><button class="btn btn-sm btn-accent" id="vault-widget-add">+ Add link</button><label class="btn btn-sm btn-ghost" style="cursor:pointer">⬆ Upload <input type="file" id="vault-widget-upload" class="hidden" accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.gif,.mp4,.webm"></label></div><div class="vault-drop-zone muted" style="margin-top:10px;border:1px dashed var(--border);border-radius:8px;padding:10px" data-vault-drop>Drop file here</div></div>`;
   return `<div class="card" data-dw="vault">
-    <h3 class="card-title"><span>🔐 Personal Vault — ${headerCounts}</span><span style="display:flex;gap:6px;align-items:center"><button class="btn-icon" data-dw-pin="vault" aria-pressed="${isPinned ? 'true' : 'false'}" title="Pin widget">📌</button><a class="link-btn" href="#vault">Open Vault →</a><button class="btn btn-sm btn-accent" id="vault-widget-add2">+ Add</button></span></h3>
-    <div class="vault-widget-body">${body}</div>
+    <h3 class="card-title"><span>🔐 Personal Vault — ${headerCounts}</span><span style="display:flex;gap:6px;align-items:center"><button class="pin-toggle btn-icon" data-dw-pin="vault" aria-pressed="${isPinned ? 'true' : 'false'}" title="Pin widget">📌</button><a class="link-btn" href="#vault">Open Vault →</a><button class="btn btn-sm btn-accent" id="vault-widget-add2">+ Add</button></span></h3>
+    <div class="dw-body vault-widget-body">${body}</div>
   </div>`;
 }
 
@@ -240,7 +240,7 @@ export function vaultModalHTML(v, ctx) {
       <div class="field"><label class="field-label" id="vm-file-label">File (optional, 10MB max, plain blob)</label>
         <div class="vault-file-drop" id="vm-drop" role="group" aria-labelledby="vm-file-label" style="border:1px dashed var(--border);border-radius:10px;padding:12px;text-align:center;background:var(--surface2)">
           <div id="vm-file-info" class="muted" style="font-size:12.5px">${pendingFile? esc(pendingFile.name)+' · '+fileSizeStr(pendingFile.size) : (v.fileName? esc(v.fileName)+' · '+fileSizeStr(v.size||0) : 'Drop file here or choose')}</div>
-          <label class="btn btn-sm btn-ghost" style="margin-top:8px;cursor:pointer">📎 Choose file<input type="file" id="vm-file" class="hidden" accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.gif,.webp,.txt,.md,.csv,.mp4,.webm"></label>
+          <label class="btn btn-sm btn-ghost" style="margin-top:8px;cursor:pointer">📎 Choose file<input type="file" id="vm-file" class="hidden" onchange="window.handleVmFileChange && window.handleVmFileChange(this)" accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.gif,.webp,.txt,.md,.csv,.mp4,.webm"></label>
           ${v.blobId? `<button class="btn btn-sm btn-ghost" id="vm-file-clear" style="margin-left:6px">✕ Remove</button>` : ''}
         </div>
         <div class="muted" style="font-size:11px;margin-top:6px">Blobs stay IDB-only · never in JSON snapshot · quota 100MB soft cap · large >10MB stays link-only</div>

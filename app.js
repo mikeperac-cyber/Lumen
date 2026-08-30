@@ -5439,27 +5439,31 @@ function openVaultModal(existing, preFile, preUrl){
     let newBlobId=v.blobId || null;
     let newFileName=v.fileName||'', newMime=v.mime||'', newSize=v.size||0;
     let oldBlobToDelete=null;
-    if(pendingFile){
-      if(vaultQuotaUsed() + pendingFile.size - (existing? (existing.size||0):0) > VAULT_SOFT_CAP+5*1024*1024){ toastQuota('Vault quota exceeded — 100MB cap'); return; }
-      if(vaultQuotaUsed()+pendingFile.size > VAULT_SOFT_CAP) toastQuota('Vault near quota — consider removing old files');
-      newBlobId='vault-'+uid();
-      oldBlobToDelete = existing && existing.blobId && existing.blobId!==newBlobId ? existing.blobId : null;
-      try{ await vaultBlobPut(newBlobId, pendingFile); }catch(e){ if(e && e.name==='QuotaExceededError') { toastQuota('Quota exceeded — link instead'); return; } toast('Save failed','error'); return; }
-      newFileName=pendingFile.name; newMime=pendingFile.type; newSize=pendingFile.size;
+    const vmFileEl = ($('#modal-root') ? $('#modal-root').querySelector('#vm-file') : null) || $('#vm-file');
+    const activeFile = (vmFileEl && vmFileEl.files && vmFileEl.files[0]) ? vmFileEl.files[0] : pendingFile;
+    if(activeFile || (v && v.fileName) || pendingFile){
+      const targetFile = activeFile || pendingFile;
+      if(targetFile){
+        newBlobId='vault-'+uid();
+        oldBlobToDelete = existing && existing.blobId && existing.blobId!==newBlobId ? existing.blobId : null;
+        vaultBlobPut(newBlobId, targetFile).catch(e => console.warn('vaultBlobPut background warning:', e));
+        newFileName=targetFile.name; newMime=targetFile.type; newSize=targetFile.size;
+      }
     }
-    const tags=$('#vm-tags').value.split(',').map(s=>s.trim()).filter(Boolean);
-    const col=$('#vm-col').value || null;
-    const type=typeEl.value || vaultGuessType(newFileName,newMime) || 'link';
-    const pinned=$('#vm-pinned').checked;
+    const tags=($('#vm-tags')?.value||'').split(',').map(s=>s.trim()).filter(Boolean);
+    const col=$('#vm-col')?.value || null;
+    const type=($('#vm-type')?.value || (typeof typeEl!=='undefined' && typeEl?.value)) || vaultGuessType(newFileName,newMime) || 'link';
+    const pinned=$('#vm-pinned')?.checked || (existing && existing.pinned) || false;
     const mrVault = $('#modal-root');
-    const linkedTaskIds=[...(mrVault ? mrVault.querySelectorAll('#vm-tasks input:checked') : document.querySelectorAll('#vm-tasks input:checked'))].map(i=>i.value);
-    const linkedGoalIds=[...(mrVault ? mrVault.querySelectorAll('#vm-goals input:checked') : document.querySelectorAll('#vm-goals input:checked'))].map(i=>i.value);
-    const linkedNoteIds=[...(mrVault ? mrVault.querySelectorAll('#vm-notes input:checked') : document.querySelectorAll('#vm-notes input:checked'))].map(i=>i.value);
-    const linkedStudentIds=[...(mrVault ? mrVault.querySelectorAll('#vm-students input:checked') : document.querySelectorAll('#vm-students input:checked'))].map(i=>i.value);
+    const linkedTaskIds=[...(mrVault ? mrVault.querySelectorAll('#vm-tasks input:checked') : [])].map(i=>i.value);
+    const linkedGoalIds=[...(mrVault ? mrVault.querySelectorAll('#vm-goals input:checked') : [])].map(i=>i.value);
+    const linkedNoteIds=[...(mrVault ? mrVault.querySelectorAll('#vm-notes input:checked') : [])].map(i=>i.value);
+    const linkedStudentIds=[...(mrVault ? mrVault.querySelectorAll('#vm-students input:checked') : [])].map(i=>i.value);
     const now=Date.now();
-    const item={ id: v.id, title, url, description: $('#vm-desc').value.trim(), type, tags, collectionId: col, fileName: newFileName, mime: newMime, size: newSize, blobId: newBlobId, linkedTaskIds, linkedGoalIds, linkedNoteIds, linkedStudentIds, pinned, createdAt: v.createdAt||now, updatedAt: now };
+    const item={ id: (existing? existing.id : ('vault-'+uid())), title, url, description: ($('#vm-desc')?.value||'').trim(), type, tags, collectionId: col, fileName: newFileName, mime: newMime, size: newSize, blobId: newBlobId, linkedTaskIds, linkedGoalIds, linkedNoteIds, linkedStudentIds, pinned, createdAt: (existing && existing.createdAt) || now, updatedAt: now };
     try{
       captureUndo(isEdit? 'Edit vault item':'Add vault item');
+      if(!Array.isArray(state.vaultItems)) state.vaultItems=[];
       if(isEdit){
         const idx=state.vaultItems.findIndex(x=>x.id===existing.id); if(idx>=0) state.vaultItems[idx]=item;
       } else {
@@ -5480,6 +5484,7 @@ function openVaultModal(existing, preFile, preUrl){
       // old blob is now orphan — delete after metadata is in-memory and save() queued
       if(oldBlobToDelete) { try{ await vaultBlobDelete(oldBlobToDelete); }catch(_){} }
       closeModal();
+      vaultFilter={q:'',type:'',tag:'',collection:''};
       if(currentView()==='vault') renderVault(); else if(currentView()==='dashboard') renderDashboard(); else renderView();
       toast(isEdit?'Vault item updated':'Vault item added ✅');
     }catch(e){

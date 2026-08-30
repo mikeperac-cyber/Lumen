@@ -4,13 +4,15 @@ const { test, expect } = require('@playwright/test');
 async function clearState(page){
   await page.evaluate(async () => {
     try{ localStorage.clear(); }catch(_){}
+    try{ if('serviceWorker' in navigator){ const regs=await navigator.serviceWorker.getRegistrations(); for(const r of regs) await r.unregister(); } }catch(_){}
+    try{ if (typeof window.__closeVaultDb === 'function') window.__closeVaultDb(); }catch(_){}
     const dbs=["lumen-state","lumen-vault","lumen-audio","lumen-vault-auto"];
     for(const name of dbs){
       try{ await new Promise((res)=>{ const rq=indexedDB.deleteDatabase(name); rq.onsuccess=res; rq.onerror=res; rq.onblocked=res; }); }catch(_){}
     }
     if(typeof state!=="undefined"){
       state.vaultItems=[]; state.vaultCollections=[]; state._vaultItemsMeta={}; state._vaultCollectionsMeta={};
-      state.tasks=[]; state.goals=[]; state.notes=[]; state.habits=[];
+      state.tasks=[]; state.goals=[]; state.notes=[]; state.habits=[]; if(typeof vaultFilter!=='undefined') vaultFilter={q:'',type:'',tag:'',collection:''};
       try{ save(); }catch(_){}
     }
   });
@@ -20,18 +22,20 @@ async function clearState(page){
 }
 
 async function flush(page){
-  await page.evaluate(() => { try{ if(typeof flushSave==="function") flushSave(); }catch(_){} });
+  await page.evaluate(async () => { try{ if(typeof flushSave==="function") await flushSave(); }catch(_){} });
   await page.waitForTimeout(500);
 }
 
 test.describe("Personal Vault  dashboard + full view", () => {
   test("vault link CRUD via UI", async ({ page }) => {
+    page.on('pageerror', e => console.error('PAGE ERROR:', e.message));
+    page.on('console', msg => { if (msg.type() === 'error') console.error('PAGE CONSOLE ERROR:', msg.text()); });
     await page.goto("/#vault", { waitUntil: "domcontentloaded" });
     await page.waitForTimeout(700);
     await clearState(page);
-    await page.goto("/#vault", { waitUntil: "domcontentloaded" });
-    await page.waitForTimeout(600);
-    await expect(page.locator("#view-title")).toContainText("Vault", { timeout: 3000 });
+    await page.goto("/#vault");
+    await page.waitForSelector('#view-title:has-text("Vault")');
+    await page.waitForSelector('#view-title:has-text("Vault")');
     await expect(page.locator(".vault-meta")).toBeVisible({ timeout: 3000 });
     await page.click("#vault-add");
     await page.waitForTimeout(400);
@@ -61,11 +65,12 @@ test.describe("Personal Vault  dashboard + full view", () => {
   });
 
   test("vault PDF upload <5MB via file input and size guard", async ({ page }) => {
+    page.on("console", msg => console.log("[BROWSER CONSOLE]", msg.type(), msg.text()));
     await page.goto("/#vault", { waitUntil: "domcontentloaded" });
     await page.waitForTimeout(600);
     await clearState(page);
     await page.goto("/#vault", { waitUntil: "domcontentloaded" });
-    await page.waitForTimeout(600);
+    await page.waitForSelector('#view-title:has-text("Vault")');
     await page.click("#vault-add");
     await page.waitForTimeout(400);
     await page.fill("#vm-title", "Small PDF");
@@ -192,6 +197,7 @@ test.describe("Personal Vault  dashboard + full view", () => {
     const wasPinned = await pinBtn.getAttribute("aria-pressed");
     await pinBtn.click();
     await page.waitForTimeout(400);
+    await flush(page);
     const nowPinned = await pinBtn.getAttribute("aria-pressed");
     expect(nowPinned).not.toEqual(wasPinned);
     await page.reload({ waitUntil:"domcontentloaded" });
@@ -255,7 +261,7 @@ test.describe("Personal Vault  dashboard + full view", () => {
     const input = page.locator("#search-input");
     await expect(input).toBeVisible({ timeout: 3000 });
     await input.fill(">vault Design");
-    await page.waitForTimeout(600);
+    await page.waitForSelector("#search-results:has-text('Design System')", { timeout: 5000 });
     await expect(page.locator("#search-results")).toContainText("Design System");
     await input.fill("Design");
     await page.waitForTimeout(600);
@@ -267,7 +273,7 @@ test.describe("Personal Vault  dashboard + full view", () => {
     await page.waitForTimeout(600);
     await clearState(page);
     await page.goto("/#vault", { waitUntil:"domcontentloaded" });
-    await page.waitForTimeout(600);
+    await page.waitForSelector('#view-title:has-text("Vault")');
     await page.click("#vault-add");
     await page.waitForTimeout(400);
     await page.fill("#vm-title", "Persist Test");
@@ -312,9 +318,8 @@ test("choosing a file in the vault modal auto-detects its type and title", async
   await page.waitForTimeout(600);
   await clearState(page);
   await page.goto("/#vault", { waitUntil: "domcontentloaded" });
-  await page.waitForTimeout(600);
-
-  await page.click("#vault-add");
+  await page.waitForSelector('#view-title:has-text("Vault")');
+    await page.click("#vault-add");
   await page.waitForTimeout(300);
   await page.setInputFiles("#vm-file", {
     name: "quarterly-report.csv",

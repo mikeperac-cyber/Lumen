@@ -9,7 +9,7 @@ test('legacy income is FK-linked to a student on load', async ({ page }) => {
   await page.evaluate(() => {
     state.students = [{ id: 's-caner', name: 'Caner Yilmaz', currency: 'TRY', rate: 1500, status: 'active', level: 'IELTS' }];
     state.income = [{ id: 'i1', student: 'Caner Yilmaz', amount: 1500, currency: 'TRY', date: '2026-08-01' }];
-    save();
+    save(); flushSave();
   });
   await page.reload();
   await page.waitForLoadState('domcontentloaded');

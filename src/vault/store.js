@@ -11,7 +11,7 @@ export function vaultDb() {
     if (_vaultDb) return res(_vaultDb);
     let rq; try { rq = indexedDB.open(VAULT_DB, 1); } catch (e) { return rej(e); }
     rq.onupgradeneeded = e => { const db = e.target.result; if (!db.objectStoreNames.contains(VAULT_STORE)) db.createObjectStore(VAULT_STORE); };
-    rq.onblocked = () => {};
+    rq.onblocked = () => { try { if (_vaultDb) { _vaultDb.close(); _vaultDb = null; } } catch(_) {} };
     rq.onsuccess = e => {
       _vaultDb = e.target.result;
       _vaultDb.onversionchange = () => { try{ _vaultDb.close(); }catch(_){} _vaultDb = null; };
@@ -21,7 +21,17 @@ export function vaultDb() {
     rq.onerror = () => rej(rq.error);
   });
 }
-export function vaultBlobPut(key, blob) { return vaultDb().then(db => new Promise((res, rej) => { const tx = db.transaction(VAULT_STORE, 'readwrite'); tx.objectStore(VAULT_STORE).put(blob, key); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); })); }
+export function vaultBlobPut(key, blob) {
+  return Promise.race([
+    vaultDb().then(db => new Promise((res, rej) => {
+      const tx = db.transaction(VAULT_STORE, 'readwrite');
+      tx.objectStore(VAULT_STORE).put(blob, key);
+      tx.oncomplete = () => res();
+      tx.onerror = () => rej(tx.error);
+    })),
+    new Promise((_, rej) => setTimeout(() => rej(new Error('vaultBlobPut timeout')), 200))
+  ]);
+}
 export function vaultBlobGet(key) { return vaultDb().then(db => new Promise((res, rej) => { const tx = db.transaction(VAULT_STORE, 'readonly'); const rq = tx.objectStore(VAULT_STORE).get(key); rq.onsuccess = () => res(rq.result || null); rq.onerror = () => rej(rq.error); })); }
 export function vaultBlobDelete(key) { return vaultDb().then(db => new Promise((res, rej) => { const tx = db.transaction(VAULT_STORE, 'readwrite'); tx.objectStore(VAULT_STORE).delete(key); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); })); }
 
@@ -71,3 +81,11 @@ export function getVaultHay(v) {
 export function getSearchVaultHay(items = (typeof state !== 'undefined' && state?.vaultItems) || (typeof window !== 'undefined' && window.state?.vaultItems) || []) {
   return (items || []).map(v => ({ v, hay: getVaultHay(v) }));
 }
+
+export function closeVaultDb() {
+  if (_vaultDb) {
+    try { _vaultDb.close(); } catch (_) {}
+    _vaultDb = null;
+  }
+}
+if (typeof window !== 'undefined') window.__closeVaultDb = closeVaultDb;

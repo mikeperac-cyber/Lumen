@@ -10,7 +10,20 @@ const { test, expect } = require('@playwright/test');
 async function seed(page, mutate) {
   await page.goto('/');
   await page.waitForLoadState('domcontentloaded');
-  await page.evaluate(mutate);
+  await page.evaluate((fnStr) => {
+    const fn = new Function('return (' + fnStr + ')()');
+    fn();
+    try {
+      const st = JSON.parse(localStorage.getItem('lumen.state.v1') || '{}');
+      if (st && typeof st === 'object') {
+        if (window.state) {
+          Object.assign(window.state, st);
+        }
+        if (typeof save === 'function') save();
+        if (typeof flushSave === 'function') flushSave();
+      }
+    } catch(e) {}
+  }, mutate.toString());
   await page.reload();
   await page.waitForLoadState('domcontentloaded');
   await page.waitForTimeout(700);
