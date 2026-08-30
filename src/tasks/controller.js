@@ -512,7 +512,10 @@ export function renderTasks() {
   });
   // add column buttons
   app.$$('.col-add').forEach(b => b.addEventListener('click', () => openTaskModal(null, b.dataset.addStatus)));
-  app.$('#task-new').addEventListener('click', () => openTaskModal());
+  app.$('#task-new')?.addEventListener('click', (e) => {
+    try { e.currentTarget?.focus(); } catch (_) {}
+    openTaskModal();
+  });
   app.$('#task-add-list')?.addEventListener('click', () => {
     const t = prompt('New list title'); if (t) addKanbanList(t);
   });
@@ -731,7 +734,10 @@ export function renderMatrix() {
   const tc = app.$('#task-tag-chip');
   if (tc) tc.addEventListener('click', () => { taskFilter.tag = ''; renderMatrix(); });
   app.$('#task-clear-filter')?.addEventListener('click', () => { taskFilter = { q: '', goal: '', tag: '', category: '' }; renderMatrix(); });
-  app.$('#task-new').addEventListener('click', () => openTaskModal());
+  app.$('#task-new')?.addEventListener('click', (e) => {
+    try { e.currentTarget?.focus(); } catch (_) {}
+    openTaskModal();
+  });
   app.$$('[data-more]').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); matrixShowMore(b.dataset.more); }));
   // IntersectionObserver virtualization: auto-expand when 'Show more' scrolls into view (keeps drag handlers intact)
   if ('IntersectionObserver' in window) {

@@ -193,6 +193,9 @@ test.describe("Personal Vault  dashboard + full view", () => {
     await expect(page.locator("[data-dw=\"vault\"]")).toContainText("Personal Vault");
     await expect(page.locator("[data-dw=\"vault\"]")).toContainText("2 items");
     const pinBtn = page.locator("[data-dw=\"vault\"] [data-dw-pin=\"vault\"]");
+    await page.evaluate(() => {
+      document.querySelector('[data-dw="vault"]')?.scrollIntoView({ block: 'center' });
+    });
     await expect(pinBtn).toBeVisible();
     const wasPinned = await pinBtn.getAttribute("aria-pressed");
     await pinBtn.click();

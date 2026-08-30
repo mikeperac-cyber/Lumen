@@ -200,11 +200,12 @@ export function vaultWidgetHTML(allItems, isPinned = true) {
   allItems.forEach(v=>{ if(counts[v.type]!==undefined) counts[v.type]++; else counts.other++; if(v.pinned) counts.pinned++; });
   const total = allItems.length;
   const headerCounts = total ? `${total} items · ${counts.link} links · ${counts.pdf} PDFs · ${counts.sheet} Sheets · ${counts.pinned} pinned` : 'No items yet';
+  const summaryHTML = total ? `<div class="vault-widget-summary muted" style="font-size:11px;margin-bottom:8px">${headerCounts}</div>` : '';
   const body = total ? top.map(v=>`<div class="vault-mini" data-vault-mini="${v.id}"><span>${vaultTypeIcon(v.type)}</span><span class="vault-mini-title">${esc(v.title)}</span><span class="muted" style="font-size:11px">${esc(vaultHost(v.url||''))}</span><span class="tag">${esc(v.type)}</span>${(v.linkedTaskIds||[]).length?`<span class="muted">↗${v.linkedTaskIds.length}</span>`:''}</div>`).join('') : `<div class="empty-state" style="padding:18px"><div class="es-icon">🔐</div>No vault items — drop a PDF or paste a link<div style="margin-top:10px;display:flex;gap:8px;justify-content:center"><button class="btn btn-sm btn-accent" id="vault-widget-add">+ Add link</button><label class="btn btn-sm btn-ghost" style="cursor:pointer">⬆ Upload <input type="file" id="vault-widget-upload" class="hidden" accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.gif,.mp4,.webm"></label></div><div class="vault-drop-zone muted" style="margin-top:10px;border:1px dashed var(--border);border-radius:8px;padding:10px" data-vault-drop>Drop file here</div></div>`;
   const foldClass = !isPinned ? 'dw-folded' : '';
   return `<div class="card ${foldClass}" data-dw="vault">
-    <h3 class="card-title dw-head"><span>🔐 Personal Vault — ${headerCounts}</span><button class="pin-toggle btn-icon ${isPinned ? 'pinned' : ''}" data-dw-pin="vault" aria-pressed="${isPinned ? 'true' : 'false'}" title="Pin widget">📌</button><span style="display:flex;gap:6px;align-items:center"><a class="link-btn" href="#vault">Open Vault →</a><button class="btn btn-sm btn-accent" id="vault-widget-add2">+ Add</button></span></h3>
-    <div class="dw-body vault-widget-body">${body}</div>
+    <h3 class="card-title dw-head"><span>🔐 Personal Vault</span><a class="link-btn" href="#vault">Open Vault →</a><button class="pin-toggle btn-icon ${isPinned ? 'pinned' : ''}" data-dw-pin="vault" aria-pressed="${isPinned ? 'true' : 'false'}" title="Pin widget">📌</button></h3>
+    <div class="dw-body vault-widget-body">${summaryHTML}${body}</div>
   </div>`;
 }
 

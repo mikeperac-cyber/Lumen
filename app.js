@@ -1714,8 +1714,38 @@ function bindTopbar() {
     e.stopPropagation();
     $('#quick-menu').classList.toggle('hidden');
   });
+  ['pointerdown', 'mousedown'].forEach(evt => {
+    document.addEventListener(evt, e => {
+      const btn = e.target.closest('button, [role="button"], a[href], input, select, textarea');
+      if (btn && document.activeElement !== btn && !btn.closest('#modal-root')) {
+        try { btn.focus(); } catch (_) {}
+      }
+    }, true);
+  });
   document.addEventListener('click', e => {
     if (!e.target.closest('.quick-add')) hideQuickMenu();
+    const pinBtn = e.target.closest('[data-dw-pin]');
+    if (pinBtn) {
+      e.stopPropagation();
+      e.preventDefault();
+      const w = pinBtn.dataset.dwPin;
+      if (!state.settings) state.settings = {};
+      if (w === 'vault') {
+        state.settings.pinVault = !(state.settings.pinVault !== false);
+      } else if (w === 'deadlines') {
+        state.settings.pinDeadlines = !(state.settings.pinDeadlines !== false);
+      } else {
+        let foldList = JSON.parse(localStorage.getItem('lumen.dash.fold') || '[]');
+        const idx = foldList.indexOf(w);
+        if (idx >= 0) foldList.splice(idx, 1);
+        else foldList.push(w);
+        localStorage.setItem('lumen.dash.fold', JSON.stringify(foldList));
+      }
+      save({ immediate: true });
+      if (location.hash === '' || location.hash === '#' || location.hash === '#dashboard') {
+        renderDashboard();
+      }
+    }
   });
   $$('#quick-menu .quick-item').forEach(b => b.addEventListener('click', () => {
     const a = b.dataset.action;
@@ -3172,24 +3202,7 @@ function renderDashboard() {
       save(); renderDashboard();
     });
   });
-  $$('[data-dw-pin]').forEach(b => b.addEventListener('click', e => {
-    e.stopPropagation();
-    const w = b.dataset.dwPin;
-    if (!state.settings) state.settings = {};
-    if (w === 'vault') {
-      state.settings.pinVault = !(state.settings.pinVault !== false);
-    } else if (w === 'deadlines') {
-      state.settings.pinDeadlines = !(state.settings.pinDeadlines !== false);
-    } else {
-      let foldList = JSON.parse(localStorage.getItem('lumen.dash.fold') || '[]');
-      const idx = foldList.indexOf(w);
-      if (idx >= 0) foldList.splice(idx, 1);
-      else foldList.push(w);
-      localStorage.setItem('lumen.dash.fold', JSON.stringify(foldList));
-    }
-    save({ immediate: true });
-    renderDashboard();
-  }));
+// [data-dw-pin] click handled via global delegation
   dashListVirt.sync();
   const g = `${greet}. ${dateLine}.`;
   $('#view-sub').textContent = g;

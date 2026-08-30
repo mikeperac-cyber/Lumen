@@ -2749,12 +2749,13 @@ html.focus-mode .topbar { justify-content: center; }
    Unpinned = folded to its title strip, dimmed, and expands on hover,
    keyboard focus-within, or tap-to-peek on touch devices. */
 #view-root .card[data-dw] { position: relative; }
-#view-root .card[data-dw] > .dw-head { padding-right: 28px; }
+#view-root .card[data-dw] > .dw-head { position: relative; padding-right: 28px; z-index: 3; }
 .pin-toggle {
   position: absolute;
-  top: 8px;
-  right: 8px;
-  z-index: 2;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  z-index: 5;
   width: 28px;
   height: 28px;
   display: inline-flex;
@@ -2766,13 +2767,13 @@ html.focus-mode .topbar { justify-content: center; }
   background: transparent;
   color: var(--muted, #8b93a7);
   opacity: 0;
-  transform: scale(.9);
-  transition: opacity .16s ease, color .16s ease, transform .16s ease, background .16s ease;
+  transition: opacity .16s ease, color .16s ease, background .16s ease;
 }
 #view-root .card[data-dw]:hover .pin-toggle,
 #view-root .card[data-dw]:focus-within .pin-toggle,
 .pin-toggle[aria-pressed="true"],
-.pin-toggle.pinned { opacity: 1; transform: scale(1); }
+.pin-toggle.pinned { opacity: 1; }
+.pin-toggle * { pointer-events: none; }
 .pin-toggle:hover { color: var(--accent); background: rgba(96, 93, 255, .14); }
 .pin-toggle.pinned { color: var(--accent); }
 
