@@ -2771,6 +2771,7 @@ html.focus-mode .topbar { justify-content: center; }
 }
 #view-root .card[data-dw]:hover .pin-toggle,
 #view-root .card[data-dw]:focus-within .pin-toggle,
+.pin-toggle[aria-pressed="true"],
 .pin-toggle.pinned { opacity: 1; transform: scale(1); }
 .pin-toggle:hover { color: var(--accent); background: rgba(96, 93, 255, .14); }
 .pin-toggle.pinned { color: var(--accent); }
@@ -2779,7 +2780,7 @@ html.focus-mode .topbar { justify-content: center; }
 .dw-body-in { min-height: 0; overflow: hidden; }
 .dw-folded { box-shadow: none; }
 .dw-folded > .dw-head { opacity: .72; transition: opacity .18s ease; }
-.dw-folded .dw-body { grid-template-rows: 0fr; opacity: 0; }
+.dw-folded .dw-body { grid-template-rows: 0fr; opacity: 0; height: 0; overflow: hidden; margin-top: 0; margin-bottom: 0; padding-top: 0; padding-bottom: 0; }
 .dw-folded:hover,
 .dw-folded:focus-within,
 .dw-folded.peek { box-shadow: var(--shadow, 0 8px 24px rgba(0, 0, 0, .25)); }
@@ -2788,7 +2789,7 @@ html.focus-mode .topbar { justify-content: center; }
 .dw-folded.peek > .dw-head { opacity: 1; }
 .dw-folded:hover .dw-body,
 .dw-folded:focus-within .dw-body,
-.dw-folded.peek .dw-body { grid-template-rows: 1fr; opacity: 1; }
+.dw-folded.peek .dw-body { grid-template-rows: 1fr; opacity: 1; height: auto; overflow: visible; }
 @media (prefers-reduced-motion: reduce) {
   .dw-body { transition: none; }
 }

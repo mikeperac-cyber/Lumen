@@ -198,7 +198,7 @@ test.describe("Personal Vault  dashboard + full view", () => {
     await pinBtn.click();
     await page.waitForTimeout(400);
     await flush(page);
-    const nowPinned = await pinBtn.getAttribute("aria-pressed");
+    const nowPinned = await page.locator('[data-dw="vault"] [data-dw-pin="vault"]').getAttribute("aria-pressed");
     expect(nowPinned).not.toEqual(wasPinned);
     await page.reload({ waitUntil:"domcontentloaded" });
     await page.waitForTimeout(800);

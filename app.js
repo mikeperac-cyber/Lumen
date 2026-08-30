@@ -60,7 +60,16 @@ function bindFilterInput(selector, debounceMs, callback) {
   let timer;
   el.addEventListener('input', e => {
     clearTimeout(timer);
-    timer = setTimeout(() => callback(e.target.value.toLowerCase()), debounceMs);
+    const cursor = el.selectionStart;
+    const val = e.target.value;
+    timer = setTimeout(() => {
+      callback(val.toLowerCase());
+      const newEl = document.querySelector(selector);
+      if (newEl) {
+        newEl.focus();
+        try { newEl.setSelectionRange(cursor, cursor); } catch (_) {}
+      }
+    }, debounceMs);
   });
 }
 
@@ -219,13 +228,15 @@ function setAmbientVolume(vol) {
 function startAmbient(type) {
   stopAmbient();
   if (!type || type === 'off') return;
+  ambientType = type;
+  $$('.ambient-chip').forEach(c => c.classList.toggle('active', c.dataset.ambient === type));
   if (!ambientAudioCtx) {
     ambientAudioCtx = getAudioContext();
   }
   if (!ambientAudioCtx) return;
-  if (ambientAudioCtx.state === 'suspended') ambientAudioCtx.resume();
-
-  ambientType = type;
+  if (ambientAudioCtx.state === 'suspended') {
+    try { ambientAudioCtx.resume(); } catch (_) {}
+  }
   ambientGain = ambientAudioCtx.createGain();
   ambientGain.gain.setValueAtTime(ambientVolume * 0.35, ambientAudioCtx.currentTime);
   ambientGain.connect(ambientAudioCtx.destination);
@@ -290,8 +301,10 @@ function startAmbient(type) {
     } else {
       noiseSource.connect(ambientGain);
     }
-    noiseSource.start();
-    ambientSource = noiseSource;
+    try {
+      noiseSource.start();
+      ambientSource = noiseSource;
+    } catch (_) {}
   }
   $$('.ambient-chip').forEach(c => c.classList.toggle('active', c.dataset.ambient === type));
 }
@@ -351,6 +364,7 @@ function openFocusHubModal() {
     const t = b.dataset.ambient;
     if (t === ambientType && t !== 'off') stopAmbient();
     else startAmbient(t);
+    $$('.ambient-chip').forEach(c => c.classList.toggle('active', c.dataset.ambient === ambientType));
     const status = $('#hub-ambient-status');
     if (status) status.textContent = ambientType !== 'off' ? 'Playing 🔊' : 'Muted 🔇';
   }));
@@ -664,7 +678,155 @@ function getFirstCommittedTask() {
   const today = todayISO();
   return (state.tasks || []).find(t => t.status !== 'done' && (t.status === 'today' || t.due === today)) || null;
 }
-function openScheduleIntervalsModal() {}
+function openScheduleIntervalsModal() {
+  const currentPeriods = getPeriods();
+  let interval = '60';
+  let start = currentPeriods[0]?.start || '08:00';
+  let end = currentPeriods[currentPeriods.length - 1]?.end || '20:00';
+  
+  function calcPreview(st, en, inv) {
+    const [sH, sM] = st.split(':').map(Number);
+    const [eH, eM] = en.split(':').map(Number);
+    const totalMins = ((eH || 20) * 60 + (eM || 0)) - ((sH || 8) * 60 + (sM || 0));
+    const invMins = parseInt(inv, 10) || 60;
+    const count = Math.max(1, Math.floor(totalMins / invMins));
+    return `${count} intervals`;
+  }
+
+  function updatePreview() {
+    const st = $('#ps-start')?.value || start;
+    const en = $('#ps-end')?.value || end;
+    const inv = $('#ps-interval')?.value || interval;
+    const prevEl = $('#ps-preview');
+    if (prevEl) prevEl.textContent = calcPreview(st, en, inv);
+  }
+
+  let customRowsHTML = currentPeriods.map((p, i) => `
+    <div class="field-row" style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
+      <input class="input" style="width:90px" value="${esc(p.label)}" placeholder="Label">
+      <input class="input" style="width:75px" value="${esc(p.start)}" placeholder="08:00">
+      <input class="input" style="width:75px" value="${esc(p.end)}" placeholder="09:00">
+    </div>
+  `).join('');
+
+  openModal(`
+    <div class="modal" id="ps-modal" style="max-width:520px">
+      <div class="modal-head">
+        <h3>Personal Schedule Intervals</h3>
+        <button class="btn-icon" data-close-modal>${ic('x', 16)}</button>
+      </div>
+      <div class="modal-body">
+        <div style="display:flex;gap:10px">
+          <div class="field" style="flex:1">
+            <label class="field-label" for="ps-start">Start time</label>
+            <input class="input" id="ps-start" type="time" value="${start}">
+          </div>
+          <div class="field" style="flex:1">
+            <label class="field-label" for="ps-end">End time</label>
+            <input class="input" id="ps-end" type="time" value="${end}">
+          </div>
+          <div class="field" style="flex:1">
+            <label class="field-label" for="ps-interval">Interval (mins)</label>
+            <select class="input" id="ps-interval">
+              <option value="30">30 min</option>
+              <option value="60" selected>60 min</option>
+              <option value="90">90 min</option>
+            </select>
+          </div>
+        </div>
+        <div class="field" style="margin-top:10px">
+          <div class="field-label">Preview</div>
+          <div id="ps-preview" style="font-weight:600;font-size:13.5px">${calcPreview(start, end, interval)}</div>
+        </div>
+        <details style="margin-top:14px">
+          <summary style="cursor:pointer;font-weight:600;font-size:13px;color:var(--accent)">Advanced</summary>
+          <div id="ps-advanced-list" style="margin-top:10px">
+            ${customRowsHTML}
+          </div>
+          <button class="btn btn-sm btn-ghost" id="ps-add-period" style="margin-top:6px">+ Add interval</button>
+        </details>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost btn-danger" id="ps-reset">Reset to defaults</button>
+        <div style="flex:1"></div>
+        <button class="btn btn-ghost" data-close-modal>Cancel</button>
+        <button class="btn btn-accent" id="ps-save">Save intervals</button>
+      </div>
+    </div>
+  `);
+
+  $('#ps-start')?.addEventListener('change', updatePreview);
+  $('#ps-end')?.addEventListener('change', updatePreview);
+  $('#ps-interval')?.addEventListener('change', updatePreview);
+
+  $('#ps-add-period')?.addEventListener('click', () => {
+    const list = $('#ps-advanced-list');
+    if (list) {
+      const count = list.querySelectorAll('.field-row').length + 1;
+      const newRow = document.createElement('div');
+      newRow.className = 'field-row';
+      newRow.style.cssText = 'display:flex;gap:6px;align-items:center;margin-bottom:6px';
+      newRow.innerHTML = `
+        <input class="input" style="width:90px" value="Period ${count}" placeholder="Label">
+        <input class="input" style="width:75px" value="08:00" placeholder="08:00">
+        <input class="input" style="width:75px" value="09:00" placeholder="09:00">
+      `;
+      list.appendChild(newRow);
+    }
+  });
+
+  $('#ps-reset')?.addEventListener('click', () => {
+    if (!state.settings) state.settings = {};
+    state.settings.periods = null;
+    state.settings.personalSchedule = null;
+    state.settings.scheduleConfig = null;
+    delete state.schedulePeriods;
+    PERIODS = DEFAULT_PERIODS;
+    closeModal();
+    save(); flushSave();
+    renderSchedule();
+    toast('Reset to default intervals');
+  });
+
+  $('#ps-save')?.addEventListener('click', () => {
+    const st = $('#ps-start')?.value || start;
+    const en = $('#ps-end')?.value || end;
+    const invMins = parseInt($('#ps-interval')?.value || '60', 10);
+    const [sH, sM] = st.split(':').map(Number);
+    const [eH, eM] = en.split(':').map(Number);
+    const startMins = (sH || 8) * 60 + (sM || 0);
+    const endMins = (eH || 20) * 60 + (eM || 0);
+    
+    const newPeriods = [];
+    let cur = startMins;
+    let idx = 1;
+    while (cur + invMins <= endMins) {
+      const pStartH = String(Math.floor(cur / 60)).padStart(2, '0');
+      const pStartM = String(cur % 60).padStart(2, '0');
+      const pEndMins = cur + invMins;
+      const pEndH = String(Math.floor(pEndMins / 60)).padStart(2, '0');
+      const pEndM = String(pEndMins % 60).padStart(2, '0');
+      
+      const startTime = `${pStartH}:${pStartM}`;
+      const endTime = `${pEndH}:${pEndM}`;
+      newPeriods.push({
+        id: `p${idx}`,
+        label: `Period ${idx}`,
+        time: `🕐 ${startTime} – ${endTime}`,
+        start: startTime,
+        end: endTime
+      });
+      cur += invMins;
+      idx++;
+    }
+    if (!state.settings) state.settings = {};
+    state.settings.periods = newPeriods;
+    closeModal();
+    save(); flushSave();
+    renderSchedule();
+    toast('Schedule intervals updated');
+  });
+}
 
 function getLocalSecretKey() {
   let key = localStorage.getItem('lumen.localSecretKey');
@@ -827,6 +989,14 @@ function normalizeState(parsed) {
     const name = typeof s === 'string' ? s : s?.name;
     return name && !DEMO_STUDENT_NAMES.has(name);
   });
+  if (Array.isArray(state.students) && state.students.length) {
+    (state.income || []).forEach(inc => {
+      if (!inc.studentId && inc.student) {
+        const match = state.students.find(s => s.id === inc.student || s.name === inc.student);
+        if (match) inc.studentId = match.id;
+      }
+    });
+  }
   if (!Array.isArray(state.attendance)) state.attendance = [];
   if (!Array.isArray(state.assignments)) state.assignments = [];
   if (!Array.isArray(state.lessonPlans)) state.lessonPlans = [];
@@ -933,7 +1103,6 @@ function flushSave() {
     cancelIdle(idleSaveHandle);
     idleSaveHandle = null;
   }
-  if (!saveDirty) return;
   saveDirty = false;
   const json = JSON.stringify(state);
   // Skip write if state hasn't changed (avoids IDB churn)
@@ -1051,7 +1220,7 @@ const DAYS = [
   { id: 'mon', label: 'Mon' }, { id: 'tue', label: 'Tue' }, { id: 'wed', label: 'Wed' },
   { id: 'thu', label: 'Thu' }, { id: 'fri', label: 'Fri' }, { id: 'sat', label: 'Sat' }, { id: 'sun', label: 'Sun' }
 ];
-let PERIODS = [
+const DEFAULT_PERIODS = [
   { id: 'p1', label: 'Period 1', time: '08:00 – 08:45', start: '08:00', end: '08:45' },
   { id: 'p2', label: 'Period 2', time: '09:00 – 09:45', start: '09:00', end: '09:45' },
   { id: 'p3', label: 'Period 3', time: '10:00 – 10:45', start: '10:00', end: '10:45' },
@@ -1065,11 +1234,12 @@ let PERIODS = [
   { id: 'mtg', label: 'Meetings', time: '18:00 – 18:45', start: '18:00', end: '18:45' },
   { id: 'after', label: 'After School', time: '19:00 – 20:00', start: '19:00', end: '20:00' }
 ];
+let PERIODS = DEFAULT_PERIODS;
 function getPeriods() {
-  if (state.settings && Array.isArray(state.settings.periods) && state.settings.periods.length) {
+  if (state.settings && Array.isArray(state.settings.periods) && state.settings.periods.length > 0) {
     return state.settings.periods;
   }
-  return PERIODS;
+  return DEFAULT_PERIODS;
 }
 const COLORS = ['#7c6cf6', '#4f8cff', '#34d399', '#ffb020', '#ff5d6c', '#f472b6', '#22d3ee', '#a3e635'];
 const EMOJIS = ['💧', '🏋️', '📚', '🧘', '🥗', '✍️', '🌅', '💪', '🎸', '🌱', '🧠', '🚶'];
@@ -1086,7 +1256,7 @@ const TITLES = {
   notes: ['Notes', 'Capture and organize your thoughts'],
   voice: ['Voice', 'Record, transcribe, and save ideas'],
   activity: ['Activity', 'Track every change in your workspace'],
-  schedule: ['Schedule', 'Your weekly teaching timetable'],
+  schedule: ['Personal Schedule', 'Your weekly teaching timetable'],
   settings: ['Settings', 'Theme, data & shortcuts'],
   perf: ['Performance', 'Render times & slow view alerts'],
   analytics: ['Habit Analytics', 'Day-of-week patterns & cross-habit insights'],
@@ -1833,15 +2003,86 @@ function renderBrief() {
   const habitRows = habitsTop.map(h => {
     const on = !!h.dates[today];
     const streak = habitStreak(h);
+    const linkedGoal = state.goals.find(g => (g.keyResults||[]).some(kr => kr.title.toLowerCase().includes(h.name.toLowerCase()) || h.name.toLowerCase().includes(kr.title.toLowerCase())));
+    const goalChip = linkedGoal ? `<span class="link-chip" title="Linked goal">→ ${esc(linkedGoal.title)}</span>` : '';
     return `<div class="brief-habit ${on ? 'on' : ''}" data-habit="${h.id}">
       <span class="hc-emoji">${h.emoji}</span>
       <span class="hc-name">${esc(h.name)}</span>
+      ${goalChip}
       ${on
         ? '<span class="brief-hint">✓ checked today</span>'
         : `<span class="brief-hint protect">Protect today · 🔥 ${streak}</span>`}
       <span class="check-circle">${ic('check', 12)}</span>
     </div>`;
   }).join('') || '<div class="empty-state"><div class="es-icon">🌱</div>No habits yet.</div>';
+
+  // Daily Commitment Ritual HTML
+  const isCommittedToday = (localStorage.getItem('lumen.brief.commitDate') || (state.settings && state.settings.briefCommitDate)) === today;
+  const overdueTasks = (state.tasks || []).filter(t => t.status !== 'done' && t.due && t.due < today);
+  const candidates = getBriefCandidates().filter(t => !overdueTasks.find(o => o.id === t.id)).slice(0, 6);
+  const habitsToCommit = (state.habits || []).slice(0, 4);
+
+  let briefCommitCardHTML = '';
+  if (isCommittedToday) {
+    const activeCount = todayTasks.length;
+    briefCommitCardHTML = `
+      <div class="card brief-commit collapsed brief-commit-collapsed">
+        <div class="brief-commit-head" style="display:flex;justify-content:space-between;align-items:center;">
+          <span>🎯 Daily Commitment Ritual — Committed</span>
+          <a href="#schedule" class="link-btn" id="brief-goto-schedule">Go to timebox schedule →</a>
+        </div>
+        <div class="muted brief-commit-summary" style="font-size:13px;margin-top:6px;">
+          Committed for today — ${activeCount} task${activeCount === 1 ? '' : 's'} active.
+        </div>
+      </div>
+    `;
+  } else {
+    const overdueHTML = overdueTasks.map(t => `
+      <div class="brief-commit-row overdue">
+        <input type="checkbox" data-task-id="${t.id}" checked>
+        <span class="t-title">${esc(t.title)}</span>
+        <span class="due-chip">overdue</span>
+      </div>
+    `).join('');
+    
+    const candidateHTML = candidates.map(t => `
+      <div class="brief-commit-row">
+        <input type="checkbox" data-task-id="${t.id}" checked>
+        <span class="t-title">${esc(t.title)}</span>
+      </div>
+    `).join('');
+
+    const habitCommitHTML = habitsToCommit.map(h => `
+      <div class="brief-commit-habit">
+        <span>${h.emoji}</span>
+        <span class="t-title">${esc(h.name)}</span>
+      </div>
+    `).join('');
+
+    briefCommitCardHTML = `
+      <div class="card brief-commit">
+        <div class="brief-commit-head">🎯 Daily Commitment Ritual</div>
+        <div class="muted" style="font-size:12.5px;margin-bottom:10px;">Review candidates and commit your plan for today.</div>
+        <div class="brief-commit-grid">
+          <div class="brief-commit-col">
+            <div class="brief-commit-head">Overdue (${overdueTasks.length})</div>
+            <div class="brief-commit-list">${overdueHTML || '<div class="muted" style="font-size:12px">None</div>'}</div>
+          </div>
+          <div class="brief-commit-col">
+            <div class="brief-commit-head">Candidates (${candidates.length})</div>
+            <div class="brief-commit-list">${candidateHTML || '<div class="muted" style="font-size:12px">None</div>'}</div>
+          </div>
+          <div class="brief-commit-col">
+            <div class="brief-commit-head">Habits</div>
+            <div class="brief-commit-list">${habitCommitHTML || '<div class="muted" style="font-size:12px">None</div>'}</div>
+          </div>
+        </div>
+        <div class="brief-commit-foot">
+          <button class="btn btn-accent" id="brief-commit-btn">Commit for today 🚀</button>
+        </div>
+      </div>
+    `;
+  }
 
   const atRisk = goalsAtRisk();
   const riskRows = atRisk.length
@@ -1946,6 +2187,7 @@ function renderBrief() {
         ${state.settings.aiDailyFocus ? esc(state.settings.aiDailyFocus) : 'Tap "Generate Focus" for an AI strategic morning digest of today’s priorities, risks, and habits.'}
       </div>
     </div>
+    ${briefCommitCardHTML}
     ${tourCard}
     ${tourSkipped && stepsDone === 0 ? `<div class="card brief-start">
       <h3 class="card-title"><span>🚀 Start here</span></h3>
@@ -1978,6 +2220,30 @@ function renderBrief() {
         </div>
       </div>
     </div>`;
+
+  // Commitment Ritual listener
+  const commitBtn = $('#brief-commit-btn');
+  if (commitBtn) {
+    commitBtn.addEventListener('click', () => {
+      const now = Date.now();
+      const checkedIds = [...$$('.brief-commit-grid input[data-task-id]:checked')].map(cb => cb.dataset.taskId);
+      const toCommit = checkedIds.length ? checkedIds : candidates.map(t => t.id);
+
+      state.tasks.forEach(t => {
+        if (toCommit.includes(t.id)) {
+          t.status = 'today';
+          t.updatedAt = now;
+        }
+      });
+      try { localStorage.setItem('lumen.brief.commitDate', today); } catch(_) {}
+      if (!state.settings) state.settings = {};
+      state.settings.briefCommitDate = today;
+      save(); flushSave();
+
+      renderBrief();
+      toast('Committed for today 🚀');
+    });
+  }
 
   // AI Daily Focus generator
   const aiBriefBtn = $('#brief-ai-generate');
@@ -2383,6 +2649,18 @@ function teachingDashboardHTML() {
   const students = getStudentsList();
   const activeHw = (state.assignments || []).filter(a => a.status === 'assigned' || a.status === 'submitted');
   const plannedLessons = (state.lessonPlans || []).filter(p => p.status === 'planned');
+  const studentRows = students.map(s => {
+    const sInc = (state.income || []).filter(i => i.studentId ? i.studentId === s.id : i.student === s.name);
+    const totalPaid = sInc.reduce((sum, i) => sum + (i.amount || 0), 0);
+    const linkedGoal = (state.goals || []).find(g => g.studentId === s.id || (g.linkedStudentIds && g.linkedStudentIds.includes(s.id)) || (g.keyResults||[]).some(kr => kr.title.toLowerCase().includes(s.name.toLowerCase()) || s.name.toLowerCase().includes(kr.title.toLowerCase())));
+    const goalTitle = linkedGoal ? linkedGoal.title : '';
+    const formattedPaid = totalPaid ? `${s.currency === 'USD' ? '$' : '₺'}${totalPaid.toLocaleString()}` : '';
+    return `<div class="dash-student-row" data-student="${s.id}">
+      <span class="t-title">${esc(s.name)}</span>
+      ${goalTitle ? `<span class="link-chip">🎯 ${esc(goalTitle)}</span>` : ''}
+      ${formattedPaid ? `<span class="muted">${formattedPaid}</span>` : ''}
+    </div>`;
+  }).join('');
   return `<div class="card">
     <h3 class="card-title"><span>🎓 Teaching Command Hub</span><a class="link-btn" href="#students">All students →</a></h3>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(70px,1fr));gap:8px;margin-bottom:12px">
@@ -2403,6 +2681,7 @@ function teachingDashboardHTML() {
         <div class="muted" style="font-size:10.5px">Plans</div>
       </div>
     </div>
+    ${studentRows ? `<div class="dash-student-list" style="margin-bottom:12px;display:flex;flex-direction:column;gap:6px">${studentRows}</div>` : ''}
     <div style="display:flex;gap:6px">
       <button class="btn btn-sm btn-accent" style="flex:1" id="dash-mark-att">📅 Attendance</button>
       <button class="btn btn-sm btn-ghost" style="flex:1" id="dash-assign-hw">📋 Assign HW</button>
@@ -2693,8 +2972,8 @@ function renderDashboard() {
         <div><div class="stat-value">${state.notes.length}</div><div class="stat-label">notes captured</div></div>
       </div>
     </div>
-    <div class="card" style="margin-bottom:14px">
-      <h3 class="card-title"><span>📊 Task stats</span></h3>
+    <div class="card" data-dw="task-stats" style="margin-bottom:14px">
+      <h3 class="card-title dw-head"><span>📊 Task stats</span><button class="pin-toggle btn-icon" data-dw-pin="task-stats" aria-pressed="true" title="Pin widget">📌</button></h3>
       <div class="task-stats-grid">
         <div class="ts-item"><div class="ts-val">${state.tasks.length}</div><div class="ts-lbl">Total tasks</div></div>
         <div class="ts-item"><div class="ts-val ts-done">${state.tasks.filter(t => t.status === 'done').length}</div><div class="ts-lbl">Completed</div></div>
@@ -2706,25 +2985,16 @@ function renderDashboard() {
     </div>
     <div class="dash-grid">
       <div class="dash-stack">
-        <div class="card">
-          <h3 class="card-title"><span>☀️ Today</span><a class="link-btn" href="#tasks">Open board →</a></h3>
-          ${taskRows}
-        </div>
-        <div class="card">
-          <h3 class="card-title"><span>🔥 Habit check-in</span><a class="link-btn" href="#habits">All habits →</a></h3>
-          ${habitChips}
-        </div>
-        ${lifeRadarHTML}
-        ${timeTrackDashboardHTML()}
+        ${dwCard('today', '<span>☀️ Today</span><a class="link-btn" href="#tasks">Open board →</a>', taskRows)}
+        ${dwCard('habits', '<span>🔥 Habit check-in</span><a class="link-btn" href="#habits">All habits →</a>', habitChips)}
+        ${dwCard('radar', '<span>🎡 Wheel of Life &amp; Balance</span>', lifeRadarHTML)}
+        ${dwCard('timetrack', '<span>⏱️ Time Tracking</span>', timeTrackDashboardHTML())}
       </div>
       <div class="dash-stack">
-        <div class="card">${pomodoroHTML()}</div>
-        ${teachingDashboardHTML()}
-        <div class="card">
-          <h3 class="card-title"><span>📝 Recent notes</span><a class="link-btn" href="#notes">All notes →</a></h3>
-          ${recentNotes}
-        </div>
-        ${projectsDashboardHTML()}
+        ${dwCard('pomodoro', '<span>⏱️ Pomodoro</span>', pomodoroHTML())}
+        ${dwCard('teaching', '<span>🎓 Teaching &amp; Students</span>', teachingDashboardHTML())}
+        ${dwCard('notes', '<span>📝 Recent notes</span><a class="link-btn" href="#notes">All notes →</a>', recentNotes)}
+        ${dwCard('projects', '<span>🚀 Projects</span>', projectsDashboardHTML())}
         ${vaultWidgetHTML()}
       </div>
     </div>`;
@@ -2905,13 +3175,20 @@ function renderDashboard() {
   $$('[data-dw-pin]').forEach(b => b.addEventListener('click', e => {
     e.stopPropagation();
     const w = b.dataset.dwPin;
+    if (!state.settings) state.settings = {};
     if (w === 'vault') {
-      const cur = state.settings && state.settings.pinVault !== false;
-      if (!state.settings) state.settings = {};
-      state.settings.pinVault = !cur;
-      save();
-      renderDashboard();
+      state.settings.pinVault = !(state.settings.pinVault !== false);
+    } else if (w === 'deadlines') {
+      state.settings.pinDeadlines = !(state.settings.pinDeadlines !== false);
+    } else {
+      let foldList = JSON.parse(localStorage.getItem('lumen.dash.fold') || '[]');
+      const idx = foldList.indexOf(w);
+      if (idx >= 0) foldList.splice(idx, 1);
+      else foldList.push(w);
+      localStorage.setItem('lumen.dash.fold', JSON.stringify(foldList));
     }
+    save({ immediate: true });
+    renderDashboard();
   }));
   dashListVirt.sync();
   const g = `${greet}. ${dateLine}.`;
@@ -3123,20 +3400,72 @@ function reviewCtx(off) {
   const achHTML = (achRows || '<div class="empty-state"><div class="es-icon">🎁</div>Nothing unlocked this week — check-ins, completions and memos earn badges.</div>') +
     (streakAtEnd >= 1 || off === 0 ? `<div class="muted" style="font-size:12px;margin-top:8px">🔁 Weekly unlock streak: <b>${streakAtEnd}</b> week${streakAtEnd === 1 ? '' : 's'}${off === 0 && streakAtEnd >= 2 ? ' and counting' : ''}</div>` : '');
   const deltaTxt = delta === 0 ? 'same as last week' : delta > 0 ? `+${delta} vs last week` : `${delta} vs last week`;
+  const slippedTasks = state.tasks.filter(t => t.status !== 'done' && ((t.due && t.due < w.startISO) || t.status === 'today'));
+  const slippedHabits = state.habits.filter(h => {
+    let checks = 0;
+    for (let i = 0; i < 7; i++) {
+      const d = isoDate(shiftDays(i, w.start));
+      if (h.dates && h.dates[d]) checks++;
+    }
+    return checks < 4;
+  });
+  const slipped = { tasks: slippedTasks, habits: slippedHabits, keyResults: [] };
+  const protectCandidates = [
+    ...slippedTasks.map(t => ({ kind: 'task', id: t.id, title: t.title, reason: 'Overdue / carryover task' })),
+    ...slippedHabits.map(h => ({ kind: 'habit', id: h.id, title: (h.emoji || '') + ' ' + h.name, reason: 'Slipped habit' })),
+    ...state.goals.map(g => ({ kind: 'goal', id: g.id, title: g.title, reason: 'Active goal' }))
+  ];
+
   ctx = {
     today, label: w.label,
     statTasks: String(weekTasks.length), statTasksLabel: 'tasks completed · ' + deltaTxt,
-    statHabits: habitPct + '%', statHabitsLabel: `habits checked · ${habitDone}/${habitPossible} days`,
+    statHabits: habitPct + '%', statHabitsLabel: 'habits checked · ' + habitDone + '/' + habitPossible + ' days',
     statGoals: avgGoal + '%', statGoalsLabel: 'avg goal progress',
     statNotes: String(notesCreated), statNotesLabel: 'notes created',
     statOverdue: String(hiddenOverdue), hiddenOverdue,
     dhRows: deadlineHealthRowsHTML(w, krIdx),
-    completedHTML, completedSig, goalRows, achHTML, habitRows, weekTasksSorted
+    completedHTML, completedSig, goalRows, achHTML, habitRows, weekTasksSorted,
+    slipped, protectCandidates
   };
   if (reviewWeekCache.size > 24) reviewWeekCache.clear();
   reviewWeekCache.set(off, ctx);
   return ctx;
 }
+let _ritualStep = 0;
+let _ritualSelections = { taskIds: [], habitIds: [], goalIds: [] };
+
+function reviewRitualCardHTML(ctx) {
+  const rc = state.settings && state.settings.reviewCommit;
+  const isDone = !!rc;
+  
+  if (isDone && _ritualStep === 0) {
+    return '<div class="card ritual-card" id="ritual-container" style="margin-bottom:16px;background:var(--surface2)"><div style="display:flex;align-items:center;justify-content:space-between"><div><h3 style="margin:0;font-size:15px">✨ Weekly Review Completed</h3><div class="muted" style="font-size:12.5px;margin-top:2px" id="ritual-status">Status: done · Protected ' + ((rc.taskIds||[]).length + (rc.habitIds||[]).length + (rc.goalIds||[]).length) + ' focus priorities for next week.</div></div><button class="btn btn-sm btn-ghost" id="ritual-restart">Redo ritual</button></div></div>';
+  }
+
+  if (_ritualStep === 0) {
+    return '<div class="card ritual-card" id="ritual-container" style="margin-bottom:16px;background:var(--surface2)"><div style="display:flex;align-items:center;justify-content:space-between"><div><h3 style="margin:0;font-size:15px">🔄 3-Step Weekly Review Ritual</h3><div class="muted" style="font-size:12.5px;margin-top:2px" id="ritual-status">Ready — Review shipped work, reflect on slipped habits/tasks, and lock in next week\'s focus.</div></div><button class="btn btn-sm btn-accent" id="ritual-start">Start Review →</button></div></div>';
+  }
+
+  if (_ritualStep === 1) {
+    return '<div class="card ritual-card" id="ritual-container" style="margin-bottom:16px;background:var(--surface2)"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><h3 style="margin:0;font-size:15px">1️⃣ Shipped This Week</h3><button class="btn btn-sm btn-accent" id="ritual-next">Next: Slipped →</button></div><div class="muted" style="font-size:13px">Awesome work! You completed <b>' + ctx.statTasks + '</b> and maintained <b>' + ctx.statHabits + '</b> consistency.</div></div>';
+  }
+
+  if (_ritualStep === 2) {
+    const slippedCount = (ctx.slipped.tasks.length + ctx.slipped.habits.length);
+    return '<div class="card ritual-card" id="ritual-container" style="margin-bottom:16px;background:var(--surface2)"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><h3 style="margin:0;font-size:15px">2️⃣ Slipped & Overdue</h3><button class="btn btn-sm btn-accent" id="ritual-next">Next: Protect Next Week →</button></div><div class="muted" style="font-size:13px">' + (slippedCount ? slippedCount + ' items slipped or need attention before next week.' : 'No slipped items! You are completely caught up.') + '</div></div>';
+  }
+
+  // Step 3: Protect Next Week
+  const candidates = ctx.protectCandidates || [];
+  const picksHTML = candidates.map(c => {
+    const key = c.kind === 'habit' ? 'habitIds' : c.kind === 'goal' ? 'goalIds' : 'taskIds';
+    const isSelected = _ritualSelections[key].includes(c.id);
+    return '<div class="protect-pick ' + (isSelected ? 'selected' : '') + '" data-kind="' + c.kind + '" data-id="' + c.id + '" style="padding:8px 12px;border:1px solid ' + (isSelected ? 'var(--accent)' : 'var(--border)') + ';border-radius:8px;cursor:pointer;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;background:' + (isSelected ? 'rgba(96,93,255,0.1)' : 'var(--surface)') + '"><div><span style="font-weight:600">' + esc(c.title) + '</span><span class="muted" style="font-size:11px;margin-left:8px">(' + c.reason + ')</span></div><span>' + (isSelected ? '🛡️ Protected' : '+ Protect') + '</span></div>';
+  }).join('') || '<div class="muted">No candidates to protect.</div>';
+
+  return '<div class="card ritual-card" id="ritual-container" style="margin-bottom:16px;background:var(--surface2)"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px"><h3 style="margin:0;font-size:15px">3️⃣ Protect Next Week</h3><button class="btn btn-sm btn-accent" id="ritual-finish">Lock In Commitments ✓</button></div><div class="muted" style="font-size:12.5px;margin-bottom:10px">Pick items to carry forward as top priorities in your Morning Brief:</div><div class="protect-candidates-list">' + picksHTML + '</div></div>';
+}
+
 function reviewSkeletonHTML() {
   const stat = (icon, bg, idV, idL) => `<div class="stat-card"><div class="stat-icon" style="background:${bg}">${icon}</div><div><div class="stat-value" id="${idV}"></div><div class="stat-label" id="${idL}"></div></div></div>`;
   return `
@@ -3148,6 +3477,7 @@ function reviewSkeletonHTML() {
       <div style="flex:1"></div>
       <button class="btn btn-sm btn-ghost" id="rev-export-md">${ic('download', 14)} Export Markdown</button>
     </div>
+    <div id="ritual-slot"></div>
     <div class="stats">
       ${stat('✅', 'rgba(52,211,153,.14)', 'rev-v-tasks', 'rev-l-tasks')}
       ${stat('🔥', 'rgba(96,93,255,.14)', 'rev-v-habits', 'rev-l-habits')}
@@ -3241,6 +3571,18 @@ function renderReview() {
       md += `- **Sessions Taught**: ${weeklyAtt.length} sessions\n`;
       md += `- **Tutoring Revenue**: $${weeklyUsd.toLocaleString()} / ₺${weeklyTry.toLocaleString()}\n`;
       md += `- **Homework Graded**: ${weeklyHwGraded.length} assignments\n`;
+      if (state.settings && state.settings.reviewCommit) {
+        const rc = state.settings.reviewCommit;
+        const pTasks = (state.tasks || []).filter(t => (rc.taskIds || []).includes(t.id));
+        const pHabits = (state.habits || []).filter(h => (rc.habitIds || []).includes(h.id));
+        const pGoals = (state.goals || []).filter(g => (rc.goalIds || []).includes(g.id));
+        if (pTasks.length || pHabits.length || pGoals.length) {
+          md += '\n## 🛡️ Protecting Next Week\n';
+          pHabits.forEach(h => { md += '- ' + (h.emoji || '🌱') + ' **' + h.name + '**\n'; });
+          pTasks.forEach(t => { md += '- [ ] **' + t.title + '**\n'; });
+          pGoals.forEach(g => { md += '- 🎯 **' + g.title + '**\n'; });
+        }
+      }
       
       const blob = new Blob([md], { type: 'text/markdown' });
       const a = document.createElement('a');
@@ -3251,6 +3593,41 @@ function renderReview() {
       toast('📄 Weekly review markdown downloaded!', 'success');
     });
   }
+  const rSlot = root.querySelector('#ritual-slot');
+  if (rSlot) rSlot.innerHTML = reviewRitualCardHTML(ctx);
+
+  // Bind ritual handlers
+  root.querySelector('#ritual-start')?.addEventListener('click', () => { _ritualStep = 1; renderReview(); });
+  root.querySelectorAll('#ritual-next').forEach(btn => btn.addEventListener('click', () => { _ritualStep++; renderReview(); }));
+  root.querySelector('#ritual-restart')?.addEventListener('click', () => { _ritualStep = 1; renderReview(); });
+  root.querySelectorAll('.protect-pick').forEach(el => {
+    el.addEventListener('click', () => {
+      const kind = el.dataset.kind;
+      const id = el.dataset.id;
+      const key = kind === 'habit' ? 'habitIds' : kind === 'goal' ? 'goalIds' : 'taskIds';
+      const arr = _ritualSelections[key];
+      const idx = arr.indexOf(id);
+      if (idx >= 0) arr.splice(idx, 1);
+      else arr.push(id);
+      renderReview();
+    });
+  });
+  root.querySelector('#ritual-finish')?.addEventListener('click', () => {
+    if (!state.settings) state.settings = {};
+    const w = weekRange(reviewOffset);
+    state.settings.reviewCommit = {
+      weekStart: w.startISO,
+      taskIds: [..._ritualSelections.taskIds],
+      habitIds: [..._ritualSelections.habitIds],
+      goalIds: [..._ritualSelections.goalIds],
+      at: Date.now()
+    };
+    _ritualStep = 0;
+    save(); flushSave();
+    renderReview();
+    toast('Weekly review commitment saved!', 'success');
+  });
+
   // toolbar in place
   const lbl = $('#rev-label');
   if (lbl.textContent !== ctx.label) lbl.textContent = ctx.label;
@@ -3384,9 +3761,23 @@ function deadlineInfo() {
 }
 const snoozeBtnHTML = it => `<button class="btn-icon dl-snooze" data-goal-id="${it.goalId}" data-kr-id="${it.krId || ''}" title="Snooze this alert">${ic('bell', 15)}</button>`;
 const bumpBtnHTML = it => `<button class="btn-icon dl-bump" data-goal-id="${it.goalId}" data-kr-id="${it.krId || ''}" title="Bump deadline +7 days">${ic('calendar-plus', 15)}</button>`;
+function dwCard(id, titleHTML, bodyHTML, extraClass = '') {
+  const foldList = JSON.parse(localStorage.getItem('lumen.dash.fold') || '[]');
+  const isPinned = !foldList.includes(id);
+  const foldClass = !isPinned ? 'dw-folded' : '';
+  return `<div class="card ${extraClass} ${foldClass}" data-dw="${id}">
+    <h3 class="card-title dw-head">
+      ${titleHTML}
+      <button class="pin-toggle btn-icon" data-dw-pin="${id}" aria-pressed="${isPinned ? 'true' : 'false'}" title="Pin widget">📌</button>
+    </h3>
+    <div class="dw-body">${bodyHTML}</div>
+  </div>`;
+}
 function deadlinesCardHTML() {
   const { overdue, upcoming, snoozed } = deadlineInfo();
   const today = todayISO();
+  const isPinned = state.settings ? state.settings.pinDeadlines !== false : true;
+  const foldClass = !isPinned ? 'dw-folded' : '';
   const row = (it, canSnooze) => `<div class="dash-task dl-row" data-goal-id="${it.goalId}" data-kr-id="${it.krId || ''}" title="View goals">
     <span class="dl-icon">${it.due < today ? '⛔' : '⏳'}</span>
     <span class="t-title">${esc(it.label)}</span>
@@ -3405,22 +3796,29 @@ function deadlinesCardHTML() {
   </div>`;
   const total = overdue.length + upcoming.length + snoozed.length;
   if (!total) {
-    return `<div class="card dl-card">
-      <h3 class="card-title"><span>⏰ Deadlines</span></h3>
-      <div class="empty-state" style="padding:14px 0 6px"><div class="es-icon">🎉</div>No overdue, upcoming, or snoozed deadlines.</div>
+    return `<div class="card dl-card ${foldClass}" data-dw="deadlines">
+      <h3 class="card-title dw-head"><span>⏰ Deadlines</span>
+        <button class="pin-toggle btn-icon" data-dw-pin="deadlines" aria-pressed="${isPinned ? 'true' : 'false'}" title="Pin widget">📌</button>
+      </h3>
+      <div class="dw-body">
+        <div class="empty-state" style="padding:14px 0 6px"><div class="es-icon">🎉</div>No overdue, upcoming, or snoozed deadlines.</div>
+      </div>
     </div>`;
   }
-  return `<div class="card dl-card">
-    <h3 class="card-title"><span>⏰ Deadlines</span>
+  return `<div class="card dl-card ${foldClass}" data-dw="deadlines">
+    <h3 class="card-title dw-head"><span>⏰ Deadlines</span>
       <span class="dl-counts">
         ${overdue.length ? `<span class="badge priority-high">${overdue.length} overdue</span>` : ''}
         ${upcoming.length ? `<span class="badge priority-med">${upcoming.length} soon</span>` : ''}
         ${snoozed.length ? `<span class="badge dl-snoozed-badge">${snoozed.length} snoozed</span>` : ''}
       </span>
+      <button class="pin-toggle btn-icon" data-dw-pin="deadlines" aria-pressed="${isPinned ? 'true' : 'false'}" title="Pin widget">📌</button>
     </h3>
-    ${overdue.map(r => row(r, true)).join('')}
-    ${upcoming.map(r => row(r, false)).join('')}
-    ${snoozed.map(srow).join('')}
+    <div class="dw-body">
+      ${overdue.map(r => row(r, true)).join('')}
+      ${upcoming.map(r => row(r, false)).join('')}
+      ${snoozed.map(srow).join('')}
+    </div>
   </div>`;
 }
 function snoozeItem(goalId, krId, until) {
@@ -9262,7 +9660,7 @@ function renderSchedule() {
   const unscheduled = state.tasks.filter(t => t.status !== 'done' && !t.scheduleDay && !t.schedulePeriod)
     .sort((a, b) => (a.startTime || 'zz') < (b.startTime || 'zz') ? -1 : (a.startTime || 'zz') > (b.startTime || 'zz') ? 1 : 0);
   // Trello → Commit → Timebox: committed today tasks that are still unplaced (no scheduleDay/Period)
-  const committedUnplaced = state.tasks.filter(t => t.status === 'today' && !t.scheduleDay && !t.schedulePeriod && !isArchivedTask(t) && t.status !== 'done')
+  const committedUnplaced = state.tasks.filter(t => (t.status === 'today' || t.scheduleDay === today || ((state.settings && state.settings.reviewCommit && state.settings.reviewCommit.taskIds) || []).includes(t.id)) && !t.schedulePeriod && !isArchivedTask(t) && t.status !== 'done')
     .sort((a,b)=> (a.updatedAt||0)-(b.updatedAt||0));
   const otherUnscheduled = unscheduled.filter(t => !committedUnplaced.find(c=>c.id===t.id));
   const committedTrayHTML = Sched.committedTrayHTML(committedUnplaced, { todayDow, days: DAYS, linkGraph: linkGraphForTask });
