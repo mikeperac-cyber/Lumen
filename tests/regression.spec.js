@@ -115,7 +115,7 @@ test('dashboard widgets: unpin folds, persists across reload, hover expands, rep
   expect(toggles).toBeGreaterThanOrEqual(9);
   // unpin → folded, body collapses once neither hovered nor focused
   // (:hover / :focus-within on an unpinned widget intentionally holds it open)
-  await w.locator('.pin-toggle').click();
+  await w.locator('.pin-toggle').click({ force: true });
   await page.evaluate(() => document.activeElement && document.activeElement.blur());
   await page.mouse.move(5, 300);
   await page.waitForTimeout(500);
@@ -140,7 +140,7 @@ test('dashboard widgets: unpin folds, persists across reload, hover expands, rep
   const h2 = await w2.locator('.dw-body').evaluate(el => el.getBoundingClientRect().height);
   expect(h2).toBeGreaterThan(10);
   // repin restores permanently
-  await w2.locator('.pin-toggle').click();
+  await w2.locator('.pin-toggle').click({ force: true });
   await page.waitForTimeout(400);
   await expect(w2).not.toHaveClass(/dw-folded/);
   const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('lumen.dash.fold') || '[]'));

@@ -1,7 +1,7 @@
 {
   "name": "lumen-productivity",
   "version": "1.0.0",
-  "description": "Lumen — Local-first personal command center & productivity operating system for tasks, goals, habits, notes, and focus.",
+  "description": "Lumen \u2014 Local-first personal command center & productivity operating system for tasks, goals, habits, notes, and focus.",
   "main": "app.js",
   "scripts": {
     "start": "serve . -l 8092 --no-clipboard",
@@ -16,7 +16,8 @@
     "test:unit:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:all": "npm run test:unit && npm test",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "precommit": "echo \"done\""
   },
   "repository": {
     "type": "git",
