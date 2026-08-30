@@ -11,7 +11,7 @@ const SHELL = [
   './assets/apple-touch-icon-BYj3UHPS.png',
   './assets/core-CNs345Pu.js',
   './assets/icon-512-BQjM7DSE.png',
-  './assets/index-Bt4UbJ9u.js',
+  './assets/index-BauvT4GJ.js',
   './assets/index-DFKUtqiA.css',
   './assets/peerjs.min-DPtSHinz.js',
   './assets/rolldown-runtime-BX80bFGj.js',

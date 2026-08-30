@@ -1663,7 +1663,9 @@ function perfStats() {
   return stats;
 }
 
+let _renderSeq = 0;
 async function renderView() {
+  const seq = ++_renderSeq;
   if ($('#modal-root').innerHTML) closeModal();
   if ($('#search-root').innerHTML) closeSearch();
   const vr = document.getElementById('view-root');
@@ -1710,9 +1712,12 @@ async function renderView() {
     }
   }
 
+  if (seq !== _renderSeq) return; // Discard stale in-flight render
+
   const RENDERERS = { brief: renderBrief, dashboard: renderDashboard, students: renderStudents, review: renderReview, tasks: renderTasks, projects: renderProjects, tags: renderTags, schedule: renderSchedule, goals: renderGoals, habits: renderHabits, achievements: renderAchievements, notes: renderNotes, voice: renderVoice, activity: renderActivity, settings: renderSettings, analytics: renderAnalytics, finance: renderFinance, perf: renderPerf, vault: renderVault };
   const fn = renderer || RENDERERS[view] || renderDashboard;
   fn();
+  _lastHashRendered = location.hash;
   perfRecord(view, performance.now() - _t0);
   root.scrollTop = 0;
 }
@@ -2596,12 +2601,9 @@ function renderProjects() {
 function projectsDashboardHTML() {
   const projects = state.projects || [];
   if (!projects.length) {
-    return `<div class="card">
-      <h3 class="card-title"><span>🚀 My Projects</span><div style="display:flex;gap:6px;align-items:center"><button class="btn btn-sm btn-ghost" id="proj-export-btn" title="Export as CSV">📥</button><button class="btn btn-sm" id="proj-add-btn">${ic('plus', 14)} Add project</button></div></h3>
-      <div class="proj-section" data-proj-section="building"><div class="proj-section-title">🔨 Building <span class="proj-count">0</span></div><div class="proj-section-body"><div class="proj-empty">Nothing in progress — click + to add</div></div></div>
+    return `<div class="proj-section" data-proj-section="building"><div class="proj-section-title">🔨 Building <span class="proj-count">0</span></div><div class="proj-section-body"><div class="proj-empty">Nothing in progress — click + to add</div></div></div>
       <div class="proj-section" data-proj-section="built"><div class="proj-section-title">✅ Built <span class="proj-count">0</span></div><div class="proj-section-body"><div class="proj-empty">No finished projects yet</div></div></div>
-      <div class="proj-section" data-proj-section="planned"><div class="proj-section-title">💡 Want to Build <span class="proj-count">0</span></div><div class="proj-section-body"><div class="proj-empty">No ideas yet — start dreaming!</div></div></div>
-    </div>`;
+      <div class="proj-section" data-proj-section="planned"><div class="proj-section-title">💡 Want to Build <span class="proj-count">0</span></div><div class="proj-section-body"><div class="proj-empty">No ideas yet — start dreaming!</div></div></div>`;
   }
   const built = projects.filter(p => p.status === 'built');
   const building = projects.filter(p => p.status === 'building');
@@ -2687,14 +2689,11 @@ function projectsDashboardHTML() {
     </div>`;
   }
 
-  return `<div class="card">
-    <h3 class="card-title"><span>🚀 My Projects</span><div style="display:flex;gap:6px;align-items:center"><button class="btn btn-sm btn-ghost" id="proj-export-btn" title="Export as CSV">📥</button><button class="btn btn-sm" id="proj-add-btn">${ic('plus', 14)} Add project</button></div></h3>
-    ${statsHTML}
+  return `${statsHTML}
     ${projects.length > 3 ? filterHTML : ''}
     ${sectionHTML('Building', '🔨', building, 'Nothing in progress — click + to add', 'building')}
     ${sectionHTML('Built', '✅', built, 'No finished projects yet', 'built')}
-    ${sectionHTML('Want to Build', '💡', planned, 'No ideas yet — start dreaming!', 'planned')}
-  </div>`;
+    ${sectionHTML('Want to Build', '💡', planned, 'No ideas yet — start dreaming!', 'planned')}`;
 }
 
 function teachingDashboardHTML() {
@@ -2713,9 +2712,7 @@ function teachingDashboardHTML() {
       ${formattedPaid ? `<span class="muted">${formattedPaid}</span>` : ''}
     </div>`;
   }).join('');
-  return `<div class="card">
-    <h3 class="card-title"><span>🎓 Teaching Command Hub</span><a class="link-btn" href="#students">All students →</a></h3>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(70px,1fr));gap:8px;margin-bottom:12px">
+  return `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(70px,1fr));gap:8px;margin-bottom:12px">
       <div style="background:var(--surface2);padding:8px 6px;border-radius:8px;text-align:center">
         <div style="font-size:17px;font-weight:700;color:var(--accent)">${students.length}</div>
         <div class="muted" style="font-size:10.5px">Students</div>
@@ -2737,8 +2734,7 @@ function teachingDashboardHTML() {
     <div style="display:flex;gap:6px">
       <button class="btn btn-sm btn-accent" style="flex:1" id="dash-mark-att">📅 Attendance</button>
       <button class="btn btn-sm btn-ghost" style="flex:1" id="dash-assign-hw">📋 Assign HW</button>
-    </div>
-  </div>`;
+    </div>`;
 }
 
 function langColor(lang) {
@@ -3007,11 +3003,10 @@ function renderDashboard() {
     return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.5" class="radar-dot" title="${a.label}: ${a.val}%"/>`;
   }).join('');
 
-  const lifeRadarHTML = `<div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-      <h3 class="card-title" style="margin:0"><span>🎡 Wheel of Life &amp; Balance</span></h3>
-      <span class="badge" style="background:rgba(96,93,255,0.15);color:var(--accent);font-weight:700">Score: ${lifeBalanceScore}/100</span>
-    </div>
+  let foldList;
+  try { foldList = JSON.parse(localStorage.getItem('lumen.dash.fold') || '[]'); } catch (_) { foldList = []; }
+
+  const lifeRadarHTML = `
     <div class="radar-wrap">
       <svg viewBox="0 0 260 260" class="radar-svg">
         ${gridPolys}
@@ -3019,10 +3014,10 @@ function renderDashboard() {
         <polygon points="${dataPts}" class="radar-data-poly"/>
         ${dataDots}
       </svg>
-    </div>
-  </div>`;
+    </div>`;
 
-  viewRoot().innerHTML = `
+  const root = viewRoot();
+  root.innerHTML = `
     ${deadlinesCardHTML()}
     <div class="stats">
       <div class="stat-card">
@@ -3055,29 +3050,29 @@ function renderDashboard() {
     </div>
     <div class="dash-grid">
       <div class="dash-stack">
-        ${dwCard('today', '<span>☀️ Today</span><a class="link-btn" href="#tasks">Open board →</a>', taskRows)}
-        ${dwCard('habits', '<span>🔥 Habit check-in</span><a class="link-btn" href="#habits">All habits →</a>', habitChips)}
-        ${dwCard('radar', '<span>🎡 Wheel of Life &amp; Balance</span>', lifeRadarHTML)}
-        ${dwCard('timetrack', '<span>⏱️ Time Tracking</span>', timeTrackDashboardHTML())}
+        ${dwCard('today', '<span>☀️ Today</span><a class="link-btn" href="#tasks">Open board →</a>', taskRows, '', foldList)}
+        ${dwCard('habits', '<span>🔥 Habit check-in</span><a class="link-btn" href="#habits">All habits →</a>', habitChips, '', foldList)}
+        ${dwCard('radar', '<span>🎡 Wheel of Life &amp; Balance</span><span class="badge" style="background:rgba(96,93,255,0.15);color:var(--accent);font-weight:700">Score: ' + lifeBalanceScore + '/100</span>', lifeRadarHTML, '', foldList)}
+        ${dwCard('timetrack', '<span>⏱️ Time Tracking</span>', timeTrackDashboardHTML(), '', foldList)}
       </div>
       <div class="dash-stack">
-        ${dwCard('pomodoro', '<span>⏱️ Pomodoro</span>', pomodoroHTML())}
-        ${dwCard('teaching', '<span>🎓 Teaching &amp; Students</span>', teachingDashboardHTML())}
-        ${dwCard('notes', '<span>📝 Recent notes</span><a class="link-btn" href="#notes">All notes →</a>', recentNotes)}
-        ${dwCard('projects', '<span>🚀 Projects</span>', projectsDashboardHTML())}
-        ${vaultWidgetHTML(state.vault || [])}
+        ${dwCard('pomodoro', '<span>⏱️ Pomodoro</span>', pomodoroHTML(), '', foldList)}
+        ${dwCard('teaching', '<span>🎓 Teaching &amp; Students</span><a class="link-btn" href="#students">All students →</a>', teachingDashboardHTML(), '', foldList)}
+        ${dwCard('notes', '<span>📝 Recent notes</span><a class="link-btn" href="#notes">All notes →</a>', recentNotes, '', foldList)}
+        ${dwCard('projects', '<span>🚀 Projects</span><div style="display:flex;gap:6px;align-items:center"><button class="btn btn-sm btn-ghost" id="proj-export-btn" title="Export as CSV">📥</button><button class="btn btn-sm" id="proj-add-btn">' + ic('plus', 14) + ' Add project</button></div>', projectsDashboardHTML(), '', foldList)}
+        ${vaultWidgetHTML(state.vaultItems || state.vault || [], state.settings ? state.settings.pinVault !== false : true)}
       </div>
     </div>`;
 
   // deadline rows → jump to goals
-  $$('.dl-row').forEach(el => el.addEventListener('click', () => { location.hash = '#goals'; }));
+  $$('.dl-row', root).forEach(el => el.addEventListener('click', () => { location.hash = '#goals'; }));
   // one-tap bump: push a slipping deadline out by a week
-  $$('.dl-bump').forEach(b => b.addEventListener('click', e => {
+  $$('.dl-bump', root).forEach(b => b.addEventListener('click', e => {
     e.stopPropagation();
     bumpDeadline(b.dataset.goalId, b.dataset.krId);
   }));
   // snooze: silence an overdue alert until a chosen date
-  $$('.dl-snooze').forEach(b => b.addEventListener('click', e => {
+  $$('.dl-snooze', root).forEach(b => b.addEventListener('click', e => {
     e.stopPropagation();
     const row = b.closest('.dl-row');
     const next = row.nextElementSibling;
@@ -3091,84 +3086,35 @@ function renderDashboard() {
     p.querySelector('.dl-snooze-date').addEventListener('change', ev => { if (ev.target.value) snoozeItem(goalId, krId, ev.target.value); });
     p.querySelector('.dl-snooze-clear').addEventListener('click', () => snoozeItem(goalId, krId, null));
   }));
-  $$('.dl-unsnooze').forEach(b => b.addEventListener('click', e => {
+  $$('.dl-unsnooze', root).forEach(b => b.addEventListener('click', e => {
     e.stopPropagation();
     snoozeItem(b.dataset.goalId, b.dataset.krId, null);
   }));
   // habit check-in
-  $$('.habit-chip[data-habit]').forEach(chip => chip.addEventListener('click', () => {
-    const h = state.habits.find(x => x.id === chip.dataset.habit);
-    if (!h) return;
-    toggleHabitDate(h, todayISO());
-    renderDashboard();
-  }));
+  if ((state.habits || []).length) {
+    $$('.habit-chip[data-habit]', root).forEach(chip => chip.addEventListener('click', () => {
+      const h = state.habits.find(x => x.id === chip.dataset.habit);
+      if (!h) return;
+      toggleHabitDate(h, todayISO());
+      renderDashboard();
+    }));
+  }
   // teaching dashboard buttons
-  $('#dash-mark-att')?.addEventListener('click', () => { location.hash = '#students'; openAttendanceModal(null); });
-  $('#dash-assign-hw')?.addEventListener('click', () => { location.hash = '#students'; openAssignmentModal(null); });
+  $('#dash-mark-att', root)?.addEventListener('click', () => { location.hash = '#students'; openAttendanceModal(null); });
+  $('#dash-assign-hw', root)?.addEventListener('click', () => { location.hash = '#students'; openAssignmentModal(null); });
   // open note
-  $$('[data-open-note]').forEach(el => el.addEventListener('click', () => {
-    selectedNoteId = el.dataset.openNote;
-    location.hash = '#notes';
-  }));
-  updateNavBadges();
-  // quick complete a task right from the dashboard
-  $$('[data-complete]').forEach(b => b.addEventListener('click', e => {
-    e.stopPropagation();
-    const t = state.tasks.find(x => x.id === b.dataset.complete);
-    if (!t) return;
-    captureUndo('Complete task');
-    const { wasDone, kr } = toggleTaskDone(t);
-    save(); renderDashboard();
-    if (kr) goalProgressToast(t, wasDone, kr);
-  }));
-  // click a dashboard task to edit it
-  $$('.dash-task[data-id]').forEach(el => el.addEventListener('click', e => {
-    if (e.target.closest('[data-complete]')) return;
-    const t = state.tasks.find(x => x.id === el.dataset.id);
-    if (t) openTaskModal(t);
-  }));
+  if ((state.notes || []).length) {
+    $$('[data-open-note]', root).forEach(el => el.addEventListener('click', () => {
+      selectedNoteId = el.dataset.openNote;
+      location.hash = '#notes';
+    }));
+  }
   // pomodoro buttons
   bindPomodoro();
   // project buttons
-  const projAddBtn = $('#proj-add-btn');
+  const projAddBtn = $('#proj-add-btn', root);
   if (projAddBtn) projAddBtn.addEventListener('click', () => openProjectModal(null));
-  // Edit by id
-  $$('[data-proj-edit]').forEach(b => b.addEventListener('click', e => {
-    e.stopPropagation();
-    const id = b.dataset.projEdit;
-    const proj = (state.projects || []).find(x => x.id === id);
-    if (proj) openProjectModal(proj, id);
-  }));
-  // Delete by id
-  $$('[data-proj-del]').forEach(b => b.addEventListener('click', e => {
-    e.stopPropagation();
-    const id = b.dataset.projDel;
-    if (!confirm('Delete this project?')) return;
-    const pi = state.projects.findIndex(x => x.id === id);
-    if (pi >= 0) state.projects.splice(pi, 1);
-    save(); renderDashboard(); toast('Project deleted');
-  }));
-  // Click row to edit
-  $$('.proj-row[data-proj-id]').forEach(row => row.addEventListener('click', e => {
-    if (e.target.closest('button, a, input, .proj-drag-handle')) return;
-    const proj = (state.projects || []).find(x => x.id === row.dataset.projId);
-    if (proj) openProjectModal(proj, proj.id);
-  }));
-  // Quick status cycle (click badge)
-  $$('[data-proj-cycle]').forEach(b => b.addEventListener('click', e => {
-    e.stopPropagation();
-    const id = b.dataset.projCycle;
-    const proj = (state.projects || []).find(x => x.id === id);
-    if (!proj) return;
-    const cycle = ['building', 'built', 'planned'];
-    const next = cycle[(cycle.indexOf(proj.status) + 1) % cycle.length];
-    proj.status = next;
-    proj.updatedAt = Date.now();
-    save(); renderDashboard();
-    toast('Status → ' + (next === 'built' ? '✅ Built' : next === 'building' ? '🔨 Building' : '💡 Planned'));
-  }));
-  // Export CSV
-  const exportBtn = $('#proj-export-btn');
+  const exportBtn = $('#proj-export-btn', root);
   if (exportBtn) exportBtn.addEventListener('click', () => {
     const projects = state.projects || [];
     if (!projects.length) { toast('No projects to export'); return; }
@@ -3187,61 +3133,99 @@ function renderDashboard() {
     URL.revokeObjectURL(url);
     toast('📥 Exported ' + projects.length + ' projects');
   });
-  // Search/filter
-  const projSearch = $('#proj-search');
-  const projLangFilter = $('#proj-lang-filter');
-  function filterProjects() {
-    const q = (projSearch ? projSearch.value : '').toLowerCase();
-    const lang = projLangFilter ? projLangFilter.value : '';
-    $$('.proj-row[data-proj-id]').forEach(row => {
-      const id = row.dataset.projId;
+
+  if ((state.projects || []).length) {
+    // Edit by id
+    $$('[data-proj-edit]', root).forEach(b => b.addEventListener('click', e => {
+      e.stopPropagation();
+      const id = b.dataset.projEdit;
+      const proj = (state.projects || []).find(x => x.id === id);
+      if (proj) openProjectModal(proj, id);
+    }));
+    // Delete by id
+    $$('[data-proj-del]', root).forEach(b => b.addEventListener('click', e => {
+      e.stopPropagation();
+      const id = b.dataset.projDel;
+      if (!confirm('Delete this project?')) return;
+      const pi = state.projects.findIndex(x => x.id === id);
+      if (pi >= 0) state.projects.splice(pi, 1);
+      save(); renderDashboard(); toast('Project deleted');
+    }));
+    // Click row to edit
+    $$('.proj-row[data-proj-id]', root).forEach(row => row.addEventListener('click', e => {
+      if (e.target.closest('button, a, input, .proj-drag-handle')) return;
+      const proj = (state.projects || []).find(x => x.id === row.dataset.projId);
+      if (proj) openProjectModal(proj, proj.id);
+    }));
+    // Quick status cycle (click badge)
+    $$('[data-proj-cycle]', root).forEach(b => b.addEventListener('click', e => {
+      e.stopPropagation();
+      const id = b.dataset.projCycle;
       const proj = (state.projects || []).find(x => x.id === id);
       if (!proj) return;
-      const matchQ = !q || proj.name.toLowerCase().includes(q) || (proj.desc || '').toLowerCase().includes(q);
-      const matchLang = !lang || proj.lang === lang;
-      row.style.display = (matchQ && matchLang) ? '' : 'none';
-    });
-    // Update section counts
-    $$('.proj-section').forEach(sec => {
-      const visible = sec.querySelectorAll('.proj-row[data-proj-id]:not([style*="display: none"])').length;
-      const countEl = sec.querySelector('.proj-count');
-      if (countEl) countEl.textContent = visible;
+      const cycle = ['building', 'built', 'planned'];
+      const next = cycle[(cycle.indexOf(proj.status) + 1) % cycle.length];
+      proj.status = next;
+      proj.updatedAt = Date.now();
+      save(); renderDashboard();
+      toast('Status → ' + (next === 'built' ? '✅ Built' : next === 'building' ? '🔨 Building' : '💡 Planned'));
+    }));
+    // Search/filter
+    const projSearch = $('#proj-search', root);
+    const projLangFilter = $('#proj-lang-filter', root);
+    function filterProjects() {
+      const q = (projSearch ? projSearch.value : '').toLowerCase();
+      const lang = projLangFilter ? projLangFilter.value : '';
+      $$('.proj-row[data-proj-id]', root).forEach(row => {
+        const id = row.dataset.projId;
+        const proj = (state.projects || []).find(x => x.id === id);
+        if (!proj) return;
+        const matchQ = !q || proj.name.toLowerCase().includes(q) || (proj.desc || '').toLowerCase().includes(q);
+        const matchLang = !lang || proj.lang === lang;
+        row.style.display = (matchQ && matchLang) ? '' : 'none';
+      });
+      // Update section counts
+      $$('.proj-section', root).forEach(sec => {
+        const visible = sec.querySelectorAll('.proj-row[data-proj-id]:not([style*="display: none"])').length;
+        const countEl = sec.querySelector('.proj-count');
+        if (countEl) countEl.textContent = visible;
+      });
+    }
+    if (projSearch) projSearch.addEventListener('input', filterProjects);
+    if (projLangFilter) projLangFilter.addEventListener('change', filterProjects);
+    // Drag-and-drop reorder
+    let projDragId = null;
+    $$('.proj-row[data-proj-id]', root).forEach(row => {
+      row.addEventListener('dragstart', e => {
+        projDragId = row.dataset.projId;
+        row.classList.add('proj-dragging');
+        e.dataTransfer.effectAllowed = 'move';
+      });
+      row.addEventListener('dragend', () => {
+        projDragId = null;
+        row.classList.remove('proj-dragging');
+        $$('.proj-drop-target', root).forEach(el => el.classList.remove('proj-drop-target'));
+      });
+      row.addEventListener('dragover', e => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        row.classList.add('proj-drop-target');
+      });
+      row.addEventListener('dragleave', () => row.classList.remove('proj-drop-target'));
+      row.addEventListener('drop', e => {
+        e.preventDefault();
+        row.classList.remove('proj-drop-target');
+        if (!projDragId || projDragId === row.dataset.projId) return;
+        const projects = state.projects || [];
+        const fromIdx = projects.findIndex(x => x.id === projDragId);
+        const toIdx = projects.findIndex(x => x.id === row.dataset.projId);
+        if (fromIdx < 0 || toIdx < 0) return;
+        const [moved] = projects.splice(fromIdx, 1);
+        projects.splice(toIdx, 0, moved);
+        save(); renderDashboard();
+      });
     });
   }
-  if (projSearch) projSearch.addEventListener('input', filterProjects);
-  if (projLangFilter) projLangFilter.addEventListener('change', filterProjects);
-  // Drag-and-drop reorder
-  let projDragId = null;
-  $$('.proj-row[data-proj-id]').forEach(row => {
-    row.addEventListener('dragstart', e => {
-      projDragId = row.dataset.projId;
-      row.classList.add('proj-dragging');
-      e.dataTransfer.effectAllowed = 'move';
-    });
-    row.addEventListener('dragend', () => {
-      projDragId = null;
-      row.classList.remove('proj-dragging');
-      $$('.proj-drop-target').forEach(el => el.classList.remove('proj-drop-target'));
-    });
-    row.addEventListener('dragover', e => {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
-      row.classList.add('proj-drop-target');
-    });
-    row.addEventListener('dragleave', () => row.classList.remove('proj-drop-target'));
-    row.addEventListener('drop', e => {
-      e.preventDefault();
-      row.classList.remove('proj-drop-target');
-      if (!projDragId || projDragId === row.dataset.projId) return;
-      const projects = state.projects || [];
-      const fromIdx = projects.findIndex(x => x.id === projDragId);
-      const toIdx = projects.findIndex(x => x.id === row.dataset.projId);
-      if (fromIdx < 0 || toIdx < 0) return;
-      const [moved] = projects.splice(fromIdx, 1);
-      projects.splice(toIdx, 0, moved);
-      save(); renderDashboard();
-    });
-  });
 // [data-dw-pin] click handled via global delegation
   dashListVirt.sync();
   const g = `${greet}. ${dateLine}.`;
@@ -3785,6 +3769,8 @@ function deadlineInfo() {
   const today = todayISO();
   const soonISO = isoDate(shiftDays(7));
   const overdue = [], upcoming = [], snoozed = [];
+  const goals = state.goals || [];
+  if (!goals.length) return { overdue, upcoming, snoozed };
   const snoozedItem = (it, goalId, krId, label, sub) => {
     if (it.snoozeUntil && it.snoozeUntil >= today) {
       snoozed.push({ label, sub, due: it.due, goalId, krId, snoozeUntil: it.snoozeUntil });
@@ -3814,8 +3800,10 @@ function deadlineInfo() {
 }
 const snoozeBtnHTML = it => `<button class="btn-icon dl-snooze" data-goal-id="${it.goalId}" data-kr-id="${it.krId || ''}" title="Snooze this alert">${ic('bell', 15)}</button>`;
 const bumpBtnHTML = it => `<button class="btn-icon dl-bump" data-goal-id="${it.goalId}" data-kr-id="${it.krId || ''}" title="Bump deadline +7 days">${ic('calendar-plus', 15)}</button>`;
-function dwCard(id, titleHTML, bodyHTML, extraClass = '') {
-  const foldList = JSON.parse(localStorage.getItem('lumen.dash.fold') || '[]');
+function dwCard(id, titleHTML, bodyHTML, extraClass = '', foldList = null) {
+  if (!foldList) {
+    try { foldList = JSON.parse(localStorage.getItem('lumen.dash.fold') || '[]'); } catch (_) { foldList = []; }
+  }
   const isPinned = !foldList.includes(id);
   const foldClass = !isPinned ? 'dw-folded' : '';
   return `<div class="card ${extraClass} ${foldClass}" data-dw="${id}">
@@ -4154,14 +4142,9 @@ function timeTrackDashboardHTML() {
   const weeklyTrend = thisWeek > lastWeek ? '📈' : thisWeek < lastWeek ? '📉' : '➡️';
   const weeklyTxt = lastWeek > 0 ? `${Math.round(((thisWeek - lastWeek) / lastWeek) * 100)}% vs last week` : 'First week of data';
   if (!totalTime && catEntries.length === 0) {
-    return `<div class="card">
-      <h3 class="card-title"><span>⏱ Time tracking</span></h3>
-      <div class="empty-state"><div class="es-icon">⏱</div>Move tasks to "In Progress" to start tracking time.</div>
-    </div>`;
+    return `<div class="empty-state"><div class="es-icon">⏱</div>Move tasks to "In Progress" to start tracking time.</div>`;
   }
-  return `<div class="card tt-card">
-    <h3 class="card-title"><span>⏱ Time tracking</span><span class="tt-total">${fmtProgressTimeLong(totalTime)} total</span></h3>
-    <div class="tt-summary">
+  return `<div class="tt-summary">
       <div class="tt-stat">
         <div class="tt-stat-value">${fmtProgressTimeLong(thisWeek)}</div>
         <div class="tt-stat-label">This week</div>
@@ -4176,8 +4159,7 @@ function timeTrackDashboardHTML() {
       </div>
     </div>
     ${catBars ? `<div class="tt-section"><div class="tt-section-title">By category</div>${catBars}</div>` : ''}
-    ${topRows ? `<div class="tt-section"><div class="tt-section-title">Top tasks</div>${topRows}</div>` : ''}
-  </div>`;
+    ${topRows ? `<div class="tt-section"><div class="tt-section-title">Top tasks</div>${topRows}</div>` : ''}`;
 }
 
 /* ---------- Focus / Pomodoro history ---------- */
@@ -6356,8 +6338,7 @@ function pomodoroHTML() {
     </div>`;
   })() : '';
   const idleHint = isIdle && !firstCommitted ? `<div class="muted" style="font-size:12px;margin-top:10px">Commit a day in Brief to seed Focus.</div>` : '';
-  return `<h2 class="card-title"><span>🍅 Focus timer</span></h2>
-    <div class="pomo-wrap">
+  return `<div class="pomo-wrap">
       <div class="pomo-ring" style="--p:${pct}%">
         <div class="pomo-inner">
           <div class="pomo-time">${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}</div>
