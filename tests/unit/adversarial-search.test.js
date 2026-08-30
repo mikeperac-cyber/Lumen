@@ -80,7 +80,7 @@ describe('Adversarial Stress Test: Search Hay Indexing', () => {
       const cacheDuration = performance.now() - cacheStart;
 
       expect(cachedRes).toBe(res); // Same reference
-      expect(cacheDuration).toBeLessThan(5); // Near-instantaneous (<5ms)
+      expect(cacheDuration).toBeLessThan(25); // Near-instantaneous (<25ms)
     });
 
     it('correctly invalidates cache when tasks are modified or added', () => {

@@ -24,26 +24,40 @@ let _searchTasksCacheUpdated = 0;
  */
 export function getSearchTasksHay(tasks) {
   const list = tasks || (app && app.state && app.state.tasks) || (typeof window !== 'undefined' && window.state && window.state.tasks) || [];
-  let maxUpdated = 0;
-  for (let i = 0; i < list.length; i++) {
-    if (list[i].updatedAt > maxUpdated) maxUpdated = list[i].updatedAt;
-  }
-  if (_searchTasksCache && _searchTasksCacheLen === list.length && _searchTasksCacheUpdated === maxUpdated) {
+  const len = list.length;
+  if (!len) {
+    if (_searchTasksCache && _searchTasksCacheLen === 0) return _searchTasksCache;
+    _searchTasksCache = [];
+    _searchTasksCacheLen = 0;
+    _searchTasksCacheUpdated = 0;
     return _searchTasksCache;
   }
-  _searchTasksCacheLen = list.length;
+  let maxUpdated = 0;
+  for (let i = 0; i < len; i++) {
+    const u = list[i].updatedAt || 0;
+    if (u > maxUpdated) maxUpdated = u;
+  }
+  if (_searchTasksCache && _searchTasksCacheLen === len && _searchTasksCacheUpdated === maxUpdated) {
+    return _searchTasksCache;
+  }
+  _searchTasksCacheLen = len;
   _searchTasksCacheUpdated = maxUpdated;
-  _searchTasksCache = list.map(t => ({
-    t,
-    hay: (
-      (t.title || '') + ' ' +
-      (t.desc || '') + ' ' +
-      (t.tags || []).join(' ') + ' ' +
-      (t.comments || []).map(c => c.text || '').join(' ') + ' ' +
-      (t.student || '')
-    ).toLowerCase()
-  }));
-  return _searchTasksCache;
+  const out = new Array(len);
+  for (let i = 0; i < len; i++) {
+    const t = list[i];
+    let hay = (t.title || '') + ' ' + (t.desc || '');
+    if (t.tags && t.tags.length) hay += ' ' + t.tags.join(' ');
+    if (t.comments && t.comments.length) {
+      for (let j = 0; j < t.comments.length; j++) {
+        const c = t.comments[j];
+        if (c && c.text) hay += ' ' + c.text;
+      }
+    }
+    if (t.student) hay += ' ' + t.student;
+    out[i] = { t, hay: hay.toLowerCase() };
+  }
+  _searchTasksCache = out;
+  return out;
 }
 
 export function setupTasksController(ctx) {
