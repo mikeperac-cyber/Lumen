@@ -671,12 +671,22 @@ function linkGraphForHabit(h) {
 function getFirstCommittedTask() {
   const commit = state.settings && state.settings.reviewCommit;
   const ids = (commit && commit.taskIds) || [];
-  for (const id of ids) {
-    const t = (state.tasks || []).find(x => x.id === id && x.status !== 'done');
-    if (t) return t;
+  const tasks = state.tasks || [];
+  if (ids.length) {
+    for (let i = 0; i < ids.length; i++) {
+      const id = ids[i];
+      for (let j = 0; j < tasks.length; j++) {
+        const t = tasks[j];
+        if (t.id === id && t.status !== 'done') return t;
+      }
+    }
   }
   const today = todayISO();
-  return (state.tasks || []).find(t => t.status !== 'done' && (t.status === 'today' || t.due === today)) || null;
+  for (let i = 0; i < tasks.length; i++) {
+    const t = tasks[i];
+    if (t.status !== 'done' && (t.status === 'today' || t.due === today)) return t;
+  }
+  return null;
 }
 function openScheduleIntervalsModal() {
   const currentPeriods = getPeriods();
@@ -1911,7 +1921,7 @@ function createListVirt(opts) {
       if (opts.bindItems) opts.bindItems(el); // short lists still need their click handlers
       return;
     }
-    const clientH = el.clientHeight || 400;
+    const clientH = (s.top > 0 && el.clientHeight) ? el.clientHeight : (opts.clientH || 400);
     let first, last, topPad, bottomPad;
     if (opts.rowH) {
       // variable per-row heights (search: group headers + items)
@@ -1938,12 +1948,12 @@ function createListVirt(opts) {
       last = first + count;
       topPad = first * h;
       bottomPad = (items.length - last) * h;
-      if (opts.itemSel) {
+      if (opts.itemSel && s.h && s.top > 0) {
         const it = el.querySelector(opts.itemSel);
         if (it) {
           const rh = it.offsetHeight;
           if (rh > 0 && rh !== s.h) {
-            if (s.h) s.top = Math.round(s.top * (rh / s.h)); // keep the same first visible row when h recalibrates
+            s.top = Math.round(s.top * (rh / s.h)); // keep the same first visible row when h recalibrates
             s.h = rh;
           }
         }
@@ -2585,6 +2595,14 @@ function renderProjects() {
 /* ============ Projects (dashboard) ============ */
 function projectsDashboardHTML() {
   const projects = state.projects || [];
+  if (!projects.length) {
+    return `<div class="card">
+      <h3 class="card-title"><span>🚀 My Projects</span><div style="display:flex;gap:6px;align-items:center"><button class="btn btn-sm btn-ghost" id="proj-export-btn" title="Export as CSV">📥</button><button class="btn btn-sm" id="proj-add-btn">${ic('plus', 14)} Add project</button></div></h3>
+      <div class="proj-section" data-proj-section="building"><div class="proj-section-title">🔨 Building <span class="proj-count">0</span></div><div class="proj-section-body"><div class="proj-empty">Nothing in progress — click + to add</div></div></div>
+      <div class="proj-section" data-proj-section="built"><div class="proj-section-title">✅ Built <span class="proj-count">0</span></div><div class="proj-section-body"><div class="proj-empty">No finished projects yet</div></div></div>
+      <div class="proj-section" data-proj-section="planned"><div class="proj-section-title">💡 Want to Build <span class="proj-count">0</span></div><div class="proj-section-body"><div class="proj-empty">No ideas yet — start dreaming!</div></div></div>
+    </div>`;
+  }
   const built = projects.filter(p => p.status === 'built');
   const building = projects.filter(p => p.status === 'building');
   const planned = projects.filter(p => p.status === 'planned');
@@ -2612,22 +2630,26 @@ function projectsDashboardHTML() {
     </select>
   </div>`;
 
-  // Linked tasks helper
-  function linkedTasks(p) {
-    return (state.tasks || []).filter(t => t.projectId === p.id);
-  }
-  function projectProgress(p) {
-    const tasks = linkedTasks(p);
-    if (!tasks.length) return null;
-    const done = tasks.filter(t => t.status === 'done').length;
-    return Math.round((done / tasks.length) * 100);
+  // Pre-aggregate linked tasks in single O(N) pass
+  const allTasks = state.tasks || [];
+  const projTaskCounts = new Map();
+  for (let i = 0; i < allTasks.length; i++) {
+    const t = allTasks[i];
+    if (t.projectId) {
+      let c = projTaskCounts.get(t.projectId);
+      if (!c) { c = { total: 0, done: 0 }; projTaskCounts.set(t.projectId, c); }
+      c.total++;
+      if (t.status === 'done') c.done++;
+    }
   }
 
   function projectRow(p) {
     const langBadge = p.lang ? `<span class="proj-lang" style="background:${langColor(p.lang)}22;color:${langColor(p.lang)};border:1px solid ${langColor(p.lang)}44">${esc(p.lang)}</span>` : '';
-    const tasks = linkedTasks(p);
-    const progress = projectProgress(p);
-    const taskInfo = tasks.length ? `<span class="proj-task-count" title="${tasks.filter(t=>t.status==='done').length} done of ${tasks.length}">📋 ${tasks.length} task${tasks.length!==1?'s':''}</span>` : '';
+    const stats = projTaskCounts.get(p.id);
+    const taskCount = stats ? stats.total : 0;
+    const taskDone = stats ? stats.done : 0;
+    const progress = taskCount ? Math.round((taskDone / taskCount) * 100) : null;
+    const taskInfo = taskCount ? `<span class="proj-task-count" title="${taskDone} done of ${taskCount}">📋 ${taskCount} task${taskCount!==1?'s':''}</span>` : '';
     const progressHTML = progress !== null ? `<div class="proj-progress"><div class="proj-progress-bar" style="width:${progress}%"></div><span class="proj-progress-pct">${progress}%</span></div>` : '';
     const milestoneCount = (p.milestones || []).length;
     const milestonesDone = (p.milestones || []).filter(m => m.done).length;
@@ -2667,7 +2689,7 @@ function projectsDashboardHTML() {
 
   return `<div class="card">
     <h3 class="card-title"><span>🚀 My Projects</span><div style="display:flex;gap:6px;align-items:center"><button class="btn btn-sm btn-ghost" id="proj-export-btn" title="Export as CSV">📥</button><button class="btn btn-sm" id="proj-add-btn">${ic('plus', 14)} Add project</button></div></h3>
-    ${projects.length ? statsHTML : ''}
+    ${statsHTML}
     ${projects.length > 3 ? filterHTML : ''}
     ${sectionHTML('Building', '🔨', building, 'Nothing in progress — click + to add', 'building')}
     ${sectionHTML('Built', '✅', built, 'No finished projects yet', 'built')}
@@ -2878,17 +2900,35 @@ function openProjectModal(project, projId) {
 /* ============ Dashboard ============ */
 function renderDashboard() {
   const today = todayISO();
-  const doneToday = state.tasks.filter(t => t.completedAt === today).length;
-  const streaks = state.habits.map(h => habitStreak(h));
+  const allTasks = state.tasks || [];
+  const tasksLen = allTasks.length;
+  let doneToday = 0;
+  let doneCount = 0;
+  let progressCount = 0;
+  let todayCount = 0;
+  let overdueCount = 0;
+  const todayTasks = [];
+
+  for (let i = 0; i < tasksLen; i++) {
+    const t = allTasks[i];
+    const isDone = t.status === 'done';
+    if (t.completedAt === today) doneToday++;
+    if (isDone) {
+      doneCount++;
+    } else {
+      if (t.status === 'progress') progressCount++;
+      if (t.status === 'today') todayCount++;
+      if (t.status === 'today' || t.due === today) todayTasks.push(t);
+      if (t.due && t.due < today) overdueCount++;
+    }
+  }
+
+  const streaks = (state.habits || []).map(h => habitStreak(h));
   const bestStreak = streaks.length ? Math.max(...streaks) : 0;
-  const goalsWithKR = state.goals.filter(g => g.keyResults && g.keyResults.length);
+  const goalsWithKR = (state.goals || []).filter(g => g.keyResults && g.keyResults.length);
   const avgProgress = goalsWithKR.length
     ? Math.round(goalsWithKR.reduce((s, g) => s + goalProgress(g), 0) / goalsWithKR.length)
     : 0;
-
-  const todayTasks = state.tasks.filter(t =>
-    t.status !== 'done' && (t.status === 'today' || t.due === today)
-  );
 
   const hour = new Date().getHours();
   const greet = hour < 5 ? 'Burning the midnight oil' : hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
@@ -2896,8 +2936,8 @@ function renderDashboard() {
 
   const taskRows = dashListVirt.html(todayTasks, dashTaskHTML, 'dash', '<div class="empty-state"><div class="es-icon">🎉</div>Nothing due today. Enjoy the headroom.</div>');
 
-  const habitChips = state.habits.map(h => {
-    const on = !!h.dates[today];
+  const habitChips = (state.habits || []).map(h => {
+    const on = !!(h.dates && h.dates[today]);
     return `<div class="habit-chip ${on ? 'on' : ''}" data-habit="${h.id}">
       <span class="hc-emoji">${h.emoji}</span>
       <span class="hc-name">${esc(h.name)}</span>
@@ -2905,7 +2945,7 @@ function renderDashboard() {
     </div>`;
   }).join('') || '<div class="empty-state"><div class="es-icon">🌱</div>No habits yet.</div>';
 
-  const recentNotes = [...state.notes].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 5).map(n =>
+  const recentNotes = [...(state.notes || [])].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 5).map(n =>
     `<div class="dash-task" data-open-note="${n.id}">
       <span>${n.audioId ? '🎙️' : '📝'}</span>
       <span class="t-title">${esc(n.title)}</span>
@@ -2914,13 +2954,13 @@ function renderDashboard() {
   ).join('') || '<div class="empty-state"><div class="es-icon">📝</div>No notes yet.</div>';
 
   const axes = [
-    { label: 'Tasks', val: Math.min(100, Math.round((state.tasks.filter(t => t.status === 'done').length / Math.max(1, state.tasks.length)) * 100) || 20) },
+    { label: 'Tasks', val: Math.min(100, Math.round((doneCount / Math.max(1, tasksLen)) * 100) || 20) },
     { label: 'Focus', val: Math.min(100, Math.round(((state.pomoHistory || []).reduce((s, p) => s + (p.duration || 0), 0) / 7200) * 100) || 30) },
-    { label: 'Habits', val: Math.min(100, Math.round((state.habits.filter(h => h.dates[today]).length / Math.max(1, state.habits.length)) * 100) || 25) },
+    { label: 'Habits', val: Math.min(100, Math.round(((state.habits || []).filter(h => h.dates && h.dates[today]).length / Math.max(1, (state.habits || []).length)) * 100) || 25) },
     { label: 'Goals', val: Math.max(15, avgProgress) },
     { label: 'Finance', val: (state.income || []).length ? 80 : 35 },
-    { label: 'Projects', val: Math.min(100, Math.round((state.projects.filter(p => p.status === 'built').length / Math.max(1, state.projects.length)) * 100) || 40) },
-    { label: 'Notes', val: Math.min(100, Math.max(20, state.notes.length * 15)) },
+    { label: 'Projects', val: Math.min(100, Math.round(((state.projects || []).filter(p => p.status === 'built').length / Math.max(1, (state.projects || []).length)) * 100) || 40) },
+    { label: 'Notes', val: Math.min(100, Math.max(20, (state.notes || []).length * 15)) },
     { label: 'Consistency', val: Math.min(100, Math.max(25, bestStreak * 20)) }
   ];
   const lifeBalanceScore = Math.round(axes.reduce((s, a) => s + a.val, 0) / axes.length);
@@ -2999,18 +3039,18 @@ function renderDashboard() {
       </div>
       <div class="stat-card">
         <div class="stat-icon" style="background:rgba(79,140,255,.14)">📝</div>
-        <div><div class="stat-value">${state.notes.length}</div><div class="stat-label">notes captured</div></div>
+        <div><div class="stat-value">${(state.notes || []).length}</div><div class="stat-label">notes captured</div></div>
       </div>
     </div>
     <div class="card" data-dw="task-stats" style="margin-bottom:14px">
       <h3 class="card-title dw-head"><span>📊 Task stats</span><button class="pin-toggle btn-icon" data-dw-pin="task-stats" aria-pressed="true" title="Pin widget">📌</button></h3>
       <div class="task-stats-grid">
-        <div class="ts-item"><div class="ts-val">${state.tasks.length}</div><div class="ts-lbl">Total tasks</div></div>
-        <div class="ts-item"><div class="ts-val ts-done">${state.tasks.filter(t => t.status === 'done').length}</div><div class="ts-lbl">Completed</div></div>
-        <div class="ts-item"><div class="ts-val ts-prog">${state.tasks.filter(t => t.status === 'progress').length}</div><div class="ts-lbl">In progress</div></div>
-        <div class="ts-item"><div class="ts-val ts-today">${state.tasks.filter(t => t.status === 'today').length}</div><div class="ts-lbl">Due today</div></div>
-        <div class="ts-item"><div class="ts-val ts-overdue">${state.tasks.filter(t => t.due && t.due < today && t.status !== 'done').length}</div><div class="ts-lbl">Overdue</div></div>
-        <div class="ts-item"><div class="ts-val">${state.tasks.length ? Math.round(state.tasks.filter(t => t.status === 'done').length / state.tasks.length * 100) : 0}%</div><div class="ts-lbl">Completion rate</div></div>
+        <div class="ts-item"><div class="ts-val">${tasksLen}</div><div class="ts-lbl">Total tasks</div></div>
+        <div class="ts-item"><div class="ts-val ts-done">${doneCount}</div><div class="ts-lbl">Completed</div></div>
+        <div class="ts-item"><div class="ts-val ts-prog">${progressCount}</div><div class="ts-lbl">In progress</div></div>
+        <div class="ts-item"><div class="ts-val ts-today">${todayCount}</div><div class="ts-lbl">Due today</div></div>
+        <div class="ts-item"><div class="ts-val ts-overdue">${overdueCount}</div><div class="ts-lbl">Overdue</div></div>
+        <div class="ts-item"><div class="ts-val">${tasksLen ? Math.round((doneCount / tasksLen) * 100) : 0}%</div><div class="ts-lbl">Completion rate</div></div>
       </div>
     </div>
     <div class="dash-grid">
@@ -3025,7 +3065,7 @@ function renderDashboard() {
         ${dwCard('teaching', '<span>🎓 Teaching &amp; Students</span>', teachingDashboardHTML())}
         ${dwCard('notes', '<span>📝 Recent notes</span><a class="link-btn" href="#notes">All notes →</a>', recentNotes)}
         ${dwCard('projects', '<span>🚀 Projects</span>', projectsDashboardHTML())}
-        ${vaultWidgetHTML()}
+        ${vaultWidgetHTML(state.vault || [])}
       </div>
     </div>`;
 
@@ -4047,24 +4087,28 @@ function openTimeBreakdownModal(taskId) {
 
 /* ============ Time Tracking Dashboard ============ */
 function timeTrackDashboardHTML() {
-  const tasks = state.tasks;
-  // Aggregate by category
+  const tasks = state.tasks || [];
+  // Aggregate by category and collect tracked tasks in single pass
   const catTime = {};
   let totalTime = 0;
-  tasks.forEach(t => {
+  const topTasks = [];
+  for (let i = 0; i < tasks.length; i++) {
+    const t = tasks[i];
     const secs = t.totalProgressTime || 0;
-    if (secs <= 0) return;
-    totalTime += secs;
-    const cat = t.category || 'uncategorized';
-    catTime[cat] = (catTime[cat] || 0) + secs;
-  });
+    if (secs > 0) {
+      totalTime += secs;
+      const cat = t.category || 'uncategorized';
+      catTime[cat] = (catTime[cat] || 0) + secs;
+      topTasks.push(t);
+    }
+  }
   // Sort categories by time desc
   const catEntries = Object.entries(catTime).sort((a, b) => b[1] - a[1]);
   // Top 5 tasks by time
-  const topTasks = tasks
-    .filter(t => (t.totalProgressTime || 0) > 0)
-    .sort((a, b) => (b.totalProgressTime || 0) - (a.totalProgressTime || 0))
-    .slice(0, 5);
+  if (topTasks.length > 1) {
+    topTasks.sort((a, b) => (b.totalProgressTime || 0) - (a.totalProgressTime || 0));
+  }
+  const top5 = topTasks.slice(0, 5);
   // Weekly comparison: this week vs last week
   const now = new Date();
   const dayOfWeek = (now.getDay() + 6) % 7; // Mon=0
@@ -4072,18 +4116,15 @@ function timeTrackDashboardHTML() {
   const lastWeekStart = new Date(weekStart); lastWeekStart.setDate(weekStart.getDate() - 7);
   const lastWeekEnd = new Date(weekStart); lastWeekEnd.setMilliseconds(-1);
   let thisWeek = 0, lastWeek = 0;
-  tasks.forEach(t => {
-    // We approximate by looking at progressStartedAt or completedAt timestamps
-    // For now, use totalProgressTime for all tasks as a rough measure
-  });
-  // Better approach: use pomoHistory for weekly data
+  // Use pomoHistory for weekly data
   const pomoHist = state.pomoHistory || [];
-  pomoHist.forEach(s => {
+  for (let i = 0; i < pomoHist.length; i++) {
+    const s = pomoHist[i];
     const ts = s.startedAt || s.endedAt || 0;
     const d = new Date(ts);
     if (d >= weekStart) thisWeek += s.duration || 0;
     else if (d >= lastWeekStart && d < weekStart) lastWeek += s.duration || 0;
-  });
+  }
   // Build category bars
   const maxCatTime = catEntries.length ? catEntries[0][1] : 1;
   const catBars = catEntries.map(([cat, secs]) => {
