@@ -4139,7 +4139,7 @@ function timeTrackDashboardHTML() {
     </div>`;
   }).join('');
   // Build top tasks
-  const topRows = topTasks.map(t => {
+  const topRows = top5.map(t => {
     const catObj = CATEGORIES.find(c => c.id === t.category);
     const catBadge = catObj ? `<span class="tt-task-cat" style="background:${catObj.color}22;color:${catObj.color}">${catObj.label.split(' ')[0]}</span>` : '';
     const pct = totalTime > 0 ? Math.round((t.totalProgressTime / totalTime) * 100) : 0;
