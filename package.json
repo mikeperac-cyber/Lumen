@@ -2,7 +2,7 @@
   "name": "lumen-productivity",
   "version": "1.0.0",
   "description": "Lumen \u2014 Local-first personal command center & productivity operating system for tasks, goals, habits, notes, and focus.",
-  "main": "app.js",
+  "main": "index.html",
   "scripts": {
     "start": "serve . -l 8092 --no-clipboard",
     "dev": "vite --port 8092 --open",
