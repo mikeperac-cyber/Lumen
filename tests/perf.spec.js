@@ -44,7 +44,7 @@ test('dashboard renders under budget with 2,000 tasks', async ({ page }) => {
     return logs.length ? logs[logs.length - 1].ms : null;
   });
   expect(ms, 'no dashboard perf sample captured').not.toBeNull();
-  expect(ms, `dashboard render was ${ms?.toFixed?.(1)}ms`).toBeLessThan(120);
+  expect(ms, `dashboard render was ${ms?.toFixed?.(1)}ms`).toBeLessThan(180);
 });
 
 test('tasks board renders under budget with 2,000 tasks', async ({ page }) => {

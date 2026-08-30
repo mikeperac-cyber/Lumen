@@ -1746,9 +1746,9 @@ function bindTopbar() {
       const w = pinBtn.dataset.dwPin;
       if (!state.settings) state.settings = {};
       if (w === 'vault') {
-        state.settings.pinVault = !(state.settings.pinVault !== false);
+        state.settings.pinVault = !state.settings.pinVault;
       } else if (w === 'deadlines') {
-        state.settings.pinDeadlines = !(state.settings.pinDeadlines !== false);
+        state.settings.pinDeadlines = !state.settings.pinDeadlines;
       } else {
         let foldList = JSON.parse(localStorage.getItem('lumen.dash.fold') || '[]');
         const idx = foldList.indexOf(w);
