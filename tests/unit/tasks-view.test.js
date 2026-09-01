@@ -1,6 +1,7 @@
 import { describe, it } from 'vitest';
 import assert from 'node:assert/strict';
 import { isArchivedTask, linkGraphForTask, taskCardHTML, taskBoardHTML, taskModalHTML, matrixHTML } from '../../src/tasks/view.js';
+import { getInitialTaskFilter, getInitialTaskState } from '../../src/tasks/controller.js';
 import { isoDate, shiftDays } from '../../src/lib/helpers.js';
 
 const task = (over = {}) => ({
@@ -275,5 +276,25 @@ describe('matrixHTML', () => {
     assert.ok(!html.includes('<script>'));
     assert.ok(!html.includes('<b>One</b>'));
     assert.ok(/<option value="g2" selected>/.test(html));
+  });
+});
+
+
+describe('initial state helpers', () => {
+  it('returns default task filter object', () => {
+    const filter = getInitialTaskFilter();
+    assert.deepEqual(filter, { q: '', goal: '', tag: '', category: '' });
+  });
+
+  it('returns default task state with preset status fallback', () => {
+    const stateDefault = getInitialTaskState();
+    assert.equal(stateDefault.status, 'today');
+    assert.equal(stateDefault.priority, 'med');
+    assert.deepEqual(stateDefault.comments, []);
+    assert.deepEqual(stateDefault.attachments, []);
+    assert.deepEqual(stateDefault.subtasks, []);
+
+    const statePreset = getInitialTaskState('in_progress');
+    assert.equal(statePreset.status, 'in_progress');
   });
 });

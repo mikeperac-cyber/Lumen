@@ -82,8 +82,16 @@ export function setupTasksController(ctx) {
   }
 }
 
+export function getInitialTaskFilter() {
+  return { q: '', goal: '', tag: '', category: '' };
+}
+
+export function getInitialTaskState(presetStatus) {
+  return { title: '', desc: '', status: presetStatus || 'today', priority: 'med', due: '', startDate: '', coverColor: '', coverImage: '', members: [], comments: [], attachments: [], archived: false, watchers: [], goalId: '', tags: [], category: '', recurrence: '', subtasks: [] };
+}
+
 /* ============ Tasks (kanban) ============ */
-let taskFilter = { q: '', goal: '', tag: '', category: '' };
+let taskFilter = getInitialTaskFilter();
 // Filter the board by a tag from anywhere (tags view card, search result) — renders
 // immediately even when already on #tasks (setting the same hash fires no hashchange).
 export function applyTagFilter(tag) {
@@ -591,7 +599,7 @@ export function renderTasks() {
   app.$('#task-category')?.addEventListener('change', e => { taskFilter.category = e.target.value; renderTasks(); });
   const tagChip = app.$('#task-tag-chip');
   if (tagChip) tagChip.addEventListener('click', () => { taskFilter.tag = ''; renderTasks(); });
-  app.$('#task-clear-filter')?.addEventListener('click', () => { taskFilter = { q: '', goal: '', tag: '', category: '' }; renderTasks(); });
+  app.$('#task-clear-filter')?.addEventListener('click', () => { taskFilter = getInitialTaskFilter(); renderTasks(); });
   const viewToggle = app.$('#task-view-toggle');
   if (viewToggle) viewToggle.addEventListener('click', () => { taskViewMode = 'matrix'; renderTasks(); });
   // Batch operations
@@ -748,7 +756,7 @@ export function renderMatrix() {
   app.$('#task-category')?.addEventListener('change', e => { taskFilter.category = e.target.value; renderMatrix(); });
   const tc = app.$('#task-tag-chip');
   if (tc) tc.addEventListener('click', () => { taskFilter.tag = ''; renderMatrix(); });
-  app.$('#task-clear-filter')?.addEventListener('click', () => { taskFilter = { q: '', goal: '', tag: '', category: '' }; renderMatrix(); });
+  app.$('#task-clear-filter')?.addEventListener('click', () => { taskFilter = getInitialTaskFilter(); renderMatrix(); });
   app.$('#task-new')?.addEventListener('click', (e) => {
     try { e.currentTarget?.focus(); } catch (_) {}
     openTaskModal();
@@ -876,7 +884,7 @@ export function renderMatrix() {
 function krOptionsHTML(goalId, selected) { return view.krOptionsHTML(goalId, selected, app.state.goals); }
 
 export function openTaskModal(task, presetStatus) {
-  const t = task || { title: '', desc: '', status: presetStatus || 'today', priority: 'med', due: '', startDate: '', coverColor: '', coverImage: '', members: [], comments: [], attachments: [], archived:false, watchers:[], goalId: '', tags: [], category: '', recurrence: '', subtasks: [] };
+  const t = task || getInitialTaskState(presetStatus);
   if (!t.comments) t.comments = []; if (!t.attachments) t.attachments = []; if (!t.members) t.members = [];
   // Form markup is owned by src/tasks/view.js; this resolves app.state into it, opens the
   // modal, and owns the ~360 lines of binding below.
