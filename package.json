@@ -4,7 +4,7 @@
   "description": "Lumen \u2014 Local-first personal command center & productivity operating system for tasks, goals, habits, notes, and focus.",
   "main": "index.html",
   "scripts": {
-    "start": "serve . -l 8092 --no-clipboard",
+    "start": "serve dist -s -l ${PORT:-8092} --no-clipboard",
     "dev": "vite --port 8092 --open",
     "build": "vite build && node scripts/postbuild.cjs && npm run check:budget",
     "check:budget": "node scripts/check-chunk-budget.cjs",
@@ -48,8 +48,10 @@
     "@playwright/test": "^1.62.1",
     "@vitest/coverage-v8": "^4.1.11",
     "eslint": "^10.9.1",
-    "serve": "^14.2.6",
     "vite": "^8.2.2",
     "vitest": "^4.1.11"
+  },
+  "dependencies": {
+    "serve": "^14.2.6"
   }
 }
