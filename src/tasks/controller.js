@@ -350,11 +350,7 @@ function archiveAllInList(id) {
   app.toast('Archived all cards in list');
 }
 
-export function renderTasks() {
-  if (taskViewMode === 'matrix') { renderMatrix(); return; }
-  ensureKanbanLists();
-  const KANBAN = getKanbanLists();
-  const goals = app.state.goals;
+function prepareTaskBoardData(KANBAN) {
   const filtered = app.state.tasks.filter(t => {
     if (!taskShowArchived && isArchivedTask(t)) return false;
     if (taskShowArchived && !isArchivedTask(t)) return false;
@@ -371,54 +367,48 @@ export function renderTasks() {
     }
     return true;
   });
-  // true per-status totals (ignoring filters) so the column range badge can show filtered/total
+
   taskStatusTotals = {};
   app.state.tasks.forEach(t => { if (isArchivedTask(t) && !taskShowArchived) return; taskStatusTotals[t.status] = (taskStatusTotals[t.status] || 0) + 1; });
   taskFilterActive = !!(taskFilter.q || taskFilter.goal || taskFilter.tag);
-  // NOTE: taskColShowAll intentionally persists across filter changes — reveals stay revealed
-  // when re-filtering, so users can keep hidden work in view without re-expanding columns.
-  // count overdue/due-soon tasks each column hides behind the filter (amber badge)
+
   const soonISO = isoDate(shiftDays(7));
   const filteredSet = new Set(filtered.map(t => t.id));
   taskHiddenRisk = {};
   app.state.tasks.forEach(t => {
     if (isArchivedTask(t)) return;
     if (t.status === 'done' || !t.due || t.due > soonISO) return;
-    if (filteredSet.has(t.id)) return; // visible — not hidden
+    if (filteredSet.has(t.id)) return;
     taskHiddenRisk[t.status] = (taskHiddenRisk[t.status] || 0) + 1;
   });
-  // pulse a column's badges when its hidden at-risk count grows while the filter stays put
-  // (e.g. a hidden deadline crossed into the 7-day window since the last render)
+
   const fSig = (taskFilter.q || '') + '|' + (taskFilter.goal || '') + '|' + (taskFilter.tag || '');
   const pulseSet = new Set();
   if (fSig !== taskFilterSig) {
     taskFilterSig = fSig;
-    taskHiddenRiskPrev = Object.assign({}, taskHiddenRisk); // baseline — no pulse on filter change
+    taskHiddenRiskPrev = Object.assign({}, taskHiddenRisk);
   } else {
     KANBAN.forEach(s => {
       if ((taskHiddenRisk[s.id] || 0) > (taskHiddenRiskPrev[s.id] || 0) && !taskColShowAll.has(s.id)) pulseSet.add(s.id);
     });
     taskHiddenRiskPrev = Object.assign({}, taskHiddenRisk);
   }
+
   const allByStatus = status => app.state.tasks.filter(t => t.status === status && (taskShowArchived ? isArchivedTask(t) : !isArchivedTask(t)));
   const hiddenTotal = KANBAN.reduce((sum, s) => sum + (taskColShowAll.has(s.id) ? 0 : (taskHiddenRisk[s.id] || 0)), 0);
   const riskParts = KANBAN.filter(s => !taskColShowAll.has(s.id) && (taskHiddenRisk[s.id] || 0) > 0)
     .map(s => `${taskHiddenRisk[s.id]} ${s.title.toLowerCase()}`);
-  // Board chrome is built by src/tasks/view.js; this resolves per-column counts
-  // (which depend on the filter and the per-column "show all" toggle) and binds below.
+
   const columns = KANBAN.map(s => ({
     ...s,
     count: (taskColShowAll.has(s.id) ? allByStatus(s.id) : filtered.filter(t => t.status === s.id)).length,
     warn: !!(taskFilterActive && !taskColShowAll.has(s.id) && (taskHiddenRisk[s.id] || 0)),
   }));
-  app.viewRoot().innerHTML = view.taskBoardHTML({
-    columns, goals, filter: taskFilter, filterActive: taskFilterActive,
-    hiddenTotal, riskParts, showArchived: taskShowArchived,
-    selectMode: taskSelectMode, selectedCount: taskSelected.size,
-    allSelected: !!(taskSelected.size && taskSelected.size === filtered.length), ic: app.ic || (typeof ic !== 'undefined' ? ic : (n) => ''),
-  });
 
-  // windowed column bodies (Trello lists)
+  return { filtered, pulseSet, columns, hiddenTotal, riskParts, allByStatus };
+}
+
+function renderTaskColumns(KANBAN, filtered, allByStatus) {
   Object.keys(taskVirtRAF).forEach(status => {
     if (taskVirtRAF[status]) {
       cancelRAF(taskVirtRAF[status]);
@@ -436,7 +426,9 @@ export function renderTasks() {
     renderTaskColumnBody(s.id);
     bindColScroll(s.id);
   });
-  // click the filtered/total badge to cycle that column between matched and all tasks
+}
+
+function bindKanbanListMenuEvents(KANBAN, pulseSet) {
   app.$$('.col-range').forEach(el => el.addEventListener('click', () => {
     const st = el.dataset.range;
     if (!taskFilterActive) return;
@@ -444,7 +436,6 @@ export function renderTasks() {
     renderTasks();
   }));
 
-  // Trello list menu (⋮) — rename, change color, archive all, delete
   app.$$('[data-list-menu]').forEach(btn => btn.addEventListener('click', e => {
     e.stopPropagation();
     const id = btn.dataset.listMenu;
@@ -470,20 +461,20 @@ export function renderTasks() {
     app.$('#list-archive-all')?.addEventListener('click', ()=>{ app.closeModal(); archiveAllInList(id); });
     app.$('#list-delete')?.addEventListener('click', ()=>{ app.closeModal(); deleteKanbanList(id); });
   }));
+
   app.$$('[data-rename-list]').forEach(el => el.addEventListener('dblclick', () => {
     const id = el.dataset.renameList;
     const l = getKanbanLists().find(x=>x.id===id); if (!l) return;
     const nv = prompt('Rename list', l.title);
     if (nv && nv.trim() && nv.trim()!==l.title) renameKanbanList(id, nv.trim());
   }));
-  // toolbar summary of hidden at-risk work — click to reveal all of it
+
   const riskPill = app.$('#task-risk-pill');
   if (riskPill) riskPill.addEventListener('click', () => {
     taskColShowAll = new Set(KANBAN.map(s => s.id));
     renderTasks();
   });
 
-  // amber pulse on column badges when a hidden deadline passed while the filter is active
   if (taskFilterActive && pulseSet.size) {
     pulseSet.forEach(status => {
       const col = app.$(`.col[data-status="${status}"]`);
@@ -494,8 +485,9 @@ export function renderTasks() {
       app.$$('.col-count.pulse, .col-range.pulse').forEach(el => el.classList.remove('pulse'));
     }, 2000);
   }
+}
 
-  // drag & drop (column-level — works with windowed bodies; card-level drag hooks are bound in bindTaskCards)
+function bindKanbanDragAndDrop() {
   app.$$('.col').forEach(col => {
     col.addEventListener('dragover', e => { e.preventDefault(); col.classList.add('drag-over'); });
     col.addEventListener('dragleave', () => col.classList.remove('drag-over'));
@@ -524,18 +516,7 @@ export function renderTasks() {
       }
     });
   });
-  // add column buttons
-  app.$$('.col-add').forEach(b => b.addEventListener('click', () => openTaskModal(null, b.dataset.addStatus)));
-  app.$('#task-new')?.addEventListener('click', (e) => {
-    try { e.currentTarget?.focus(); } catch (_) {}
-    openTaskModal();
-  });
-  app.$('#task-add-list')?.addEventListener('click', () => {
-    const t = prompt('New list title'); if (t) addKanbanList(t);
-  });
-  app.$('#task-show-archived')?.addEventListener('change', e => { taskShowArchived = e.target.checked; renderTasks(); });
-  // drag & drop for kanban lists (reorder lists) — simple: drag header to reorder
-  // (uses HTML5 DnD on .col)
+
   app.$$('.col').forEach(colEl => {
     const head = colEl.querySelector('.col-head'); if (!head) return;
     head.draggable = true;
@@ -552,7 +533,19 @@ export function renderTasks() {
       lists.splice(dIdx,0,moved); app.save(); renderTasks();
     });
   });
-  // Quick-add inline
+}
+
+function bindKanbanToolbarAndQuickAdd() {
+  app.$$('.col-add').forEach(b => b.addEventListener('click', () => openTaskModal(null, b.dataset.addStatus)));
+  app.$('#task-new')?.addEventListener('click', (e) => {
+    try { e.currentTarget?.focus(); } catch (_) {}
+    openTaskModal();
+  });
+  app.$('#task-add-list')?.addEventListener('click', () => {
+    const t = prompt('New list title'); if (t) addKanbanList(t);
+  });
+  app.$('#task-show-archived')?.addEventListener('change', e => { taskShowArchived = e.target.checked; renderTasks(); });
+
   const quickInput = app.$('#quick-task-input');
   const quickAdd = () => {
     const raw = quickInput.value.trim();
@@ -594,7 +587,9 @@ export function renderTasks() {
   app.$('#task-clear-filter')?.addEventListener('click', () => { taskFilter = { q: '', goal: '', tag: '', category: '' }; renderTasks(); });
   const viewToggle = app.$('#task-view-toggle');
   if (viewToggle) viewToggle.addEventListener('click', () => { taskViewMode = 'matrix'; renderTasks(); });
-  // Batch operations
+}
+
+function bindKanbanBatchOperations(filtered) {
   const selectBtn = app.$('#task-select-mode');
   if (selectBtn) selectBtn.addEventListener('click', () => {
     taskSelectMode = !taskSelectMode;
@@ -694,6 +689,28 @@ export function renderTasks() {
     app.save(); renderTasks();
     app.toast('Batch deleted');
   });
+}
+
+export function renderTasks() {
+  if (taskViewMode === 'matrix') { renderMatrix(); return; }
+  ensureKanbanLists();
+  const KANBAN = getKanbanLists();
+  const goals = app.state.goals;
+
+  const { filtered, pulseSet, columns, hiddenTotal, riskParts, allByStatus } = prepareTaskBoardData(KANBAN);
+
+  app.viewRoot().innerHTML = view.taskBoardHTML({
+    columns, goals, filter: taskFilter, filterActive: taskFilterActive,
+    hiddenTotal, riskParts, showArchived: taskShowArchived,
+    selectMode: taskSelectMode, selectedCount: taskSelected.size,
+    allSelected: !!(taskSelected.size && taskSelected.size === filtered.length), ic: app.ic || (typeof ic !== 'undefined' ? ic : (n) => ''),
+  });
+
+  renderTaskColumns(KANBAN, filtered, allByStatus);
+  bindKanbanListMenuEvents(KANBAN, pulseSet);
+  bindKanbanDragAndDrop();
+  bindKanbanToolbarAndQuickAdd();
+  bindKanbanBatchOperations(filtered);
 }
 
 // Card markup is owned by src/tasks/view.js; this resolves app.state into it.

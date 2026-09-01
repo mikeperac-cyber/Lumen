@@ -1,10 +1,11 @@
 {
   "name": "lumen-productivity",
   "version": "1.0.0",
-  "description": "Lumen \u2014 Local-first personal command center & productivity operating system for tasks, goals, habits, notes, and focus.",
+  "description": "Lumen — Local-first personal command center & productivity operating system for tasks, goals, habits, notes, and focus.",
   "main": "index.html",
+  "type": "module",
   "scripts": {
-    "start": "serve . -l 8092 --no-clipboard",
+    "start": "serve . -l ${PORT:-8092} --no-clipboard",
     "dev": "vite --port 8092 --open",
     "build": "vite build && node scripts/postbuild.cjs && npm run check:budget",
     "check:budget": "node scripts/check-chunk-budget.cjs",
@@ -18,6 +19,17 @@
     "test:all": "npm run test:unit && npm test",
     "lint": "eslint .",
     "precommit": "echo \"done\""
+  },
+  "dependencies": {
+    "serve": "^14.2.6",
+    "vite": "^8.2.2"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.62.1",
+    "@vitest/coverage-v8": "^4.1.11",
+    "eslint": "^10.9.1",
+    "vitest": "^4.1.11"
   },
   "repository": {
     "type": "git",
@@ -38,18 +50,8 @@
   ],
   "author": "Lumen Contributors",
   "license": "MIT",
-  "type": "commonjs",
   "bugs": {
     "url": "https://github.com/miketeacher-ai/to-do-list-1/issues"
   },
-  "homepage": "https://github.com/miketeacher-ai/to-do-list-1#readme",
-  "devDependencies": {
-    "@eslint/js": "^10.0.1",
-    "@playwright/test": "^1.62.1",
-    "@vitest/coverage-v8": "^4.1.11",
-    "eslint": "^10.9.1",
-    "serve": "^14.2.6",
-    "vite": "^8.2.2",
-    "vitest": "^4.1.11"
-  }
+  "homepage": "https://github.com/miketeacher-ai/to-do-list-1#readme"
 }
