@@ -1,8 +1,7 @@
 // @ts-check
 // Config WITHOUT webServer — used for real-offline probes where we control the server.
-import { defineConfig } from '@playwright/test';
-
-export default defineConfig({
+const { defineConfig } = require('@playwright/test');
+module.exports = defineConfig({
   testDir: './tests',
   // Playwright's default testMatch also picks up *.test.js, which would pull in
   // tests/unit/** — those are Vitest's. E2E specs are *.spec.js, unit are *.test.js.

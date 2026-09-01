@@ -1,7 +1,7 @@
 // @ts-check
-import { defineConfig, devices } from '@playwright/test';
+const { defineConfig, devices } = require('@playwright/test');
 
-export default defineConfig({
+module.exports = defineConfig({
   testDir: './tests',
   // Playwright's default testMatch also picks up *.test.js, which would pull in
   // tests/unit/** — those are Vitest's. E2E specs are *.spec.js, unit are *.test.js.
