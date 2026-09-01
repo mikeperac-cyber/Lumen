@@ -705,42 +705,50 @@ function taskCardHTML(t) {
 }
 
 /* ============ Eisenhower Matrix View ============ */
-export function renderMatrix() {
-  const sig = JSON.stringify(taskFilter);
-  if (sig !== _matrixFilterSig) { _matrixFilterSig = sig; _matrixVisible = { do: 60, schedule: 60, delegate: 60, eliminate: 60 }; }
-  const filtered = app.state.tasks.filter(t => {
-    if (taskFilter.goal && t.goalId !== taskFilter.goal) return false;
-    if (taskFilter.tag) {
+function filterMatrixTasks(tasks, filter) {
+  return tasks.filter(t => {
+    if (filter.goal && t.goalId !== filter.goal) return false;
+    if (filter.tag) {
       const tags = t.tags || [];
-      const has = taskFilter.tag === 'untagged' ? tags.length === 0 : tags.includes(taskFilter.tag);
+      const has = filter.tag === 'untagged' ? tags.length === 0 : tags.includes(filter.tag);
       if (!has) return false;
     }
-    if (taskFilter.category && t.category !== taskFilter.category) return false;
-    if (taskFilter.q) {
+    if (filter.category && t.category !== filter.category) return false;
+    if (filter.q) {
       const hay = (t.title + ' ' + t.desc + ' ' + (t.tags || []).join(' ')).toLowerCase();
-      if (!hay.includes(taskFilter.q.toLowerCase())) return false;
+      if (!hay.includes(filter.q.toLowerCase())) return false;
     }
     return t.status !== 'done';
   });
-  function isUrgent(t) {
-    if (!t.due) return false;
-    const diff = (new Date(t.due + 'T00:00:00') - new Date()) / 86400000;
-    return diff <= 3; // due within 3 days
-  }
-  function isImportant(t) {
-    return t.priority === 'high' || t.goalId;
-  }
-  const q1 = filtered.filter(t => isUrgent(t) && isImportant(t));
-  const q2 = filtered.filter(t => !isUrgent(t) && isImportant(t));
-  const q3 = filtered.filter(t => isUrgent(t) && !isImportant(t));
-  const q4 = filtered.filter(t => !isUrgent(t) && !isImportant(t));
-  // Grid markup is owned by src/tasks/view.js; the urgent/important split and the
-  // per-quadrant window stay here, with the filter app.state they depend on.
-  app.viewRoot().innerHTML = view.matrixHTML({
-    tasksByQuadrant: { do: q1, schedule: q2, delegate: q3, eliminate: q4 },
-    limits: _matrixVisible, goals: app.state.goals, filter: taskFilter, ic: app.ic || (typeof ic !== 'undefined' ? ic : (n) => ''),
-  });
-  // Bind
+}
+
+function isUrgentTask(t) {
+  if (!t.due) return false;
+  const diff = (new Date(t.due + 'T00:00:00') - new Date()) / 86400000;
+  return diff <= 3; // due within 3 days
+}
+
+function isImportantTask(t) {
+  return t.priority === 'high' || t.goalId;
+}
+
+function getTaskQuad(t) {
+  const u = isUrgentTask(t), i = isImportantTask(t);
+  if (u && i) return 'do';
+  if (!u && i) return 'schedule';
+  if (u && !i) return 'delegate';
+  return 'eliminate';
+}
+
+function categorizeMatrixTasks(filtered) {
+  const q1 = filtered.filter(t => isUrgentTask(t) && isImportantTask(t));
+  const q2 = filtered.filter(t => !isUrgentTask(t) && isImportantTask(t));
+  const q3 = filtered.filter(t => isUrgentTask(t) && !isImportantTask(t));
+  const q4 = filtered.filter(t => !isUrgentTask(t) && !isImportantTask(t));
+  return { q1, q2, q3, q4 };
+}
+
+function bindMatrixToolbarEvents() {
   app.$('#task-view-toggle').addEventListener('click', () => { taskViewMode = 'kanban'; renderTasks(); });
   if (app.bindFilterInput) app.bindFilterInput('#task-q', 120, v => { taskFilter.q = v; renderMatrix(); });
   app.$('#task-goal')?.addEventListener('change', e => { taskFilter.goal = e.target.value; renderMatrix(); });
@@ -752,6 +760,9 @@ export function renderMatrix() {
     try { e.currentTarget?.focus(); } catch (_) {}
     openTaskModal();
   });
+}
+
+function bindMatrixCardEvents() {
   app.$$('[data-more]').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); matrixShowMore(b.dataset.more); }));
   // IntersectionObserver virtualization: auto-expand when 'Show more' scrolls into view (keeps drag handlers intact)
   if ('IntersectionObserver' in window) {
@@ -774,7 +785,9 @@ export function renderMatrix() {
     app.save(); renderMatrix();
     if (kr && app.goalProgressToast) app.goalProgressToast(t, wasDone, kr);
   }));
-  // ---- Drag & drop for matrix ----
+}
+
+function bindMatrixDragAndDrop() {
   let draggedTaskId = null;
   app.$$('.matrix-task[draggable]', app.viewRoot()).forEach(el => {
     el.addEventListener('dragstart', e => {
@@ -810,7 +823,7 @@ export function renderMatrix() {
       const target = quadMap[targetQuad];
       if (!target) return;
       // Check if task is already in this quadrant — if so, reorder
-      const srcQuad = getTaskQuad(task, isUrgent, isImportant);
+      const srcQuad = getTaskQuad(task);
       if (srcQuad === targetQuad) {
         // Reorder: find drop position among siblings
         const siblings = Array.from(zone.querySelectorAll('.matrix-task'));
@@ -836,9 +849,9 @@ export function renderMatrix() {
       }
       // Move to a different quadrant: change priority or due date
       app.captureUndo('Move between quadrants');
-      if (target.important && !isImportant(task)) {
+      if (target.important && !isImportantTask(task)) {
         task.priority = 'high';
-      } else if (!target.important && isImportant(task)) {
+      } else if (!target.important && isImportantTask(task)) {
         // Remove importance: lower priority and remove goal link
         if (task.priority === 'high') task.priority = 'med';
         if (target.urgent) {
@@ -850,10 +863,10 @@ export function renderMatrix() {
           task.priority = 'low';
         }
       }
-      if (target.urgent && !isUrgent(task)) {
+      if (target.urgent && !isUrgentTask(task)) {
         // Set due date to within 3 days
         task.due = isoDate(shiftDays(Math.floor(Math.random() * 3) + 1));
-      } else if (!target.urgent && isUrgent(task)) {
+      } else if (!target.urgent && isUrgentTask(task)) {
         // Push due date out beyond 3 days
         task.due = isoDate(shiftDays(7 + Math.floor(Math.random() * 7)));
       }
@@ -863,13 +876,24 @@ export function renderMatrix() {
       app.toast('Task moved to ' + (quadObj.title || targetQuad));
     });
   });
-  function getTaskQuad(t, urgentFn, importantFn) {
-    const u = urgentFn(t), i = importantFn(t);
-    if (u && i) return 'do';
-    if (!u && i) return 'schedule';
-    if (u && !i) return 'delegate';
-    return 'eliminate';
-  }
+}
+
+export function renderMatrix() {
+  const sig = JSON.stringify(taskFilter);
+  if (sig !== _matrixFilterSig) { _matrixFilterSig = sig; _matrixVisible = { do: 60, schedule: 60, delegate: 60, eliminate: 60 }; }
+  const filtered = filterMatrixTasks(app.state.tasks, taskFilter);
+  const { q1, q2, q3, q4 } = categorizeMatrixTasks(filtered);
+
+  // Grid markup is owned by src/tasks/view.js; the urgent/important split and the
+  // per-quadrant window stay here, with the filter app.state they depend on.
+  app.viewRoot().innerHTML = view.matrixHTML({
+    tasksByQuadrant: { do: q1, schedule: q2, delegate: q3, eliminate: q4 },
+    limits: _matrixVisible, goals: app.state.goals, filter: taskFilter, ic: app.ic || (typeof ic !== 'undefined' ? ic : (n) => ''),
+  });
+
+  bindMatrixToolbarEvents();
+  bindMatrixCardEvents();
+  bindMatrixDragAndDrop();
 }
 
 function krOptionsHTML(goalId, selected) { return view.krOptionsHTML(goalId, selected, app.state.goals); }
