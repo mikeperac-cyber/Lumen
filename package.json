@@ -38,7 +38,7 @@
   ],
   "author": "Lumen Contributors",
   "license": "MIT",
-  "type": "commonjs",
+  "type": "module",
   "bugs": {
     "url": "https://github.com/miketeacher-ai/to-do-list-1/issues"
   },
