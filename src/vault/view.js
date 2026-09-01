@@ -150,7 +150,12 @@ export function vaultViewHTML(ctx) {
   const deps = { collections, tasks, tagSpan };
   const allTags = vaultTagSet(allItems);
   const total = allItems.length;
-  const typeCounts = VAULT_TYPES.map(t=>({id:t.id,label:t.label,icon:t.icon,count: allItems.filter(v=>v.type===t.id).length}));
+  const typeFreq = {};
+  for (let i = 0; i < allItems.length; i++) {
+    const t = allItems[i].type;
+    typeFreq[t] = (typeFreq[t] || 0) + 1;
+  }
+  const typeCounts = VAULT_TYPES.map(t=>({id:t.id,label:t.label,icon:t.icon,count: typeFreq[t.id] || 0}));
   const selectedType = filter.type || '';
   const selectedTag = filter.tag || '';
   const selectedCol = filter.collection || '';
