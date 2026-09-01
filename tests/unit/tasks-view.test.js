@@ -277,3 +277,21 @@ describe('matrixHTML', () => {
     assert.ok(/<option value="g2" selected>/.test(html));
   });
 });
+
+describe('pomoHistory session filtering date parsing', () => {
+  const getSessionDateStr = (startedAt) => {
+    if (typeof startedAt === 'string') return startedAt.slice(0, 10);
+    if (typeof startedAt === 'number' || startedAt instanceof Date) return new Date(startedAt).toISOString().slice(0, 10);
+    return '';
+  };
+
+  it('correctly formats string, number, Date, and invalid startedAt values', () => {
+    const today = '2025-05-18';
+    assert.equal(getSessionDateStr('2025-05-18T10:00:00.000Z'), today);
+    assert.equal(getSessionDateStr('2025-05-18'), today);
+    assert.equal(getSessionDateStr(new Date('2025-05-18T10:00:00.000Z').getTime()), today);
+    assert.equal(getSessionDateStr(new Date('2025-05-18T10:00:00.000Z')), today);
+    assert.equal(getSessionDateStr(null), '');
+    assert.equal(getSessionDateStr(undefined), '');
+  });
+});
