@@ -1158,7 +1158,12 @@ export function openTaskModal(task, presetStatus) {
       }
       if (sessionsInfo) {
         const today = app.todayISO ? app.todayISO() : todayISO();
-        const todaySessions = (app.state.pomoHistory || []).filter(s => s.taskId === task.id && s.startedAt && new Date(s.startedAt).toISOString().slice(0, 10) === today);
+        const getSessionDateStr = (startedAt) => {
+          if (typeof startedAt === 'string') return startedAt.slice(0, 10);
+          if (typeof startedAt === 'number' || startedAt instanceof Date) return new Date(startedAt).toISOString().slice(0, 10);
+          return '';
+        };
+        const todaySessions = (app.state.pomoHistory || []).filter(s => s.taskId === task.id && s.startedAt && getSessionDateStr(s.startedAt) === today);
         sessionsInfo.textContent = `${todaySessions.length} session${todaySessions.length === 1 ? '' : 's'} today`;
       }
     }
