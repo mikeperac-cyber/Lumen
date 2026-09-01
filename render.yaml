@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: lumen-productivity
+    runtime: node
+    buildCommand: npm install && npm run build
+    startCommand: npm start
