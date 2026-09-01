@@ -1124,8 +1124,8 @@ function flushSave() {
   maybeAutoSync();
   checkOverdueNotifications();
 }
-window.addEventListener('pagehide', flushSave);
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushSave(); });
+if (typeof window !== 'undefined') { if (typeof window !== 'undefined') { window.addEventListener('pagehide', flushSave); } }
+if (typeof document !== 'undefined') { if (typeof document !== 'undefined') { document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushSave(); }); } }
 
 /* ============ Undo / Redo ============ */
 const UNDO_MAX = 40;
@@ -4765,7 +4765,7 @@ function scheduleHabitViewSave() {
   clearTimeout(habitViewSaveT);
   habitViewSaveT = setTimeout(persistHabitView, 500);
 }
-window.addEventListener('pagehide', () => { if (habitViewLoaded) persistHabitView(); });
+if (typeof window !== 'undefined') { window.addEventListener('pagehide', () => { if (habitViewLoaded) persistHabitView(); }); }
 function bindHabitCards(scope) {
   const grid = scope && scope.id === 'habits-grid' ? scope : null;
   if (grid && !grid.dataset.hmBound) {
@@ -7096,7 +7096,7 @@ function syncCardHTML() {
     <p class="muted" style="font-size:12px;margin-top:10px;line-height:1.5">Peer-to-peer over WebRTC (PeerJS free signaling). Both devices need internet and must be online at the same time. Edits to the same item are merged newest-first. Voice recordings transfer over the same connection — long memos take a moment to arrive. Changes made while offline are queued and sent automatically when you reconnect.</p>
   </div>`;
 }
-window.addEventListener('beforeunload', () => { try { peer && peer.destroy(); } catch (_) {} });
+if (typeof window !== 'undefined') { window.addEventListener('beforeunload', () => { try { peer && peer.destroy(); } catch (_) {} }); }
 
 /* ============ ICS Calendar Export ============ */
 function exportICS() {
@@ -11486,7 +11486,7 @@ function init() {
     } catch (_) {}
   });
 }
-document.addEventListener('DOMContentLoaded', init);
+if (typeof document !== 'undefined') { if (typeof document !== 'undefined') { document.addEventListener('DOMContentLoaded', init); } }
 
 // Runtime seam: src/state/store.js and other src/ modules read these off window.
 if (typeof window !== 'undefined') { try {
