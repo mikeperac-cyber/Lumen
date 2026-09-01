@@ -26,6 +26,20 @@ function shift(base, n) { const d = new Date(base); d.setDate(d.getDate() + n); 
  */
 const escapeRegExp = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+const studentReCache = new Map();
+
+function getStudentRegExp(name) {
+  let re = studentReCache.get(name);
+  if (!re) {
+    if (studentReCache.size > 500) {
+      studentReCache.clear();
+    }
+    re = new RegExp(`\\b(?:with|for|student:)?\\s*${escapeRegExp(name)}\\b`, "i");
+    studentReCache.set(name, re);
+  }
+  return re;
+}
+
 export function parseNaturalLanguageTask(rawText, deps) {
   const d = deps || {};
   const studentsList = d.students || [];
@@ -80,13 +94,13 @@ export function parseNaturalLanguageTask(rawText, deps) {
 
   // task 18: pre-compile regexes once per parse and skip fuzzy match if @token already resolved
   if (!student && studentsList.length) {
-    const compiled = studentsList
-      .filter((s) => s.name && s.name.length >= 3)
-      .map((s) => ({ name: s.name, re: new RegExp(`\\b(?:with|for|student:)?\\s*${escapeRegExp(s.name)}\\b`, 'i') }));
-    for (const { name, re } of compiled) {
-      if (re.test(text)) {
-        student = name;
-        break;
+    for (const s of studentsList) {
+      if (s.name && s.name.length >= 3) {
+        const re = getStudentRegExp(s.name);
+        if (re.test(text)) {
+          student = s.name;
+          break;
+        }
       }
     }
   }
