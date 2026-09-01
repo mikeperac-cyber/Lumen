@@ -4,7 +4,7 @@
   "description": "Lumen \u2014 Local-first personal command center & productivity operating system for tasks, goals, habits, notes, and focus.",
   "main": "index.html",
   "scripts": {
-    "start": "serve . -l 8092 --no-clipboard",
+    "start": "serve dist -s -l 8092",
     "dev": "vite --port 8092 --open",
     "build": "vite build && node scripts/postbuild.cjs && npm run check:budget",
     "check:budget": "node scripts/check-chunk-budget.cjs",
