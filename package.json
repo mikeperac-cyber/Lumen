@@ -1,7 +1,7 @@
 {
   "name": "lumen-productivity",
   "version": "1.0.0",
-  "description": "Lumen \u2014 Local-first personal command center & productivity operating system for tasks, goals, habits, notes, and focus.",
+  "description": "Lumen — Local-first personal command center & productivity operating system for tasks, goals, habits, notes, and focus.",
   "main": "index.html",
   "scripts": {
     "start": "serve . -l 8092 --no-clipboard",
@@ -38,7 +38,7 @@
   ],
   "author": "Lumen Contributors",
   "license": "MIT",
-  "type": "commonjs",
+  "type": "module",
   "bugs": {
     "url": "https://github.com/miketeacher-ai/to-do-list-1/issues"
   },
@@ -48,8 +48,10 @@
     "@playwright/test": "^1.62.1",
     "@vitest/coverage-v8": "^4.1.11",
     "eslint": "^10.9.1",
-    "serve": "^14.2.6",
-    "vite": "^8.2.2",
     "vitest": "^4.1.11"
+  },
+  "dependencies": {
+    "serve": "^14.2.6",
+    "vite": "^8.2.2"
   }
 }
