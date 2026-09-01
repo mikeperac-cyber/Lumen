@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { htmlEscape, safeAttr } from '../../src/lib/helpers.js';
 
 describe('htmlEscape / safeAttr — XSS regression (task 11)', () => {
-  it('escapes < > & \" \'', () => {
+  it('escapes < > & " \'', () => {
     assert.equal(htmlEscape('<div>'), '&lt;div&gt;');
     assert.equal(htmlEscape('a & b'), 'a &amp; b');
     assert.equal(htmlEscape('"x"'), '&quot;x&quot;');
@@ -45,5 +45,13 @@ describe('htmlEscape / safeAttr — XSS regression (task 11)', () => {
     const twice = htmlEscape(once);
     // double-escape should escape the & of &lt;
     assert.equal(twice, '&amp;lt;b&amp;gt;');
+  });
+
+  it('escapes attachment file names when generating file icons / attachment markup', () => {
+    const fileName = '<img src=x onerror=alert(1)>.png';
+    const escapedFileName = htmlEscape(fileName);
+    assert.equal(escapedFileName, '&lt;img src=x onerror=alert(1)&gt;.png');
+    assert.ok(!escapedFileName.includes('<'));
+    assert.ok(!escapedFileName.includes('>'));
   });
 });
