@@ -722,9 +722,10 @@ export function renderMatrix() {
     }
     return t.status !== 'done';
   });
+  const now = new Date();
   function isUrgent(t) {
     if (!t.due) return false;
-    const diff = (new Date(t.due + 'T00:00:00') - new Date()) / 86400000;
+    const diff = (new Date(t.due + 'T00:00:00') - now) / 86400000;
     return diff <= 3; // due within 3 days
   }
   function isImportant(t) {
