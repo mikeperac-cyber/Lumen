@@ -921,7 +921,32 @@ export function openTaskModal(task, presetStatus) {
   app.$('#f-cover-file')?.addEventListener('change', async e => {
     const f = e.target.files[0]; if (!f) return;
     if (f.size > 2*1024*1024) { app.toast('Image too large (max 2MB)', 'error'); return; }
-    const reader = new FileReader(); reader.onload = () => { pendingCoverImage = reader.result; const prev = document.querySelector('.cover-preview'); if (prev) prev.innerHTML = `<img src="${pendingCoverImage}" style="max-width:100%;max-height:120px;border-radius:8px;border:1px solid var(--border)">`; else document.getElementById('f-cover-picker').insertAdjacentHTML('afterend', `<div class="cover-preview" style="margin-top:8px"><img src="${pendingCoverImage}" style="max-width:100%;max-height:120px;border-radius:8px"></div>`); app.toast('Cover image ready — save to keep'); }; reader.readAsDataURL(f);
+    const reader = new FileReader(); reader.onload = () => {
+      pendingCoverImage = reader.result;
+      if (typeof pendingCoverImage !== 'string' || !/^data:image\/(png|jpeg|webp|gif);base64,/.test(pendingCoverImage)) {
+        app.toast('Invalid image format', 'error');
+        return;
+      }
+      let prev = document.querySelector('.cover-preview');
+      if (!prev) {
+        prev = document.createElement('div');
+        prev.className = 'cover-preview';
+        prev.style.marginTop = '8px';
+        const picker = document.getElementById('f-cover-picker');
+        if (picker && picker.parentNode) {
+          picker.parentNode.insertBefore(prev, picker.nextSibling);
+        }
+      }
+      prev.replaceChildren();
+      const img = document.createElement('img');
+      img.src = pendingCoverImage;
+      img.style.maxWidth = '100%';
+      img.style.maxHeight = '120px';
+      img.style.borderRadius = '8px';
+      img.style.border = '1px solid var(--border)';
+      prev.appendChild(img);
+      app.toast('Cover image ready — save to keep');
+    }; reader.readAsDataURL(f);
   });
   app.$('#f-cover-clear')?.addEventListener('click', ()=>{ pendingCoverImage=''; pendingCoverColor=''; app.$$('[data-cover]').forEach(x=>x.classList.remove('active')); const prev=document.querySelector('.cover-preview'); if(prev) prev.remove(); });
   // Watch toggle

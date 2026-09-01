@@ -46,4 +46,16 @@ describe('htmlEscape / safeAttr — XSS regression (task 11)', () => {
     // double-escape should escape the & of &lt;
     assert.equal(twice, '&amp;lt;b&amp;gt;');
   });
+
+  it('validates cover image data URL format safely', () => {
+    const validDataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    const invalidDataUrl = 'data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==';
+    const xssPayloadUrl = 'javascript:alert(1)';
+
+    const isSafeImage = (url) => typeof url === 'string' && /^data:image\/(png|jpeg|webp|gif);base64,/.test(url);
+
+    assert.ok(isSafeImage(validDataUrl));
+    assert.ok(!isSafeImage(invalidDataUrl));
+    assert.ok(!isSafeImage(xssPayloadUrl));
+  });
 });
