@@ -874,6 +874,80 @@ export function renderMatrix() {
 
 function krOptionsHTML(goalId, selected) { return view.krOptionsHTML(goalId, selected, app.state.goals); }
 
+function handleTaskModalSave(task, t, options = {}) {
+  const { pendingCoverColor = '', pendingCoverImage = '' } = options;
+  const title = app.$('#f-title').value.trim();
+  if (!title) { app.toast('Give the task a title', 'error'); return; }
+  // Collect subtasks
+  const subtasks = [];
+  app.$$('.subtask-row').forEach(row => {
+    const text = row.querySelector('.st-input').value.trim();
+    const done = row.querySelector('.st-check').checked;
+    if (text) subtasks.push({ text, done, id: app.uid() });
+  });
+  const data = {
+    title,
+    desc: app.$('#f-desc').value.trim(),
+    status: app.$('#f-status').value,
+    priority: app.$('#f-prio').value,
+    student: app.$('#f-student')?.value || undefined,
+    due: app.$('#f-due').value,
+    startDate: app.$('#f-start')?.value || '',
+    coverColor: pendingCoverColor,
+    coverImage: pendingCoverImage,
+    members: (app.$('#f-members')?.value || '').split(',').map(s=>s.trim()).filter(Boolean),
+    comments: t.comments || [],
+    attachments: t.attachments || [],
+    archived: !!t.archived,
+    watchers: t.watchers || [],
+    category: app.$('#f-category').value,
+    recurrence: app.$('#f-recurrence').value,
+    goalId: app.$('#f-goal').value,
+    scheduleDay: app.$('#f-sched-day').value,
+    schedulePeriod: app.$('#f-sched-period').value,
+    startTime: app.$('#f-start-time').value || '',
+    endTime: app.$('#f-end-time').value || '',
+    tags: app.$('#f-tags').value.split(',').map(s => s.trim()).filter(Boolean),
+    vaultIds: [...document.querySelectorAll('#f-vault-picker input:checked')].map(i=>i.value),
+    subtasks
+  };
+  const krSel = app.$('#f-kr');
+  if (krSel) data.krId = krSel.value;
+  app.captureUndo(task ? 'Edit task' : 'Create task');
+  // sync reverse vault links
+  const prevVaultIds = task ? (task.vaultIds||[]) : [];
+  const newVaultIds = data.vaultIds || [];
+  const allVaultIds = new Set([...prevVaultIds, ...newVaultIds]);
+  allVaultIds.forEach(vid=>{
+    const v=app.state.vaultItems.find(x=>x.id===vid); if(!v) return;
+    if(!Array.isArray(v.linkedTaskIds)) v.linkedTaskIds=[];
+    const shouldHave=newVaultIds.includes(vid);
+    const has=v.linkedTaskIds.includes(task?.id || data.id || '');
+    // for new task, task.id not yet known — will be assigned below, handle after
+    if(shouldHave && !has && task && task.id) { v.linkedTaskIds.push(task.id); v.updatedAt=Date.now(); if(!app.state._vaultItemsMeta) app.state._vaultItemsMeta={}; app.state._vaultItemsMeta[v.id]=Date.now(); }
+    if(!shouldHave && has && task && task.id) { v.linkedTaskIds=v.linkedTaskIds.filter(id=>id!==task.id); v.updatedAt=Date.now(); if(!app.state._vaultItemsMeta) app.state._vaultItemsMeta={}; app.state._vaultItemsMeta[v.id]=Date.now(); }
+  });
+  if (task) {
+    const oldStatus = task.status;
+    Object.assign(task, data); task.updatedAt = Date.now();
+    if (oldStatus !== data.status && app.trackProgressTime) app.trackProgressTime(task, oldStatus, data.status);
+    if (app.logActivity) app.logActivity('task.edit', data.title, 'task');
+  } else {
+    const newId=app.uid();
+    const newTask=Object.assign({ id: newId, createdAt: Date.now(), completedAt: null, updatedAt: Date.now() }, data);
+    app.state.tasks.unshift(newTask);
+    // link new task to vault items (reverse)
+    (data.vaultIds||[]).forEach(vid=>{
+      const v=app.state.vaultItems.find(x=>x.id===vid); if(!v) return;
+      if(!Array.isArray(v.linkedTaskIds)) v.linkedTaskIds=[];
+      if(!v.linkedTaskIds.includes(newId)){ v.linkedTaskIds.push(newId); v.updatedAt=Date.now(); if(!app.state._vaultItemsMeta) app.state._vaultItemsMeta={}; app.state._vaultItemsMeta[v.id]=Date.now(); }
+    });
+    if (app.logActivity) app.logActivity('task.create', data.title, 'task');
+  }
+  app.save(); app.closeModal(); app.renderView();
+  app.toast(task ? 'Task updated' : 'Task added ✅');
+}
+
 export function openTaskModal(task, presetStatus) {
   const t = task || { title: '', desc: '', status: presetStatus || 'today', priority: 'med', due: '', startDate: '', coverColor: '', coverImage: '', members: [], comments: [], attachments: [], archived:false, watchers:[], goalId: '', tags: [], category: '', recurrence: '', subtasks: [] };
   if (!t.comments) t.comments = []; if (!t.attachments) t.attachments = []; if (!t.members) t.members = [];
@@ -1041,76 +1115,7 @@ export function openTaskModal(task, presetStatus) {
   }
   // Save handler
   app.$('#f-save')?.addEventListener('click', () => {
-    const title = app.$('#f-title').value.trim();
-    if (!title) { app.toast('Give the task a title', 'error'); return; }
-    // Collect subtasks
-    const subtasks = [];
-    app.$$('.subtask-row').forEach(row => {
-      const text = row.querySelector('.st-input').value.trim();
-      const done = row.querySelector('.st-check').checked;
-      if (text) subtasks.push({ text, done, id: app.uid() });
-    });
-    const data = {
-      title,
-      desc: app.$('#f-desc').value.trim(),
-      status: app.$('#f-status').value,
-      priority: app.$('#f-prio').value,
-      student: app.$('#f-student')?.value || undefined,
-      due: app.$('#f-due').value,
-      startDate: app.$('#f-start')?.value || '',
-      coverColor: pendingCoverColor,
-      coverImage: pendingCoverImage,
-      members: (app.$('#f-members')?.value || '').split(',').map(s=>s.trim()).filter(Boolean),
-      comments: t.comments || [],
-      attachments: t.attachments || [],
-      archived: !!t.archived,
-      watchers: t.watchers || [],
-      category: app.$('#f-category').value,
-      recurrence: app.$('#f-recurrence').value,
-      goalId: app.$('#f-goal').value,
-      scheduleDay: app.$('#f-sched-day').value,
-      schedulePeriod: app.$('#f-sched-period').value,
-      startTime: app.$('#f-start-time').value || '',
-      endTime: app.$('#f-end-time').value || '',
-      tags: app.$('#f-tags').value.split(',').map(s => s.trim()).filter(Boolean),
-      vaultIds: [...document.querySelectorAll('#f-vault-picker input:checked')].map(i=>i.value),
-      subtasks
-    };
-    const krSel = app.$('#f-kr');
-    if (krSel) data.krId = krSel.value;
-    app.captureUndo(task ? 'Edit task' : 'Create task');
-    // sync reverse vault links
-    const prevVaultIds = task ? (task.vaultIds||[]) : [];
-    const newVaultIds = data.vaultIds || [];
-    const allVaultIds = new Set([...prevVaultIds, ...newVaultIds]);
-    allVaultIds.forEach(vid=>{
-      const v=app.state.vaultItems.find(x=>x.id===vid); if(!v) return;
-      if(!Array.isArray(v.linkedTaskIds)) v.linkedTaskIds=[];
-      const shouldHave=newVaultIds.includes(vid);
-      const has=v.linkedTaskIds.includes(task?.id || data.id || '');
-      // for new task, task.id not yet known — will be assigned below, handle after
-      if(shouldHave && !has && task && task.id) { v.linkedTaskIds.push(task.id); v.updatedAt=Date.now(); if(!app.state._vaultItemsMeta) app.state._vaultItemsMeta={}; app.state._vaultItemsMeta[v.id]=Date.now(); }
-      if(!shouldHave && has && task && task.id) { v.linkedTaskIds=v.linkedTaskIds.filter(id=>id!==task.id); v.updatedAt=Date.now(); if(!app.state._vaultItemsMeta) app.state._vaultItemsMeta={}; app.state._vaultItemsMeta[v.id]=Date.now(); }
-    });
-    if (task) {
-      const oldStatus = task.status;
-      Object.assign(task, data); task.updatedAt = Date.now();
-      if (oldStatus !== data.status && app.trackProgressTime) app.trackProgressTime(task, oldStatus, data.status);
-      if (app.logActivity) app.logActivity('task.edit', data.title, 'task');
-    } else {
-      const newId=app.uid();
-      const newTask=Object.assign({ id: newId, createdAt: Date.now(), completedAt: null, updatedAt: Date.now() }, data);
-      app.state.tasks.unshift(newTask);
-      // link new task to vault items (reverse)
-      (data.vaultIds||[]).forEach(vid=>{
-        const v=app.state.vaultItems.find(x=>x.id===vid); if(!v) return;
-        if(!Array.isArray(v.linkedTaskIds)) v.linkedTaskIds=[];
-        if(!v.linkedTaskIds.includes(newId)){ v.linkedTaskIds.push(newId); v.updatedAt=Date.now(); if(!app.state._vaultItemsMeta) app.state._vaultItemsMeta={}; app.state._vaultItemsMeta[v.id]=Date.now(); }
-      });
-      if (app.logActivity) app.logActivity('task.create', data.title, 'task');
-    }
-    app.save(); app.closeModal(); app.renderView();
-    app.toast(task ? 'Task updated' : 'Task added ✅');
+    handleTaskModalSave(task, t, { pendingCoverColor, pendingCoverImage });
   });
   const del = app.$('#f-delete');
   if (del) del.addEventListener('click', () => {
