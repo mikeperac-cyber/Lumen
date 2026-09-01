@@ -467,6 +467,20 @@ async function decryptVaultBackup(envelopeObj, password) {
 }
 
 /* ---------- Natural Language Task Parser ---------- */
+const appStudentReCache = new Map();
+
+function getAppStudentRegExp(name) {
+  let re = appStudentReCache.get(name);
+  if (!re) {
+    if (appStudentReCache.size > 500) {
+      appStudentReCache.clear();
+    }
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    re = new RegExp(`\\b(?:with|for|student:)?\\s*${escaped}\\b`, "i");
+    appStudentReCache.set(name, re);
+  }
+  return re;
+}
 function parseNaturalLanguageTask(rawText) {
   let text = String(rawText || '').trim();
   if (!text) return null;
@@ -515,7 +529,7 @@ function parseNaturalLanguageTask(rawText) {
   if (!student && studentsList.length) {
     for (const s of studentsList) {
       if (s.name && s.name.length >= 3) {
-        const re = new RegExp(`\\b(?:with|for|student:)?\\s*${s.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+        const re = getAppStudentRegExp(s.name);
         if (re.test(text)) {
           student = s.name;
           break;
