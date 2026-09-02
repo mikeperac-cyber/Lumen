@@ -47,3 +47,32 @@ describe('htmlEscape / safeAttr — XSS regression (task 11)', () => {
     assert.equal(twice, '&amp;lt;b&amp;gt;');
   });
 });
+
+describe('Lesson plan XSS escaping', () => {
+  it('escapes p.status, p.date, p.duration, and p.id', () => {
+    const p = {
+      id: '"><script>alert(1)</script>',
+      title: 'Plan Title',
+      status: '<img src=x onerror=alert(2)>',
+      date: '<script>alert(3)</script>',
+      duration: '60<svg onload=alert(4)>',
+      level: 'Advanced'
+    };
+    const escapedStatus = htmlEscape(p.status);
+    const escapedDate = htmlEscape(p.date);
+    const escapedDuration = htmlEscape(p.duration);
+    const escapedId = safeAttr(p.id);
+
+    assert.ok(!escapedStatus.includes('<img'));
+    assert.ok(escapedStatus.includes('&lt;img'));
+
+    assert.ok(!escapedDate.includes('<script>'));
+    assert.ok(escapedDate.includes('&lt;script&gt;'));
+
+    assert.ok(!escapedDuration.includes('<svg'));
+    assert.ok(escapedDuration.includes('&lt;svg'));
+
+    assert.ok(!escapedId.includes('"'));
+    assert.ok(escapedId.includes('&quot;'));
+  });
+});

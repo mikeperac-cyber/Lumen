@@ -9103,13 +9103,13 @@ function openStudentDossier(studentId) {
             <div class="lesson-stage-block" style="padding:12px;background:var(--surface)">
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
                 <b>📖 ${esc(p.title)}</b>
-                <span class="badge" style="text-transform:capitalize">${p.status || 'planned'}</span>
+                <span class="badge" style="text-transform:capitalize">${esc(p.status || 'planned')}</span>
               </div>
-              <div class="muted" style="font-size:12px;margin-bottom:6px">📅 ${p.date || 'Flexible'} · ⏱️ ${p.duration || 60} mins · Level: ${esc(p.level || 'General')}</div>
+              <div class="muted" style="font-size:12px;margin-bottom:6px">📅 ${esc(p.date || 'Flexible')} · ⏱️ ${esc(p.duration || 60)} mins · Level: ${esc(p.level || 'General')}</div>
               ${p.objective ? `<div style="font-size:12.5px;margin-bottom:6px">🎯 <b>Objective:</b> ${esc(p.objective)}</div>` : ''}
               ${p.mainActivity ? `<div style="font-size:12px;color:var(--text);margin-bottom:6px"><b>Activity:</b> ${esc(p.mainActivity.slice(0, 100))}${p.mainActivity.length > 100 ? '…' : ''}</div>` : ''}
               <div style="display:flex;gap:6px;margin-top:8px">
-                <button class="btn btn-sm btn-accent dossier-plan-deliver" data-id="${p.id}">${p.status === 'delivered' ? '✅ Re-deliver' : '🚀 Deliver Lesson'}</button>
+                <button class="btn btn-sm btn-accent dossier-plan-deliver" data-id="${safeAttr(p.id)}">${p.status === 'delivered' ? '✅ Re-deliver' : '🚀 Deliver Lesson'}</button>
               </div>
             </div>`).join('')}</div>` : '<div class="muted" style="padding:20px;text-align:center">No lesson plans created specifically for this student.</div>'}`;
     }
