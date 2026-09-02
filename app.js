@@ -1,4 +1,5 @@
 import { setupTasksController, renderTasks, renderMatrix, openTaskModal, applyTagFilter, matrixShowMore, getSearchTasksHay, getKanbanLists, addKanbanList, renameKanbanList, deleteKanbanList, ensureKanbanLists } from './src/tasks/controller.js';
+import { perfStats as computePerfStats, calculateVelocity } from './src/perf/view.js';
 import * as VaultStore from './src/vault/view.js';
 import { isArchivedTask, linkGraphForTask } from './src/tasks/view.js';
 import { vaultDb, vaultBlobPut, vaultBlobGet, vaultBlobDelete, vaultQuotaUsed as storeVaultQuotaUsed, vaultGuessType, vaultTypeIcon, VAULT_DB, VAULT_STORE, VAULT_MAX_FILE, VAULT_SOFT_CAP, getSearchVaultHay, getVaultHay } from './src/vault/store.js';
@@ -1641,26 +1642,7 @@ function perfRecord(view, ms) {
   if (perfLog.length > PERF_MAX) perfLog.shift();
 }
 function perfStats() {
-  const byView = {};
-  perfLog.forEach(e => {
-    if (!byView[e.view]) byView[e.view] = [];
-    byView[e.view].push(e.ms);
-  });
-  const stats = {};
-  Object.keys(byView).forEach(v => {
-    const arr = byView[v].sort((a, b) => a - b);
-    const len = arr.length;
-    stats[v] = {
-      count: len,
-      min: arr[0],
-      max: arr[len - 1],
-      avg: Math.round(arr.reduce((s, x) => s + x, 0) / len * 10) / 10,
-      p50: arr[Math.floor(len * 0.5)],
-      p95: arr[Math.floor(len * 0.95)],
-      slow: perfLog.filter(e => e.view === v && e.slow).length
-    };
-  });
-  return stats;
+  return computePerfStats(perfLog);
 }
 
 let _renderSeq = 0;
@@ -9461,18 +9443,7 @@ function renderPerf() {
   const maxMs = Math.max(1, ...viewNames.map(v => stats[v].max));
 
   // --- 14-day Velocity calculation ---
-  const velocityDays = [];
-  const now = new Date();
-  for (let i = 13; i >= 0; i--) {
-    const d = new Date(); d.setDate(now.getDate() - i);
-    const iso = d.toLocaleDateString('en-CA');
-    const label = d.toLocaleDateString(undefined, { weekday: 'narrow', month: 'numeric', day: 'numeric' });
-    const count = state.tasks.filter(t => t.completedAt === iso).length;
-    velocityDays.push({ iso, label, count });
-  }
-  const maxVelocity = Math.max(1, ...velocityDays.map(v => v.count));
-  const totalDone14d = velocityDays.reduce((s, v) => s + v.count, 0);
-  const avgVelocity = (totalDone14d / 14).toFixed(1);
+  const { velocityDays, maxVelocity, totalDone14d, avgVelocity } = calculateVelocity(state.tasks);
 
   // SVG Velocity Chart
   const vw = 580, vh = 160, vp = 20, vph = 25;
