@@ -16,7 +16,8 @@ import {
   fmtWhen,
   fmtDur,
   timeAgo,
-  fmtM
+  fmtM,
+  uid
 } from '../../src/lib/helpers.js';
 
 describe('htmlEscape and esc', () => {
@@ -185,3 +186,36 @@ describe('fmtM', () => {
   });
 });
 
+
+describe('uid generator', () => {
+  it('generates a valid UUID string using crypto.randomUUID when available', () => {
+    const id = uid();
+    assert.equal(typeof id, 'string');
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    assert.ok(uuidRegex.test(id));
+  });
+
+  it('generates unique IDs across multiple calls', () => {
+    const ids = new Set(Array.from({ length: 100 }, () => uid()));
+    assert.equal(ids.size, 100);
+  });
+
+  it('falls back to crypto.getRandomValues when crypto.randomUUID is not available', () => {
+    const originalRandomUUID = crypto.randomUUID;
+    try {
+      delete crypto.randomUUID;
+      const id = uid();
+      assert.equal(typeof id, 'string');
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      assert.ok(uuidRegex.test(id));
+    } finally {
+      if (originalRandomUUID) {
+        Object.defineProperty(crypto, 'randomUUID', {
+          value: originalRandomUUID,
+          configurable: true,
+          writable: true,
+        });
+      }
+    }
+  });
+});

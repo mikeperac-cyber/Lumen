@@ -137,3 +137,18 @@ export function fmtM(v, curr = 'USD') {
   const num = (v || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
   return curr === 'TRY' ? `₺${num}` : `$${num}`;
 }
+
+/**
+ * Cryptographically secure unique identifier generator.
+ * Uses crypto.randomUUID when available, falling back to crypto.getRandomValues.
+ * @returns {string} UUID v4 format
+ */
+export function uid() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+      (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+    );
+  }
+  return 'id-' + Date.now() + '-' + Math.random().toString(36).slice(2, 9);
+}
