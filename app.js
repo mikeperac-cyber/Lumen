@@ -51,8 +51,8 @@ function ic(name, size = 18) {
 }
 
 /* ---------- Helpers ---------- */
-const $ = (sel, root = document) => root.querySelector(sel);
-const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+const $ = (sel, root = (typeof document !== 'undefined' ? document : null)) => root ? root.querySelector(sel) : null;
+const $$ = (sel, root = (typeof document !== 'undefined' ? document : null)) => root ? Array.from(root.querySelectorAll(sel)) : [];
 
 function bindFilterInput(selector, debounceMs, callback) {
   const el = document.querySelector(selector);
@@ -1124,8 +1124,12 @@ function flushSave() {
   maybeAutoSync();
   checkOverdueNotifications();
 }
-window.addEventListener('pagehide', flushSave);
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushSave(); });
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', flushSave);
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushSave(); });
+  }
+}
 
 /* ============ Undo / Redo ============ */
 const UNDO_MAX = 40;
@@ -4765,7 +4769,7 @@ function scheduleHabitViewSave() {
   clearTimeout(habitViewSaveT);
   habitViewSaveT = setTimeout(persistHabitView, 500);
 }
-window.addEventListener('pagehide', () => { if (habitViewLoaded) persistHabitView(); });
+if (typeof window !== 'undefined') { window.addEventListener('pagehide', () => { if (habitViewLoaded) persistHabitView(); }); }
 function bindHabitCards(scope) {
   const grid = scope && scope.id === 'habits-grid' ? scope : null;
   if (grid && !grid.dataset.hmBound) {
@@ -5952,9 +5956,11 @@ function backfillVaultLinks(){
 function vaultLinkPickerHTML(selectedIds){ return VaultStore.vaultLinkPickerHTML(selectedIds, getVaultItems()); }
 
 // expose for tests/debug — Vite seam: src/vault/store.js + view.js are the source of truth, app.js shims for now
-window.LumenLib = window.LumenLib || {};
-window.LumenLib.vault = window.LumenLib.vault || {};
-Object.assign(window.LumenLib.vault, { getVaultItems, getVaultCollections, getVaultFiltered, openVaultModal, renderVault });
+if (typeof window !== 'undefined') {
+  window.LumenLib = window.LumenLib || {};
+  window.LumenLib.vault = window.LumenLib.vault || {};
+  Object.assign(window.LumenLib.vault, { getVaultItems, getVaultCollections, getVaultFiltered, openVaultModal, renderVault });
+}
 
 /* Lightweight markdown */
 function renderMd(md) {
@@ -6686,13 +6692,15 @@ async function hashPass(p) {
 }
 
 let syncMeta = loadSyncMeta();
-if (!localStorage.getItem(SYNC_KEY)) saveSyncMeta(); // persist the ID immediately so it survives reloads
-// v104: nudge legacy (unsalted) sync passphrases to be re-entered so they upgrade to PBKDF2.
-if (syncMeta.passHash && !syncMeta.passSalt && !localStorage.getItem('lumen.passUpgradeNudged')) {
-  setTimeout(() => {
-    try { toast('Re-enter your sync passphrase (Settings → Sync) to upgrade its security', 'info'); } catch (_) {}
-    try { localStorage.setItem('lumen.passUpgradeNudged', '1'); } catch (_) {}
-  }, 2500);
+if (typeof localStorage !== 'undefined') {
+  if (!localStorage.getItem(SYNC_KEY)) saveSyncMeta(); // persist the ID immediately so it survives reloads
+  // v104: nudge legacy (unsalted) sync passphrases to be re-entered so they upgrade to PBKDF2.
+  if (syncMeta.passHash && !syncMeta.passSalt && !localStorage.getItem('lumen.passUpgradeNudged')) {
+    setTimeout(() => {
+      try { toast('Re-enter your sync passphrase (Settings → Sync) to upgrade its security', 'info'); } catch (_) {}
+      try { localStorage.setItem('lumen.passUpgradeNudged', '1'); } catch (_) {}
+    }, 2500);
+  }
 }
 let peer = null, conn = null, peerStatus = 'offline', peerStatusDetail = '';
 let suppressAutoPush = false, autoPushTimer = null;
@@ -7096,7 +7104,7 @@ function syncCardHTML() {
     <p class="muted" style="font-size:12px;margin-top:10px;line-height:1.5">Peer-to-peer over WebRTC (PeerJS free signaling). Both devices need internet and must be online at the same time. Edits to the same item are merged newest-first. Voice recordings transfer over the same connection — long memos take a moment to arrive. Changes made while offline are queued and sent automatically when you reconnect.</p>
   </div>`;
 }
-window.addEventListener('beforeunload', () => { try { peer && peer.destroy(); } catch (_) {} });
+if (typeof window !== 'undefined') { window.addEventListener('beforeunload', () => { try { peer && peer.destroy(); } catch (_) {} }); }
 
 /* ============ ICS Calendar Export ============ */
 function exportICS() {
@@ -9643,7 +9651,7 @@ function renderPerf() {
 /** Check if two tasks overlap in time (same cell). Two tasks overlap when
     both have start/end times and their ranges intersect. */
 // Schedule logic and markup are owned by src/lib/schedule.js + src/schedule/view.js.
-const Sched = window.LumenLib.schedule;
+const Sched = typeof window !== 'undefined' && window.LumenLib ? window.LumenLib.schedule : {};
 
 let _schedViewMode = 'timetable';
 let _schedWeekOffset = 0;
@@ -11486,7 +11494,7 @@ function init() {
     } catch (_) {}
   });
 }
-document.addEventListener('DOMContentLoaded', init);
+if (typeof document !== 'undefined') { document.addEventListener('DOMContentLoaded', init); }
 
 // Runtime seam: src/state/store.js and other src/ modules read these off window.
 if (typeof window !== 'undefined') { try {
