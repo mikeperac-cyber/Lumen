@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: lumen-productivity
+    env: node
+    buildCommand: npm install && npm run build
+    startCommand: npx serve -s dist -l $PORT

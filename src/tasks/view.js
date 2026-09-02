@@ -229,6 +229,43 @@ export function krOptionsHTML(goalId, selected, goals) {
  * @param {object} [ctx] { isEdit, lists, goals, students, vaultItems, days, periods, vaultPickerHTML, ic }
  * @returns {string}
  */
+function taskModalAttachmentsHTML(attachments) {
+  return (attachments || []).map(a => `<div class="attach-row" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--border);border-radius:8px"><span>${fileIcon(a.name)}</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">${esc(a.name)} <span class="muted" style="font-size:11px">${fileSizeStr(a.size)} · ${a.mime || ''}</span></span><button class="btn btn-xs btn-ghost" data-attach-dl="${a.id}">⬇</button><button class="btn btn-xs btn-ghost" data-attach-del="${a.id}">✕</button></div>`).join('') || '<div class="muted" style="font-size:12px">No files yet — attach images, PDFs, etc.</div>';
+}
+
+function taskModalCommentsHTML(comments, ic) {
+  return (comments || []).slice().reverse().map(c => `<div class="comment-row" style="padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--surface2)"><div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:12px">${esc(c.author || 'You')}</b><span class="muted" style="font-size:11px">${timeAgo(c.at)} <button class="btn-icon" data-comment-del="${c.id}" title="Delete">${ic('x', 12)}</button></span></div><div style="font-size:13px;margin-top:4px;white-space:pre-wrap">${esc(c.text)}</div></div>`).join('') || '<div class="muted" style="font-size:12px">No comments yet — ask a question or leave a note.</div>';
+}
+
+function taskModalPomoWidgetHTML(isEdit, ic) {
+  if (!isEdit) return '';
+  return `<div class="modal-pomo-widget" id="f-pomo-widget">
+          <label class="field-label">🍅 Focus timer</label>
+          <div class="pomo-widget-body">
+            <div class="pomo-ring-wrap">
+              <svg class="pomo-ring" viewBox="0 0 120 120">
+                <circle class="pomo-ring-bg" cx="60" cy="60" r="52"/>
+                <circle class="pomo-ring-fill" cx="60" cy="60" r="52" id="pomo-ring-fill"/>
+              </svg>
+              <div class="pomo-ring-time" id="pomo-ring-time">25:00</div>
+            </div>
+            <div class="pomo-widget-controls">
+              <div class="pomo-presets" id="pomo-presets">
+                <button class="btn btn-ghost btn-sm pomo-preset" data-pomo-preset="15">15m</button>
+                <button class="btn btn-ghost btn-sm pomo-preset active" data-pomo-preset="25">25m</button>
+                <button class="btn btn-ghost btn-sm pomo-preset" data-pomo-preset="45">45m</button>
+                <button class="btn btn-ghost btn-sm pomo-preset" data-pomo-preset="60">60m</button>
+              </div>
+              <div class="pomo-widget-btns">
+                <button class="btn btn-accent pomo-action-btn" id="pomo-action-btn">${ic('play', 16)} Start</button>
+                <button class="btn btn-ghost pomo-action-btn" id="pomo-reset-btn">${ic('stop', 16)} Reset</button>
+              </div>
+              <div class="pomo-sessions-info" id="pomo-sessions-info">0 sessions today</div>
+            </div>
+          </div>
+        </div>`;
+}
+
 export function taskModalHTML(t, ctx) {
   const {
     isEdit = false, lists = [], goals = [], students = [], vaultItems = [],
@@ -290,12 +327,12 @@ export function taskModalHTML(t, ctx) {
           </div>
         </div>
         <div class="field"><label class="field-label" id="f-attachments-label">Attachments (Trello)</label>
-          <div id="f-attachments-list" role="group" aria-labelledby="f-attachments-label" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px">${(t.attachments||[]).map(a=>`<div class="attach-row" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--border);border-radius:8px"><span>${fileIcon(a.name)}</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">${esc(a.name)} <span class="muted" style="font-size:11px">${fileSizeStr(a.size)} · ${a.mime||''}</span></span><button class="btn btn-xs btn-ghost" data-attach-dl="${a.id}">⬇</button><button class="btn btn-xs btn-ghost" data-attach-del="${a.id}">✕</button></div>`).join('') || '<div class="muted" style="font-size:12px">No files yet — attach images, PDFs, etc.</div>'}</div>
+          <div id="f-attachments-list" role="group" aria-labelledby="f-attachments-label" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px">${taskModalAttachmentsHTML(t.attachments)}</div>
           <label class="btn btn-sm btn-ghost" style="cursor:pointer">📎 Add file<input type="file" id="f-attach-file" class="hidden" multiple></label>
           <span class="muted" style="font-size:11px;margin-left:8px">Stored locally in IndexedDB — offline.</span>
         </div>
         <div class="field"><label class="field-label" id="f-comments-label">Comments (Trello)</label>
-          <div id="f-comments-list" role="group" aria-labelledby="f-comments-label" style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px;max-height:180px;overflow-y:auto">${(t.comments||[]).slice().reverse().map(c=>`<div class="comment-row" style="padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--surface2)"><div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:12px">${esc(c.author||'You')}</b><span class="muted" style="font-size:11px">${timeAgo(c.at)} <button class="btn-icon" data-comment-del="${c.id}" title="Delete">${ic('x',12)}</button></span></div><div style="font-size:13px;margin-top:4px;white-space:pre-wrap">${esc(c.text)}</div></div>`).join('') || '<div class="muted" style="font-size:12px">No comments yet — ask a question or leave a note.</div>'}</div>
+          <div id="f-comments-list" role="group" aria-labelledby="f-comments-label" style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px;max-height:180px;overflow-y:auto">${taskModalCommentsHTML(t.comments, ic)}</div>
           <div style="display:flex;gap:8px"><input id="f-comment-input" type="text" placeholder="Write a comment…" style="flex:1"><button class="btn btn-accent btn-sm" id="f-comment-add">Comment</button></div>
         </div>
         <div class="field" role="group" aria-labelledby="f-card-actions-label" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
@@ -306,31 +343,7 @@ export function taskModalHTML(t, ctx) {
           <button class="btn btn-sm btn-ghost" id="f-watch-toggle">${(t.watchers||[]).includes('me')? '👁 Watching' : '👁 Watch'}</button>
         </div>
         ${(t.goalId || (t.vaultIds||[]).length) ? `<div class="modal-link-graph">${t.goalId? linkGraphForTask(t, { goals, vaultItems })+' <span class="muted" style="font-size:11px">· completes → KR auto-advances</span>' : ''} ${(t.vaultIds||[]).map(id=>{ const v=vaultItems.find(x=>x.id===id); return v? `<span class="link-chip" title="Vault: ${esc(v.title)}">🔗 ${esc(v.title.slice(0,22))}</span>`:''}).join(' ')}</div>` : ''}
-        ${isEdit ? `<div class="modal-pomo-widget" id="f-pomo-widget">
-          <label class="field-label">🍅 Focus timer</label>
-          <div class="pomo-widget-body">
-            <div class="pomo-ring-wrap">
-              <svg class="pomo-ring" viewBox="0 0 120 120">
-                <circle class="pomo-ring-bg" cx="60" cy="60" r="52"/>
-                <circle class="pomo-ring-fill" cx="60" cy="60" r="52" id="pomo-ring-fill"/>
-              </svg>
-              <div class="pomo-ring-time" id="pomo-ring-time">25:00</div>
-            </div>
-            <div class="pomo-widget-controls">
-              <div class="pomo-presets" id="pomo-presets">
-                <button class="btn btn-ghost btn-sm pomo-preset" data-pomo-preset="15">15m</button>
-                <button class="btn btn-ghost btn-sm pomo-preset active" data-pomo-preset="25">25m</button>
-                <button class="btn btn-ghost btn-sm pomo-preset" data-pomo-preset="45">45m</button>
-                <button class="btn btn-ghost btn-sm pomo-preset" data-pomo-preset="60">60m</button>
-              </div>
-              <div class="pomo-widget-btns">
-                <button class="btn btn-accent pomo-action-btn" id="pomo-action-btn">${ic('play', 16)} Start</button>
-                <button class="btn btn-ghost pomo-action-btn" id="pomo-reset-btn">${ic('stop', 16)} Reset</button>
-              </div>
-              <div class="pomo-sessions-info" id="pomo-sessions-info">0 sessions today</div>
-            </div>
-          </div>
-        </div>` : ''}
+        ${taskModalPomoWidgetHTML(isEdit, ic)}
       </div>
       <div class="modal-foot">
         ${isEdit ? `<button class="btn btn-danger" id="f-delete">Delete</button>` : ''}
