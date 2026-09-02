@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: lumen-productivity
+    runtime: node
+    buildCommand: npm install && npm run build
+    startCommand: npx serve -s dist -l $PORT
+    envVars:
+      - key: NODE_VERSION
+        value: 20.18.0
