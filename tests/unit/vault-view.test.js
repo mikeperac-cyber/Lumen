@@ -1,3 +1,4 @@
+import { VAULT_URL_PLACEHOLDER } from '../../src/lib/constants.js';
 import { describe, it } from 'vitest';
 import assert from 'node:assert/strict';
 import {
@@ -233,6 +234,11 @@ describe('vaultModalHTML', () => {
     assert.ok(pending.includes('2.0 KB'));
     assert.ok(!pending.includes('id="vm-file-clear"'), 'nothing stored yet, so nothing to remove');
     assert.ok(vaultModalHTML({ ...blank(), blobId: 'b1', fileName: 'a.pdf', size: 10 }, {}).includes('id="vm-file-clear"'));
+  });
+
+  it('uses the VAULT_URL_PLACEHOLDER constant in the url input placeholder', () => {
+    const html = vaultModalHTML(blank(), {});
+    assert.ok(html.includes(`placeholder="${VAULT_URL_PLACEHOLDER}"`));
   });
 
   it('closes through the delegated handler, not an inline onclick', () => {

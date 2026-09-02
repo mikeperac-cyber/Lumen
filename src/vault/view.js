@@ -7,7 +7,7 @@
 // binds it; openVaultModal is untouched. "Produce markup" and "wire up a view" are
 // different ownership boundaries.
 import { esc, fmtShort, isoDate, fileSizeStr } from '../lib/helpers.js';
-import { COVER_COLORS } from '../lib/constants.js';
+import { COVER_COLORS, VAULT_URL_PLACEHOLDER } from '../lib/constants.js';
 import { vaultTypeIcon, VAULT_SOFT_CAP } from './store.js';
 
 export const VAULT_TYPES = [
@@ -232,7 +232,7 @@ export function vaultModalHTML(v, ctx) {
     <div class="modal-head"><h3>${isEdit?'Edit vault item':'New vault item'}</h3><button class="btn-icon" data-close-modal>${ic('x',16)}</button></div>
     <div class="modal-body">
       <div class="field"><label for="vm-title" class="field-label">Title *</label><input id="vm-title" type="text" value="${esc(v.title)}" placeholder="Design doc, invoice, tutorial…"></div>
-      <div class="field"><label for="vm-url" class="field-label">URL (https://) — optional if file attached</label><input id="vm-url" type="url" value="${esc(v.url)}" placeholder="https://example.com/doc.pdf"></div>
+      <div class="field"><label for="vm-url" class="field-label">URL (https://) — optional if file attached</label><input id="vm-url" type="url" value="${esc(v.url)}" placeholder="${VAULT_URL_PLACEHOLDER}"></div>
       <div class="field"><label for="vm-desc" class="field-label">Description</label><textarea id="vm-desc" rows="2" placeholder="What is this?">${esc(v.description||'')}</textarea></div>
       <div class="field-row">
         <div class="field"><label for="vm-type" class="field-label">Type</label><select id="vm-type">${typeOpts}</select></div>

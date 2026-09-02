@@ -30,6 +30,7 @@ export const VAULT_CRYPTO_VERSION = 2;
 export const VAULT_MAX_FILE = 10485760; // 10 * 1024 * 1024
 export const VAULT_SOFT_CAP = 314572800;
 export const VAULT_PAGE = 50;
+export const VAULT_URL_PLACEHOLDER = 'https://example.com/doc.pdf';
 
 export const SCHEDULE_INTERVAL_MIN = 5;
 export const SCHEDULE_INTERVAL_MAX = 480;
