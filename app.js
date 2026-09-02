@@ -11520,3 +11520,56 @@ if (typeof window !== 'undefined') {
   window.__LUMEN_TEST = T;
   window.__LUMEN_DEBUG = { perfLog, perfStats };
 }
+
+
+/* Server fallback when executed in Node.js (e.g. Render running 'node app.js') */
+if (typeof window === 'undefined') {
+  (async () => {
+    try {
+      const http = await import('node:http');
+      const fs = await import('node:fs');
+      const path = await import('node:path');
+      const port = process.env.PORT || 8092;
+      const mimeTypes = {
+        '.html': 'text/html',
+        '.js': 'text/javascript',
+        '.css': 'text/css',
+        '.json': 'application/json',
+        '.webmanifest': 'application/manifest+json',
+        '.png': 'image/png',
+        '.ico': 'image/x-icon',
+        '.svg': 'image/svg+xml'
+      };
+      const server = http.createServer((req, res) => {
+        let reqUrl = req.url.split('?')[0];
+        if (reqUrl === '/') reqUrl = '/index.html';
+        let filePath = path.join(process.cwd(), 'dist', reqUrl);
+        if (!fs.existsSync(filePath)) {
+          filePath = path.join(process.cwd(), reqUrl);
+        }
+        if (!fs.existsSync(filePath)) {
+          filePath = path.join(process.cwd(), 'dist', 'index.html');
+          if (!fs.existsSync(filePath)) {
+            filePath = path.join(process.cwd(), 'index.html');
+          }
+        }
+        const ext = path.extname(filePath).toLowerCase();
+        const contentType = mimeTypes[ext] || 'application/octet-stream';
+        fs.readFile(filePath, (err, data) => {
+          if (err) {
+            res.writeHead(500);
+            res.end('Server Error');
+          } else {
+            res.writeHead(200, { 'Content-Type': contentType });
+            res.end(data);
+          }
+        });
+      });
+      server.listen(port, () => {
+        console.log(`[Lumen Node Server] Serving static files on port ${port}`);
+      });
+    } catch (e) {
+      console.error('[Lumen Node Server] Failed to start:', e);
+    }
+  })();
+}
