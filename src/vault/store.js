@@ -11,10 +11,10 @@ export function vaultDb() {
     if (_vaultDb) return res(_vaultDb);
     let rq; try { rq = indexedDB.open(VAULT_DB, 1); } catch (e) { return rej(e); }
     rq.onupgradeneeded = e => { const db = e.target.result; if (!db.objectStoreNames.contains(VAULT_STORE)) db.createObjectStore(VAULT_STORE); };
-    rq.onblocked = () => { try { if (_vaultDb) { _vaultDb.close(); _vaultDb = null; } } catch(_) {} };
+    rq.onblocked = () => { try { if (_vaultDb) { _vaultDb.close(); _vaultDb = null; } } catch(_) { /* ignore db close error */ } };
     rq.onsuccess = e => {
       _vaultDb = e.target.result;
-      _vaultDb.onversionchange = () => { try{ _vaultDb.close(); }catch(_){} _vaultDb = null; };
+      _vaultDb.onversionchange = () => { try{ _vaultDb.close(); }catch(_){ /* ignore db close error */ } _vaultDb = null; };
       _vaultDb.onclose = () => { _vaultDb = null; };
       res(_vaultDb);
     };
@@ -84,7 +84,7 @@ export function getSearchVaultHay(items = (typeof state !== 'undefined' && state
 
 export function closeVaultDb() {
   if (_vaultDb) {
-    try { _vaultDb.close(); } catch (_) {}
+    try { _vaultDb.close(); } catch (_) { /* ignore db close error */ }
     _vaultDb = null;
   }
 }

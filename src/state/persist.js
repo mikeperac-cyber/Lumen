@@ -39,7 +39,7 @@ export function notifyPersistFailure(err) {
   if (_persistToastShown) return;
   _persistToastShown = true;
   if (typeof window !== 'undefined' && typeof window.toast === 'function') {
-    try { window.toast('⚠️ Save failed — storage full? Export a backup.', 'error'); } catch (_) {}
+    try { window.toast('⚠️ Save failed — storage full? Export a backup.', 'error'); } catch (_) { /* ignore toast error */ }
   }
   console.warn('[Lumen] persist failure', err);
   // allow one more toast after 8s

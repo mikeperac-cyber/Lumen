@@ -87,7 +87,7 @@ async function decryptInline(envelopeObj, password) {
     const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
     return new TextDecoder().decode(decrypted);
   } catch (e) {
-    throw new Error('Incorrect vault password or damaged data.');
+    throw new Error('Incorrect vault password or damaged data.', { cause: e });
   }
 }
 
@@ -97,15 +97,15 @@ function runVaultWorker(factory, message) {
     try { worker = factory(); } catch (e) { reject(e); return; }
     if (!worker) { reject(new Error('WORKER_UNAVAILABLE')); return; }
     const id = String(message.op) + '-' + (typeof performance !== 'undefined' ? performance.now() : 0);
-    const timer = setTimeout(() => { try { worker.terminate(); } catch (_) {} reject(new Error('WORKER_TIMEOUT')); }, 8000);
+    const timer = setTimeout(() => { try { worker.terminate(); } catch (_) { /* ignore worker termination error */ } reject(new Error('WORKER_TIMEOUT')); }, 8000);
     worker.onmessage = (e) => {
       if (e.data.id !== id) return;
       clearTimeout(timer);
-      try { worker.terminate(); } catch (_) {}
+      try { worker.terminate(); } catch (_) { /* ignore worker termination error */ }
       if (e.data.ok) resolve(e.data.result);
       else reject(new Error(e.data.error));
     };
-    worker.onerror = (e) => { clearTimeout(timer); try { worker.terminate(); } catch (_) {} reject((e && e.error) || new Error('WORKER_ERROR')); };
+    worker.onerror = (e) => { clearTimeout(timer); try { worker.terminate(); } catch (_) { /* ignore worker termination error */ } reject((e && e.error) || new Error('WORKER_ERROR')); };
     worker.postMessage({ ...message, id });
   });
 }

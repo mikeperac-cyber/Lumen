@@ -47,7 +47,7 @@ export async function requestGemini(opts) {
     try {
       res = await attempt();
     } catch (e) {
-      if (e && e.name === 'AbortError') throw new Error('GEMINI_TIMEOUT');
+      if (e && e.name === 'AbortError') throw new Error('GEMINI_TIMEOUT', { cause: e });
       throw e;
     }
     if (res.ok) break;
