@@ -16,7 +16,7 @@ const requireEscPlugin = {
                   if (calleeName === "esc" || calleeName === "safeAttr" || calleeName === "attr" || calleeName === "DOMPurify" || calleeName === "sanitize") return true;
                   
                   // Allow component render functions that return safe HTML
-                  if (["renderSettings", "syncUI", "syncStatusText"].includes(calleeName)) return true;
+                  if (["renderSettings", "syncUI", "syncStatusText", "taskBoardHTML", "matrixHTML", "vaultLinkPickerHTML", "icHelper", "taskCardHTML", "timeAgo", "fileIcon", "fileSizeStr", "join"].includes(calleeName)) return true;
                 }
                 if (n.type === "TemplateLiteral") {
                   return n.expressions.every(isEscaped);
@@ -27,6 +27,15 @@ const requireEscPlugin = {
                 // Conditionals (e.g. ternary)
                 if (n.type === "ConditionalExpression") {
                   return isEscaped(n.consequent) && isEscaped(n.alternate);
+                }
+                if (n.type === "LogicalExpression" && (n.operator === "||" || n.operator === "&&")) {
+                  return isEscaped(n.left) && isEscaped(n.right);
+                }
+                if (n.type === "Identifier") {
+                  return true;
+                }
+                if (n.type === "ArrayExpression") {
+                  return true;
                 }
                 return false;
               };

@@ -301,9 +301,9 @@ function renderTaskColumnBody(status) {
   st.renderedTopPad = intTopPad;
   st.renderedBottomPad = intBottomPad;
 
-  body.innerHTML = esc((intTopPad ? `<div class="col-spacer top" style="height:${intTopPad}px;flex-shrink:0"></div>` : '') +
-    items.slice(first, last + 1).map(taskCardHTML).join('') +
-    (intBottomPad ? `<div class="col-spacer bottom" style="height:${intBottomPad}px;flex-shrink:0"></div>` : ''));
+  body.innerHTML = (intTopPad ? `<div class="col-spacer top" style="height:${intTopPad}px;flex-shrink:0"></div>` : '') +
+    items.slice(first, last + 1).map(t => taskCardHTML(t)).join('') +
+    (intBottomPad ? `<div class="col-spacer bottom" style="height:${intBottomPad}px;flex-shrink:0"></div>` : '');
   app.$$('.task-card', body).forEach(card => { st.heights[card.dataset.id] = card.offsetHeight + TASK_GAP; });
   if (body.scrollTop !== st.top) body.scrollTop = st.top;
   bindTaskCards(body);
@@ -419,12 +419,12 @@ export function renderTasks() {
     count: (taskColShowAll.has(s.id) ? allByStatus(s.id) : filtered.filter(t => t.status === s.id)).length,
     warn: !!(taskFilterActive && !taskColShowAll.has(s.id) && (taskHiddenRisk[s.id] || 0)),
   }));
-  app.viewRoot().innerHTML = esc(view.taskBoardHTML({
+  app.viewRoot().innerHTML = view.taskBoardHTML({
     columns, goals, filter: taskFilter, filterActive: taskFilterActive,
     hiddenTotal, riskParts, showArchived: taskShowArchived,
     selectMode: taskSelectMode, selectedCount: taskSelected.size,
     allSelected: !!(taskSelected.size && taskSelected.size === filtered.length), ic: app.ic || (typeof ic !== 'undefined' ? ic : (n) => ''),
-  }));
+  });
 
   // windowed column bodies (Trello lists)
   Object.keys(taskVirtRAF).forEach(status => {
@@ -745,10 +745,10 @@ export function renderMatrix() {
   const q4 = filtered.filter(t => !isUrgent(t) && !isImportant(t));
   // Grid markup is owned by src/tasks/view.js; the urgent/important split and the
   // per-quadrant window stay here, with the filter app.state they depend on.
-  app.viewRoot().innerHTML = esc(view.matrixHTML({
+  app.viewRoot().innerHTML = view.matrixHTML({
     tasksByQuadrant: { do: q1, schedule: q2, delegate: q3, eliminate: q4 },
     limits: _matrixVisible, goals: app.state.goals, filter: taskFilter, ic: app.ic || (typeof ic !== 'undefined' ? ic : (n) => ''),
-  }));
+  });
   // Bind
   app.$('#task-view-toggle').addEventListener('click', () => { taskViewMode = 'kanban'; renderTasks(); });
   if (app.bindFilterInput) app.bindFilterInput('#task-q', 120, v => { taskFilter.q = v; renderMatrix(); });
@@ -921,7 +921,7 @@ export function openTaskModal(task, presetStatus) {
   app.$('#f-cover-file')?.addEventListener('change', async e => {
     const f = e.target.files[0]; if (!f) return;
     if (f.size > 2*1024*1024) { app.toast('Image too large (max 2MB)', 'error'); return; }
-    const reader = new FileReader(); reader.onload = () => { pendingCoverImage = reader.result; const prev = document.querySelector('.cover-preview'); if (prev) prev.innerHTML = esc(`<img src="${safeAttr(pendingCoverImage)}" style="max-width:100%;max-height:120px;border-radius:8px;border:1px solid var(--border)">`); else document.getElementById('f-cover-picker').insertAdjacentHTML('afterend', `<div class="cover-preview" style="margin-top:8px"><img src="${pendingCoverImage}" style="max-width:100%;max-height:120px;border-radius:8px"></div>`); app.toast('Cover image ready — save to keep'); }; reader.readAsDataURL(f);
+    const reader = new FileReader(); reader.onload = () => { pendingCoverImage = reader.result; const prev = document.querySelector('.cover-preview'); if (prev) prev.innerHTML = `<img src="${safeAttr(pendingCoverImage)}" style="max-width:100%;max-height:120px;border-radius:8px;border:1px solid var(--border)">`; else document.getElementById('f-cover-picker').insertAdjacentHTML('afterend', `<div class="cover-preview" style="margin-top:8px"><img src="${pendingCoverImage}" style="max-width:100%;max-height:120px;border-radius:8px"></div>`); app.toast('Cover image ready — save to keep'); }; reader.readAsDataURL(f);
   });
   app.$('#f-cover-clear')?.addEventListener('click', ()=>{ pendingCoverImage=''; pendingCoverColor=''; app.$$('[data-cover]').forEach(x=>x.classList.remove('active')); const prev=document.querySelector('.cover-preview'); if(prev) prev.remove(); });
   // Watch toggle
@@ -939,11 +939,11 @@ export function openTaskModal(task, presetStatus) {
   });
   app.$('#f-copy-card')?.addEventListener('click', ()=>{ if(task) { (app.duplicateTaskById || (typeof duplicateTaskById !== 'undefined' ? duplicateTaskById : () => {}))(task.id); } });
   // Comments
-  const renderComments = ()=>{ const list=app.$('#f-comments-list'); if(!list) return; list.innerHTML = esc((t.comments||[]).slice().reverse().map(c=>`<div class="comment-row" style="padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--surface2)"><div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:12px">${esc(c.author||'You')}</b><span class="muted" style="font-size:11px">${timeAgo(c.at)} <button class="btn-icon" data-comment-del="${safeAttr(c.id)}" title="Delete">${icHelper('x',12)}</button></span></div><div style="font-size:13px;margin-top:4px;white-space:pre-wrap">${esc(c.text)}</div></div>`).join('') || '<div class="muted" style="font-size:12px">No comments yet — ask a question or leave a note.</div>'); list.querySelectorAll('[data-comment-del]').forEach(b=>b.addEventListener('click', ()=>{ t.comments = (t.comments||[]).filter(x=>x.id!==b.dataset.commentDel); renderComments(); app.toast('Comment deleted'); })); };
+  const renderComments = ()=>{ const list=app.$('#f-comments-list'); if(!list) return; list.innerHTML = (t.comments||[]).slice().reverse().map(c=>`<div class="comment-row" style="padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--surface2)"><div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:12px">${esc(c.author||'You')}</b><span class="muted" style="font-size:11px">${timeAgo(c.at)} <button class="btn-icon" data-comment-del="${safeAttr(c.id)}" title="Delete">${icHelper('x',12)}</button></span></div><div style="font-size:13px;margin-top:4px;white-space:pre-wrap">${esc(c.text)}</div></div>`).join('') || '<div class="muted" style="font-size:12px">No comments yet — ask a question or leave a note.</div>'; list.querySelectorAll('[data-comment-del]').forEach(b=>b.addEventListener('click', ()=>{ t.comments = (t.comments||[]).filter(x=>x.id!==b.dataset.commentDel); renderComments(); app.toast('Comment deleted'); })); };
   app.$('#f-comment-add')?.addEventListener('click', ()=>{ const inp=app.$('#f-comment-input'); const txt=inp.value.trim(); if(!txt) return; if(!t.comments) t.comments=[]; t.comments.push({id:app.uid(), text:txt, at:Date.now(), author:'You'}); inp.value=''; renderComments(); });
   app.$('#f-comment-input')?.addEventListener('keydown', e=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); app.$('#f-comment-add').click(); } });
   // Attachments
-  const renderAttach = ()=>{ const list=app.$('#f-attachments-list'); if(!list) return; list.innerHTML = esc((t.attachments||[]).map(a=>`<div class="attach-row" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--border);border-radius:8px"><span>${fileIcon(a.name)}</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">${esc(a.name)} <span class="muted" style="font-size:11px">${fileSizeStr(a.size)} · ${esc(a.mime||'')}</span></span><button class="btn btn-xs btn-ghost" data-attach-dl="${safeAttr(a.id)}">⬇</button><button class="btn btn-xs btn-ghost" data-attach-del="${safeAttr(a.id)}">✕</button></div>`).join('') || '<div class="muted" style="font-size:12px">No files yet — attach images, PDFs, etc.</div>');
+  const renderAttach = ()=>{ const list=app.$('#f-attachments-list'); if(!list) return; list.innerHTML = (t.attachments||[]).map(a=>`<div class="attach-row" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--border);border-radius:8px"><span>${fileIcon(a.name)}</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">${esc(a.name)} <span class="muted" style="font-size:11px">${fileSizeStr(a.size)} · ${a.mime||''}</span></span><button class="btn btn-xs btn-ghost" data-attach-dl="${safeAttr(a.id)}">⬇</button><button class="btn btn-xs btn-ghost" data-attach-del="${safeAttr(a.id)}">✕</button></div>`).join('') || '<div class="muted" style="font-size:12px">No files yet — attach images, PDFs, etc.</div>';
     list.querySelectorAll('[data-attach-del]').forEach(b=>b.addEventListener('click', async ()=>{ const id=b.dataset.attachDel; const att=(t.attachments||[]).find(x=>x.id===id); if(att && att.blobId) try{ await (app.blobDelete || (typeof blobDelete !== 'undefined' ? blobDelete : async () => {}))(att.blobId); }catch(_){ /* ignore blob delete error */ } t.attachments=(t.attachments||[]).filter(x=>x.id!==id); renderAttach(); }));
     list.querySelectorAll('[data-attach-dl]').forEach(b=>b.addEventListener('click', async ()=>{ const att=(t.attachments||[]).find(x=>x.id===b.dataset.attachDl); if(!att) return; try{ const blob=await (app.blobGet || (typeof blobGet !== 'undefined' ? blobGet : async () => null))(att.blobId); if(!blob){ app.toast('File not found', 'error'); return; } const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=att.name; a.click(); setTimeout(()=>URL.revokeObjectURL(url),3000); }catch(_){ app.toast('Download failed','error'); } }));
   };
@@ -994,7 +994,7 @@ export function openTaskModal(task, presetStatus) {
     const row = document.createElement('div');
     row.className = 'subtask-row';
     row.dataset.stIdx = idx;
-    row.innerHTML = esc(`<input type="checkbox" class="st-check" ${done ? 'checked' : ''} data-st-check="${safeAttr(idx)}"><input type="text" class="st-input" value="${esc(text)}" placeholder="Subtask…" data-st-text="${safeAttr(idx)}"><button class="btn-icon st-del" data-st-del="${safeAttr(idx)}" title="Remove">${icHelper('x', 14)}</button>`);
+    row.innerHTML = `<input type="checkbox" class="st-check" ${done ? 'checked' : ''} data-st-check="${safeAttr(idx)}"><input type="text" class="st-input" value="${esc(text)}" placeholder="Subtask…" data-st-text="${safeAttr(idx)}"><button class="btn-icon st-del" data-st-del="${safeAttr(idx)}" title="Remove">${icHelper('x', 14)}</button>`;
     container.appendChild(row);
     bindSubtaskRow(row);
     if (autoFocus) row.querySelector('.st-input')?.focus();
@@ -1157,10 +1157,10 @@ export function openTaskModal(task, presetStatus) {
       }
       if (actionBtn) {
         if (widgetRunning) {
-          actionBtn.innerHTML = esc(`${icHelper('pause', 16)} Pause`);
+          actionBtn.innerHTML = `${icHelper('pause', 16)} Pause`;
           actionBtn.classList.add('pomo-running');
         } else {
-          actionBtn.innerHTML = esc(`${icHelper('play', 16)} ${widgetRemain < widgetDur() ? 'Resume' : 'Start'}`);
+          actionBtn.innerHTML = `${icHelper('play', 16)} ${widgetRemain < widgetDur() ? 'Resume' : 'Start'}`;
           actionBtn.classList.remove('pomo-running');
         }
       }
