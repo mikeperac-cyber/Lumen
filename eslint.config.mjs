@@ -47,7 +47,18 @@ const requireEscPlugin = {
 
 export default [
   {
-    ignores: ["node_modules/", "dist/", "assets/", "scripts/postbuild.js"]
+    ignores: [
+      "node_modules/",
+      "dist/",
+      "assets/",
+      "scripts/postbuild.js",
+      "app.js",
+      "coverage/",
+      "peerjs.min.js",
+      "tests/",
+      "sw.js",
+      ".agents/"
+    ]
   },
   js.configs.recommended,
   {
