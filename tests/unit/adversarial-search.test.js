@@ -72,7 +72,7 @@ describe('Adversarial Stress Test: Search Hay Indexing', () => {
       const duration = performance.now() - start;
 
       expect(res).toHaveLength(10000);
-      expect(duration).toBeLessThan(250); // Must be fast (<250ms in CI/stress environments)
+      expect(duration).toBeLessThan(100); // Must be fast (<100ms)
 
       // Test cache hit
       const cacheStart = performance.now();
