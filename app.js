@@ -1679,19 +1679,9 @@ async function renderView() {
   // Route-level dynamic import code splitting
   let renderer = null;
   if (view === 'tasks') {
-    try {
-      const mod = await import('./src/tasks/controller.js');
-      renderer = mod.renderTasks;
-    } catch (_) {
-      renderer = typeof renderTasks !== 'undefined' ? renderTasks : null;
-    }
+    renderer = typeof renderTasks !== 'undefined' ? renderTasks : null;
   } else if (view === 'vault') {
-    try {
-      await import('./src/vault/view.js');
-      renderer = typeof renderVault !== 'undefined' ? renderVault : null;
-    } catch (_) {
-      renderer = typeof renderVault !== 'undefined' ? renderVault : null;
-    }
+    renderer = typeof renderVault !== 'undefined' ? renderVault : null;
   }
 
   if (seq !== _renderSeq) return; // Discard stale in-flight render
