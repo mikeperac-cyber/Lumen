@@ -23,7 +23,7 @@ const PORT = 8094;
 function startServer(cwd) {
   // Windows: .cmd shims need a shell; POSIX: npx execs directly, run detached so the
   // whole process group can be killed with -pid.
-  return spawn(IS_WIN ? 'npx.cmd' : 'npx', ['serve', '.', '-l', String(PORT), '--no-clipboard'], { cwd, stdio: 'ignore', shell: IS_WIN, detached: !IS_WIN });
+  return spawn(IS_WIN ? 'npx.cmd' : 'npx', ['serve', '.', '-l', String(PORT), '--no-clipboard'], { cwd, stdio: 'ignore', env: process.env, shell: true, detached: !IS_WIN });
 }
 async function stopServer(srv) {
   if (IS_WIN) {
