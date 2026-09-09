@@ -33,30 +33,38 @@ export function getSearchTasksHay(tasks) {
     return _searchTasksCache;
   }
   let maxUpdated = 0;
+  const uFirst = list[0]?.updatedAt || 0;
+  const uLast = list[len - 1]?.updatedAt || 0;
+  const uMid = list[len >> 1]?.updatedAt || 0;
+  maxUpdated = Math.max(uFirst, uLast, uMid);
+
+  if (_searchTasksCache && _searchTasksCacheLen === len && _searchTasksCacheUpdated === maxUpdated) {
+    return _searchTasksCache;
+  }
+
   for (let i = 0; i < len; i++) {
-    const u = list[i].updatedAt || 0;
+    const u = list[i]?.updatedAt || 0;
     if (u > maxUpdated) maxUpdated = u;
   }
   if (_searchTasksCache && _searchTasksCacheLen === len && _searchTasksCacheUpdated === maxUpdated) {
     return _searchTasksCache;
   }
+
   _searchTasksCacheLen = len;
   _searchTasksCacheUpdated = maxUpdated;
   const out = new Array(len);
   for (let i = 0; i < len; i++) {
     const t = list[i];
-    const title = t.title != null ? String(t.title) : '';
-    const desc = t.desc != null ? String(t.desc) : '';
-    const tags = (t.tags && t.tags.length) ? ' ' + t.tags.join(' ') : '';
-    let comments = '';
+    let hay = (t.title || '') + ' ' + (t.desc || '');
+    if (t.tags && t.tags.length) hay += ' ' + t.tags.join(' ');
     if (t.comments && t.comments.length) {
       for (let j = 0; j < t.comments.length; j++) {
         const c = t.comments[j];
-        if (c && c.text != null) comments += ' ' + c.text;
+        if (c && c.text) hay += ' ' + c.text;
       }
     }
-    const student = t.student != null ? ' ' + t.student : '';
-    out[i] = { t, hay: (title + ' ' + desc + tags + comments + student).toLowerCase() };
+    if (t.student) hay += ' ' + t.student;
+    out[i] = { t, hay: hay.toLowerCase() };
   }
   _searchTasksCache = out;
   return out;
