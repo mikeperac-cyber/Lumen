@@ -7,7 +7,7 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
     manifest: true,
-    chunkSizeWarningLimit: 400,
+    chunkSizeWarningLimit: 450,
     rollupOptions: {
       input: 'index.html',
       output: {

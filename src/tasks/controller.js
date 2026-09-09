@@ -45,16 +45,18 @@ export function getSearchTasksHay(tasks) {
   const out = new Array(len);
   for (let i = 0; i < len; i++) {
     const t = list[i];
-    let hay = (t.title || '') + ' ' + (t.desc || '');
-    if (t.tags && t.tags.length) hay += ' ' + t.tags.join(' ');
+    const title = t.title != null ? String(t.title) : '';
+    const desc = t.desc != null ? String(t.desc) : '';
+    const tags = (t.tags && t.tags.length) ? ' ' + t.tags.join(' ') : '';
+    let comments = '';
     if (t.comments && t.comments.length) {
       for (let j = 0; j < t.comments.length; j++) {
         const c = t.comments[j];
-        if (c && c.text) hay += ' ' + c.text;
+        if (c && c.text != null) comments += ' ' + c.text;
       }
     }
-    if (t.student) hay += ' ' + t.student;
-    out[i] = { t, hay: hay.toLowerCase() };
+    const student = t.student != null ? ' ' + t.student : '';
+    out[i] = { t, hay: (title + ' ' + desc + tags + comments + student).toLowerCase() };
   }
   _searchTasksCache = out;
   return out;
