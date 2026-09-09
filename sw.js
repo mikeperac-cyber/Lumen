@@ -8,11 +8,12 @@ const VERSION = 'lumen-cache-v139';
 const SHELL = [
   './',
   './apple-touch-icon.png',
+  './assets/app-client-DLoDl2qM.js',
   './assets/apple-touch-icon-BYj3UHPS.png',
   './assets/core-_BGfMSbA.js',
   './assets/icon-512-BQjM7DSE.png',
-  './assets/index-D7vn3ui0.js',
   './assets/index-DFKUtqiA.css',
+  './assets/index-R5iOOjfJ.js',
   './assets/peerjs.min-DPtSHinz.js',
   './assets/rolldown-runtime-BX80bFGj.js',
   './assets/tasks-DiTy5arJ.js',
