@@ -7,6 +7,7 @@
     "start": "serve -s dist -l $PORT",
     "dev": "vite --port 8092 --open",
     "build": "vite build && node scripts/postbuild.cjs && npm run check:budget",
+    "postinstall": "npm run build",
     "check:budget": "node scripts/check-chunk-budget.cjs",
     "preview": "vite preview --port 8092",
     "test": "playwright test --reporter=list",

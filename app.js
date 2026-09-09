@@ -1676,28 +1676,10 @@ async function renderView() {
   const root = viewRoot();
   const _t0 = performance.now();
 
-  // Route-level dynamic import code splitting
-  let renderer = null;
-  if (view === 'tasks') {
-    try {
-      const mod = await import('./src/tasks/controller.js');
-      renderer = mod.renderTasks;
-    } catch (_) {
-      renderer = typeof renderTasks !== 'undefined' ? renderTasks : null;
-    }
-  } else if (view === 'vault') {
-    try {
-      await import('./src/vault/view.js');
-      renderer = typeof renderVault !== 'undefined' ? renderVault : null;
-    } catch (_) {
-      renderer = typeof renderVault !== 'undefined' ? renderVault : null;
-    }
-  }
-
   if (seq !== _renderSeq) return; // Discard stale in-flight render
 
   const RENDERERS = { brief: renderBrief, dashboard: renderDashboard, students: renderStudents, review: renderReview, tasks: renderTasks, projects: renderProjects, tags: renderTags, schedule: renderSchedule, goals: renderGoals, habits: renderHabits, achievements: renderAchievements, notes: renderNotes, voice: renderVoice, activity: renderActivity, settings: renderSettings, analytics: renderAnalytics, finance: renderFinance, perf: renderPerf, vault: renderVault };
-  const fn = renderer || RENDERERS[view] || renderDashboard;
+  const fn = RENDERERS[view] || renderDashboard;
   fn();
   _lastHashRendered = location.hash;
   perfRecord(view, performance.now() - _t0);
@@ -2901,8 +2883,22 @@ function renderDashboard() {
     }
   }
 
-  const streaks = (state.habits || []).map(h => habitStreak(h));
-  const bestStreak = streaks.length ? Math.max(...streaks) : 0;
+  let bestStreak = 0;
+  const habitChipsList = [];
+  const habits = state.habits || [];
+  for (let i = 0; i < habits.length; i++) {
+    const h = habits[i];
+    const strk = habitStreak(h);
+    if (strk > bestStreak) bestStreak = strk;
+    const on = !!(h.dates && h.dates[today]);
+    habitChipsList.push(`<div class="habit-chip ${on ? 'on' : ''}" data-habit="${h.id}">
+      <span class="hc-emoji">${h.emoji}</span>
+      <span class="hc-name">${esc(h.name)}</span>
+      <span class="hc-streak">🔥 ${strk} day streak</span>
+    </div>`);
+  }
+  const habitChips = habitChipsList.join('') || '<div class="empty-state"><div class="es-icon">🌱</div>No habits yet.</div>';
+
   const goalsWithKR = (state.goals || []).filter(g => g.keyResults && g.keyResults.length);
   const avgProgress = goalsWithKR.length
     ? Math.round(goalsWithKR.reduce((s, g) => s + goalProgress(g), 0) / goalsWithKR.length)
@@ -2913,15 +2909,6 @@ function renderDashboard() {
   const dateLine = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
 
   const taskRows = dashListVirt.html(todayTasks, dashTaskHTML, 'dash', '<div class="empty-state"><div class="es-icon">🎉</div>Nothing due today. Enjoy the headroom.</div>');
-
-  const habitChips = (state.habits || []).map(h => {
-    const on = !!(h.dates && h.dates[today]);
-    return `<div class="habit-chip ${on ? 'on' : ''}" data-habit="${h.id}">
-      <span class="hc-emoji">${h.emoji}</span>
-      <span class="hc-name">${esc(h.name)}</span>
-      <span class="hc-streak">🔥 ${habitStreak(h)} day streak</span>
-    </div>`;
-  }).join('') || '<div class="empty-state"><div class="es-icon">🌱</div>No habits yet.</div>';
 
   const recentNotes = [...(state.notes || [])].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 5).map(n =>
     `<div class="dash-task" data-open-note="${n.id}">
@@ -3864,9 +3851,21 @@ const snoozePanelHTML = () => `<div class="dl-snooze-panel">
   <button class="btn btn-sm btn-ghost dl-snooze-clear" disabled>Un-snooze</button>
 </div>`;
 
+let _dashGoalMap = null;
+let _dashGoalMapKey = null;
+
 function dashTaskHTML(t) {
-  const goal = state.goals.find(g => g.id === t.goalId);
-  const dueCls = t.due && t.due < todayISO() && t.status !== 'done' ? 'overdue' : '';
+  const goals = state.goals || [];
+  if (!_dashGoalMap || _dashGoalMapKey !== goals) {
+    _dashGoalMap = new Map();
+    for (let i = 0; i < goals.length; i++) {
+      if (goals[i] && goals[i].id) _dashGoalMap.set(goals[i].id, goals[i]);
+    }
+    _dashGoalMapKey = goals;
+  }
+  const goal = t.goalId ? _dashGoalMap.get(t.goalId) : null;
+  const today = todayISO();
+  const dueCls = t.due && t.due < today && t.status !== 'done' ? 'overdue' : '';
   return `<div class="dash-task" data-id="${t.id}">
     <button class="check-circle" data-complete="${t.id}">${ic('check', 12)}</button>
     <span class="t-title">${esc(t.title)}</span>

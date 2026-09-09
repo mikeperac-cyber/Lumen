@@ -41,9 +41,9 @@ for (const file of files) {
 console.log('='.repeat(75));
 
 if (!allPass) {
-  console.error(`\n[check:budget] FAILURE: One or more JavaScript chunks exceeded the 250KB budget ceiling.`);
+  console.error(`\n[check:budget] FAILURE: One or more JavaScript chunks exceeded the ${(MAX_BYTES / 1024).toFixed(0)}KB budget ceiling.`);
   process.exit(1);
 }
 
-console.log(`\n[check:budget] SUCCESS: All ${files.length} JavaScript chunks are within the 250KB budget ceiling.\n`);
+console.log(`\n[check:budget] SUCCESS: All ${files.length} JavaScript chunks are within the ${(MAX_BYTES / 1024).toFixed(0)}KB budget ceiling.\n`);
 process.exit(0);

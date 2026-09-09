@@ -33,13 +33,23 @@ export function getSearchTasksHay(tasks) {
     return _searchTasksCache;
   }
   let maxUpdated = 0;
+  const uFirst = list[0]?.updatedAt || 0;
+  const uLast = list[len - 1]?.updatedAt || 0;
+  const uMid = list[len >> 1]?.updatedAt || 0;
+  maxUpdated = Math.max(uFirst, uLast, uMid);
+
+  if (_searchTasksCache && _searchTasksCacheLen === len && _searchTasksCacheUpdated === maxUpdated) {
+    return _searchTasksCache;
+  }
+
   for (let i = 0; i < len; i++) {
-    const u = list[i].updatedAt || 0;
+    const u = list[i]?.updatedAt || 0;
     if (u > maxUpdated) maxUpdated = u;
   }
   if (_searchTasksCache && _searchTasksCacheLen === len && _searchTasksCacheUpdated === maxUpdated) {
     return _searchTasksCache;
   }
+
   _searchTasksCacheLen = len;
   _searchTasksCacheUpdated = maxUpdated;
   const out = new Array(len);
