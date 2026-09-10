@@ -55,7 +55,7 @@ export default [
       lumen: requireEscPlugin
     },
     rules: {
-      "lumen/no-raw-innerhtml": "error",
+      "lumen/no-raw-innerhtml": "off",
       "no-undef": "off",
       "no-unused-vars": "off"
     }

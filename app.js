@@ -11437,7 +11437,7 @@ function init() {
     if (!_firstPaintDone) {
       _firstPaintDone = true;
       const ms = Math.round(performance.now() - _bootStart);
-      // eslint-disable-next-line no-console
+
       console.log(`[Lumen] first paint ${ms}ms · tasks:${state.tasks.length} · ${navigator.onLine ? 'online' : 'offline'}`);
       if (ms > 800) console.warn(`[Lumen] slow boot ${ms}ms — consider clearing old data`);
       try { if (performance.mark) performance.mark('lumen-first-paint'); } catch (_) {}
