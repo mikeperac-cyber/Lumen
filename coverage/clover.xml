@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<coverage generated="1788038418294" clover="3.2.0">
-  <project timestamp="1788038418294" name="All files">
-    <metrics statements="562" coveredstatements="549" conditionals="608" coveredconditionals="508" methods="131" coveredmethods="124" elements="1301" coveredelements="1181" complexity="0" loc="562" ncloc="562" packages="1" files="11" classes="11"/>
-    <file name="constants.js" path="C:\Users\micha\Desktop\Lumen\src\lib\constants.js">
+<coverage generated="1789104994439" clover="3.2.0">
+  <project timestamp="1789104994439" name="All files">
+    <metrics statements="567" coveredstatements="550" conditionals="616" coveredconditionals="511" methods="133" coveredmethods="125" elements="1316" coveredelements="1186" complexity="0" loc="567" ncloc="567" packages="1" files="11" classes="11"/>
+    <file name="constants.js" path="/app/src/lib/constants.js">
       <metrics statements="38" coveredstatements="38" conditionals="0" coveredconditionals="0" methods="0" coveredmethods="0"/>
       <line num="2" count="7" type="stmt"/>
       <line num="3" count="7" type="stmt"/>
@@ -43,7 +43,7 @@
       <line num="93" count="7" type="stmt"/>
       <line num="102" count="7" type="stmt"/>
     </file>
-    <file name="crypto.js" path="C:\Users\micha\Desktop\Lumen\src\lib\crypto.js">
+    <file name="crypto.js" path="/app/src/lib/crypto.js">
       <metrics statements="67" coveredstatements="66" conditionals="35" coveredconditionals="27" methods="21" coveredmethods="18"/>
       <line num="10" count="46" type="stmt"/>
       <line num="11" count="46" type="stmt"/>
@@ -113,7 +113,7 @@
       <line num="186" count="5" type="stmt"/>
       <line num="188" count="3" type="stmt"/>
     </file>
-    <file name="gemini.js" path="C:\Users\micha\Desktop\Lumen\src\lib\gemini.js">
+    <file name="gemini.js" path="/app/src/lib/gemini.js">
       <metrics statements="31" coveredstatements="30" conditionals="30" coveredconditionals="27" methods="5" coveredmethods="4"/>
       <line num="21" count="12" type="stmt"/>
       <line num="22" count="12" type="cond" truecount="2" falsecount="0"/>
@@ -147,12 +147,12 @@
       <line num="66" count="12" type="cond" truecount="2" falsecount="0"/>
       <line num="67" count="4" type="stmt"/>
     </file>
-    <file name="globals.js" path="C:\Users\micha\Desktop\Lumen\src\lib\globals.js">
+    <file name="globals.js" path="/app/src/lib/globals.js">
       <metrics statements="1" coveredstatements="1" conditionals="0" coveredconditionals="0" methods="0" coveredmethods="0"/>
       <line num="26" count="1" type="stmt"/>
     </file>
-    <file name="helpers.js" path="C:\Users\micha\Desktop\Lumen\src\lib\helpers.js">
-      <metrics statements="32" coveredstatements="32" conditionals="25" coveredconditionals="25" methods="17" coveredmethods="17"/>
+    <file name="helpers.js" path="/app/src/lib/helpers.js">
+      <metrics statements="37" coveredstatements="33" conditionals="33" coveredconditionals="28" methods="19" coveredmethods="18"/>
       <line num="11" count="695" type="cond" truecount="2" falsecount="0"/>
       <line num="20" count="15" type="stmt"/>
       <line num="30" count="4" type="stmt"/>
@@ -185,8 +185,13 @@
       <line num="125" count="1" type="stmt"/>
       <line num="137" count="29" type="cond" truecount="2" falsecount="0"/>
       <line num="138" count="29" type="cond" truecount="2" falsecount="0"/>
+      <line num="147" count="102" type="cond" truecount="3" falsecount="1"/>
+      <line num="148" count="0" type="cond" truecount="0" falsecount="4"/>
+      <line num="149" count="0" type="stmt"/>
+      <line num="150" count="0" type="stmt"/>
+      <line num="153" count="0" type="stmt"/>
     </file>
-    <file name="merge.js" path="C:\Users\micha\Desktop\Lumen\src\lib\merge.js">
+    <file name="merge.js" path="/app/src/lib/merge.js">
       <metrics statements="196" coveredstatements="187" conditionals="343" coveredconditionals="270" methods="39" coveredmethods="36"/>
       <line num="8" count="19188" type="cond" truecount="4" falsecount="0"/>
       <line num="9" count="1079" type="stmt"/>
@@ -385,11 +390,11 @@
       <line num="300" count="533" type="stmt"/>
       <line num="301" count="533" type="stmt"/>
     </file>
-    <file name="package.json" path="C:\Users\micha\Desktop\Lumen\src\lib\package.json">
+    <file name="package.json" path="/app/src/lib/package.json">
       <metrics statements="1" coveredstatements="0" conditionals="0" coveredconditionals="0" methods="0" coveredmethods="0"/>
       <line num="1" count="0" type="stmt"/>
     </file>
-    <file name="parser.js" path="C:\Users\micha\Desktop\Lumen\src\lib\parser.js">
+    <file name="parser.js" path="/app/src/lib/parser.js">
       <metrics statements="95" coveredstatements="94" conditionals="88" coveredconditionals="82" methods="18" coveredmethods="18"/>
       <line num="9" count="41" type="stmt"/>
       <line num="10" count="41" type="stmt"/>
@@ -487,7 +492,7 @@
       <line num="155" count="29" type="cond" truecount="1" falsecount="1"/>
       <line num="157" count="29" type="stmt"/>
     </file>
-    <file name="schedule.js" path="C:\Users\micha\Desktop\Lumen\src\lib\schedule.js">
+    <file name="schedule.js" path="/app/src/lib/schedule.js">
       <metrics statements="46" coveredstatements="46" conditionals="35" coveredconditionals="34" methods="12" coveredmethods="12"/>
       <line num="8" count="117" type="stmt"/>
       <line num="15" count="29" type="stmt"/>
@@ -536,7 +541,7 @@
       <line num="123" count="4" type="cond" truecount="2" falsecount="0"/>
       <line num="128" count="7" type="stmt"/>
     </file>
-    <file name="students.js" path="C:\Users\micha\Desktop\Lumen\src\lib\students.js">
+    <file name="students.js" path="/app/src/lib/students.js">
       <metrics statements="33" coveredstatements="33" conditionals="43" coveredconditionals="36" methods="16" coveredmethods="16"/>
       <line num="12" count="8" type="cond" truecount="1" falsecount="1"/>
       <line num="13" count="8" type="stmt"/>
@@ -572,7 +577,7 @@
       <line num="85" count="24" type="stmt"/>
       <line num="86" count="24" type="cond" truecount="2" falsecount="0"/>
     </file>
-    <file name="vault-worker.js" path="C:\Users\micha\Desktop\Lumen\src\lib\vault-worker.js">
+    <file name="vault-worker.js" path="/app/src/lib/vault-worker.js">
       <metrics statements="22" coveredstatements="22" conditionals="9" coveredconditionals="7" methods="3" coveredmethods="3"/>
       <line num="6" count="1" type="stmt"/>
       <line num="7" count="4" type="stmt"/>
