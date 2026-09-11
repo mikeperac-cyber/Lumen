@@ -2031,67 +2031,68 @@ function renderBrief() {
   const candidates = getBriefCandidates().filter(t => !overdueTasks.find(o => o.id === t.id)).slice(0, 6);
   const habitsToCommit = (state.habits || []).slice(0, 4);
 
-  let briefCommitCardHTML = '';
-  if (isCommittedToday) {
-    const activeCount = todayTasks.length;
-    briefCommitCardHTML = `
-      <div class="card brief-commit collapsed brief-commit-collapsed">
-        <div class="brief-commit-head" style="display:flex;justify-content:space-between;align-items:center;">
-          <span>🎯 Daily Commitment Ritual — Committed</span>
-          <a href="#schedule" class="link-btn" id="brief-goto-schedule">Go to timebox schedule →</a>
-        </div>
-        <div class="muted brief-commit-summary" style="font-size:13px;margin-top:6px;">
-          Committed for today — ${activeCount} task${activeCount === 1 ? '' : 's'} active.
-        </div>
-      </div>
-    `;
-  } else {
-    const overdueHTML = overdueTasks.map(t => `
-      <div class="brief-commit-row overdue">
-        <input type="checkbox" data-task-id="${t.id}" checked>
-        <span class="t-title">${esc(t.title)}</span>
-        <span class="due-chip">overdue</span>
-      </div>
-    `).join('');
-    
-    const candidateHTML = candidates.map(t => `
-      <div class="brief-commit-row">
-        <input type="checkbox" data-task-id="${t.id}" checked>
-        <span class="t-title">${esc(t.title)}</span>
-      </div>
-    `).join('');
+  const briefCommitCardHTML = isCommittedToday
+    ? (() => {
+        const activeCount = todayTasks.length;
+        return `
+          <div class="card brief-commit collapsed brief-commit-collapsed">
+            <div class="brief-commit-head" style="display:flex;justify-content:space-between;align-items:center;">
+              <span>🎯 Daily Commitment Ritual — Committed</span>
+              <a href="#schedule" class="link-btn" id="brief-goto-schedule">Go to timebox schedule →</a>
+            </div>
+            <div class="muted brief-commit-summary" style="font-size:13px;margin-top:6px;">
+              Committed for today — ${activeCount} task${activeCount === 1 ? '' : 's'} active.
+            </div>
+          </div>
+        `;
+      })()
+    : (() => {
+        const overdueHTML = overdueTasks.map(t => `
+          <div class="brief-commit-row overdue">
+            <input type="checkbox" data-task-id="${t.id}" checked>
+            <span class="t-title">${esc(t.title)}</span>
+            <span class="due-chip">overdue</span>
+          </div>
+        `).join('');
 
-    const habitCommitHTML = habitsToCommit.map(h => `
-      <div class="brief-commit-habit">
-        <span>${h.emoji}</span>
-        <span class="t-title">${esc(h.name)}</span>
-      </div>
-    `).join('');
+        const candidateHTML = candidates.map(t => `
+          <div class="brief-commit-row">
+            <input type="checkbox" data-task-id="${t.id}" checked>
+            <span class="t-title">${esc(t.title)}</span>
+          </div>
+        `).join('');
 
-    briefCommitCardHTML = `
-      <div class="card brief-commit">
-        <div class="brief-commit-head">🎯 Daily Commitment Ritual</div>
-        <div class="muted" style="font-size:12.5px;margin-bottom:10px;">Review candidates and commit your plan for today.</div>
-        <div class="brief-commit-grid">
-          <div class="brief-commit-col">
-            <div class="brief-commit-head">Overdue (${overdueTasks.length})</div>
-            <div class="brief-commit-list">${overdueHTML || '<div class="muted" style="font-size:12px">None</div>'}</div>
+        const habitCommitHTML = habitsToCommit.map(h => `
+          <div class="brief-commit-habit">
+            <span>${h.emoji}</span>
+            <span class="t-title">${esc(h.name)}</span>
           </div>
-          <div class="brief-commit-col">
-            <div class="brief-commit-head">Candidates (${candidates.length})</div>
-            <div class="brief-commit-list">${candidateHTML || '<div class="muted" style="font-size:12px">None</div>'}</div>
+        `).join('');
+
+        return `
+          <div class="card brief-commit">
+            <div class="brief-commit-head">🎯 Daily Commitment Ritual</div>
+            <div class="muted" style="font-size:12.5px;margin-bottom:10px;">Review candidates and commit your plan for today.</div>
+            <div class="brief-commit-grid">
+              <div class="brief-commit-col">
+                <div class="brief-commit-head">Overdue (${overdueTasks.length})</div>
+                <div class="brief-commit-list">${overdueHTML || '<div class="muted" style="font-size:12px">None</div>'}</div>
+              </div>
+              <div class="brief-commit-col">
+                <div class="brief-commit-head">Candidates (${candidates.length})</div>
+                <div class="brief-commit-list">${candidateHTML || '<div class="muted" style="font-size:12px">None</div>'}</div>
+              </div>
+              <div class="brief-commit-col">
+                <div class="brief-commit-head">Habits</div>
+                <div class="brief-commit-list">${habitCommitHTML || '<div class="muted" style="font-size:12px">None</div>'}</div>
+              </div>
+            </div>
+            <div class="brief-commit-foot">
+              <button class="btn btn-accent" id="brief-commit-btn">Commit for today 🚀</button>
+            </div>
           </div>
-          <div class="brief-commit-col">
-            <div class="brief-commit-head">Habits</div>
-            <div class="brief-commit-list">${habitCommitHTML || '<div class="muted" style="font-size:12px">None</div>'}</div>
-          </div>
-        </div>
-        <div class="brief-commit-foot">
-          <button class="btn btn-accent" id="brief-commit-btn">Commit for today 🚀</button>
-        </div>
-      </div>
-    `;
-  }
+        `;
+      })();
 
   const atRisk = goalsAtRisk();
   const riskRows = atRisk.length
@@ -9671,20 +9672,12 @@ function renderSchedule() {
   const committedTrayHTML = Sched.committedTrayHTML(committedUnplaced, { todayDow, days: DAYS, linkGraph: linkGraphForTask });
 
   // Render HTML based on view mode
-  let mainScheduleContent = '';
-  if (_schedViewMode === 'month') {
-    // Calendar markup is owned by src/schedule/view.js; the date arithmetic above
-    // stays here, together with the month/week offsets it depends on.
-    mainScheduleContent = Sched.monthGridHTML({
-      year: curYear, month: curMonth, startDayIdx, totalDays,
-      today, todayDow, tasks: state.tasks, days: DAYS,
-    });
-  } else {
-    // Timetable / Weekly Schedule Grid with Time Columns and Dates
-    // Grid markup is owned by src/schedule/view.js; schedTaskCell is threaded in
-    // because it alone knows today's date and the overlap set.
-    mainScheduleContent = Sched.weekGridHTML({ weekDays, periods: PERIODS, grid, cellHTML: schedTaskCell });
-  }
+  const mainScheduleContent = _schedViewMode === 'month'
+    ? Sched.monthGridHTML({
+        year: curYear, month: curMonth, startDayIdx, totalDays,
+        today, todayDow, tasks: state.tasks, days: DAYS,
+      })
+    : Sched.weekGridHTML({ weekDays, periods: PERIODS, grid, cellHTML: schedTaskCell });
 
   viewRoot().innerHTML = `
     <div class="sched-toolbar">
@@ -11437,7 +11430,6 @@ function init() {
     if (!_firstPaintDone) {
       _firstPaintDone = true;
       const ms = Math.round(performance.now() - _bootStart);
-      // eslint-disable-next-line no-console
       console.log(`[Lumen] first paint ${ms}ms · tasks:${state.tasks.length} · ${navigator.onLine ? 'online' : 'offline'}`);
       if (ms > 800) console.warn(`[Lumen] slow boot ${ms}ms — consider clearing old data`);
       try { if (performance.mark) performance.mark('lumen-first-paint'); } catch (_) {}

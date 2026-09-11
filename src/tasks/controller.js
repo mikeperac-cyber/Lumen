@@ -32,11 +32,10 @@ export function getSearchTasksHay(tasks) {
     _searchTasksCacheUpdated = 0;
     return _searchTasksCache;
   }
-  let maxUpdated = 0;
   const uFirst = list[0]?.updatedAt || 0;
   const uLast = list[len - 1]?.updatedAt || 0;
   const uMid = list[len >> 1]?.updatedAt || 0;
-  maxUpdated = Math.max(uFirst, uLast, uMid);
+  let maxUpdated = Math.max(uFirst, uLast, uMid);
 
   if (_searchTasksCache && _searchTasksCacheLen === len && _searchTasksCacheUpdated === maxUpdated) {
     return _searchTasksCache;

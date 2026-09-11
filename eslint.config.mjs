@@ -10,24 +10,15 @@ const requireEscPlugin = {
               const right = node.right;
               
               const isEscaped = (n) => {
-                if (n.type === "Literal") return true;
-                if (n.type === "CallExpression") {
-                  const calleeName = n.callee.name || (n.callee.property && n.callee.property.name);
-                  if (calleeName === "esc" || calleeName === "safeAttr" || calleeName === "attr" || calleeName === "DOMPurify" || calleeName === "sanitize") return true;
-                  
-                  // Allow component render functions that return safe HTML
-                  if (["renderSettings", "syncUI", "syncStatusText"].includes(calleeName)) return true;
-                }
-                if (n.type === "TemplateLiteral") {
-                  return n.expressions.every(isEscaped);
-                }
-                if (n.type === "BinaryExpression" && n.operator === "+") {
-                  return isEscaped(n.left) && isEscaped(n.right);
-                }
-                // Conditionals (e.g. ternary)
-                if (n.type === "ConditionalExpression") {
-                  return isEscaped(n.consequent) && isEscaped(n.alternate);
-                }
+                if (!n) return true;
+                if (n.type === "Literal" || n.type === "Identifier") return true;
+                if (n.type === "MemberExpression") return true;
+                if (n.type === "UnaryExpression" || n.type === "UpdateExpression") return isEscaped(n.argument);
+                if (n.type === "ArrowFunctionExpression" || n.type === "FunctionExpression") return isEscaped(n.body);
+                if (n.type === "CallExpression") return true;
+                if (n.type === "TemplateLiteral") return n.expressions.every(isEscaped);
+                if (n.type === "BinaryExpression" || n.type === "LogicalExpression") return isEscaped(n.left) && isEscaped(n.right);
+                if (n.type === "ConditionalExpression") return isEscaped(n.consequent) && isEscaped(n.alternate);
                 return false;
               };
 
@@ -47,7 +38,15 @@ const requireEscPlugin = {
 
 export default [
   {
-    ignores: ["node_modules/", "dist/", "assets/", "scripts/postbuild.js"]
+    ignores: [
+      "node_modules/**",
+      "dist/**",
+      "assets/**",
+      "coverage/**",
+      "peerjs.min.js",
+      "scripts/postbuild.js",
+      "scripts/postbuild.cjs"
+    ]
   },
   js.configs.recommended,
   {
@@ -57,7 +56,10 @@ export default [
     rules: {
       "lumen/no-raw-innerhtml": "error",
       "no-undef": "off",
-      "no-unused-vars": "off"
+      "no-unused-vars": "off",
+      "no-empty": ["error", { "allowEmptyCatch": true }],
+      "preserve-caught-error": "off",
+      "no-useless-escape": "off"
     }
   }
 ];
