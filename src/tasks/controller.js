@@ -56,10 +56,17 @@ export function getSearchTasksHay(tasks) {
   for (let i = 0; i < len; i++) {
     const t = list[i];
     let hay = (t.title || '') + ' ' + (t.desc || '');
-    if (t.tags && t.tags.length) hay += ' ' + t.tags.join(' ');
-    if (t.comments && t.comments.length) {
-      for (let j = 0; j < t.comments.length; j++) {
-        const c = t.comments[j];
+    const tags = t.tags;
+    if (tags && tags.length) {
+      for (let j = 0; j < tags.length; j++) {
+        const tag = tags[j];
+        if (tag) hay += ' ' + tag;
+      }
+    }
+    const comments = t.comments;
+    if (comments && comments.length) {
+      for (let j = 0; j < comments.length; j++) {
+        const c = comments[j];
         if (c && c.text) hay += ' ' + c.text;
       }
     }
