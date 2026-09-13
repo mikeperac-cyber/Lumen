@@ -152,7 +152,7 @@ npm run test:all
 - **Audio Engine**: Native Web Audio API (`AudioContext` synthesizer).
 - **P2P Sync**: WebRTC via PeerJS.
 - **PWA**: Service Worker caching (`sw.js`) + Web App Manifest.
-- **Build**: Vite → `dist/`, plus `scripts/postbuild.js` for the service worker and PWA icons.
+- **Build**: Vite → `dist/`, plus `scripts/postbuild.cjs` for the service worker and PWA icons.
 - **Testing**: Vitest for `src/` unit tests, Playwright for end-to-end and built-artifact checks.
 
 ---

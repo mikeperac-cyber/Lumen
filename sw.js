@@ -3,7 +3,7 @@
    Assets are content-hashed by the build, so their URLs change on their own — the
    ?v= handling below is kept only for the unhashed files (index.html, icons). */
 const VERSION = 'lumen-cache-v139';
-/* SHELL is GENERATED — scripts/postbuild.js rewrites it from the real contents of
+/* SHELL is GENERATED — scripts/postbuild.cjs rewrites it from the real contents of
    dist/ on every `npm run build`. Do not hand-edit; add files to the build instead. */
 const SHELL = [
   './',
