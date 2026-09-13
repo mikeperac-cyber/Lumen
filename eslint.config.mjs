@@ -44,7 +44,6 @@ export default [
       "assets/**",
       "coverage/**",
       "peerjs.min.js",
-      "scripts/postbuild.js",
       "scripts/postbuild.cjs"
     ]
   },
