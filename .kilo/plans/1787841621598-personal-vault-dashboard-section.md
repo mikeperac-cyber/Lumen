@@ -1,7 +1,7 @@
 # Personal Vault — Dashboard Section + Full Vault — Build Plan
 
 **Date:** 2026-08-28  
-**Base:** `app.js:12800+` 691KB, `styles.css:2890` 137KB, `sw.js:v103`, 43 Playwright green, `lumen.state.v1` + `lumen-audio` IDB, `STATE_DB='lumen-state'` dual-write `flushSave:696`
+**Base:** `client.js:12800+` 691KB, `styles.css:2890` 137KB, `sw.js:v103`, 43 Playwright green, `lumen.state.v1` + `lumen-audio` IDB, `STATE_DB='lumen-state'` dual-write `flushSave:696`
 **Target:** Add Personal Vault as dashboard section **and** dedicated full view, with links + binary files (docs/sheets/pdfs) local-first, plain (no encryption) per interview, integrated into all tools via links/search/attachments.
 
 ---
@@ -25,7 +25,7 @@
 
 **Out:** Encryption, AI auto-tag (v2), external cloud drive mount (Drive/Dropbox), versioned file history, OCR, shared vault ACLs. Keep `Web Worker` PBKDF2 out of scope (plain vault).
 
-**Boundaries:** No new build deps. Keep god-file seam: new vault logic goes `src/vault/items.js` + `src/vault/blobs.js` after Vite split, but v1 implements inline in `app.js` with `window.LumenLib.vault.*` delegation like `LumenLib.crypto/parser/gemini/students/schedule` already (see `app.js:420`).
+**Boundaries:** No new build deps. Keep god-file seam: new vault logic goes `src/vault/items.js` + `src/vault/blobs.js` after Vite split, but v1 implements inline in `client.js` with `window.LumenLib.vault.*` delegation like `LumenLib.crypto/parser/gemini/students/schedule` already (see `client.js:420`).
 
 ---
 
@@ -93,8 +93,8 @@ Add defaults in `normalizeState:545` (+ backfill `linked*Ids=[]` + `pinned=false
 
 ## 6) Tasks (Ordered, Shippable Slice)
 
-1. **Schema + IDB:** Add `STATE` defaults + `lumen-vault` store `vaultBlobs()` (`blobPut/Get/Delete` copy), `normalizeState` backfill, `getVaultItems/Collections()` helpers, `_vaultItemsMeta` init. `node --check app.js`.
-2. **CRUD modal + full view scaffold:** `openVaultModal` (link-only first), `renderVault()` stub (toolbar + empty state), route `vault` in `TITLES/NAV/MAIN_VIEWS` + `RENDERERS`, `vercel.json` unchanged. Keep `app.js` shim.
+1. **Schema + IDB:** Add `STATE` defaults + `lumen-vault` store `vaultBlobs()` (`blobPut/Get/Delete` copy), `normalizeState` backfill, `getVaultItems/Collections()` helpers, `_vaultItemsMeta` init. `node --check client.js`.
+2. **CRUD modal + full view scaffold:** `openVaultModal` (link-only first), `renderVault()` stub (toolbar + empty state), route `vault` in `TITLES/NAV/MAIN_VIEWS` + `RENDERERS`, `vercel.json` unchanged. Keep `client.js` shim.
 3. **File blobs:** Wire `input[type=file]` + drag-drop → `blobPut` (10MB guard toast `File too large — link instead`) → `size/fileName/mime/blobId`; preview `URL.createObjectURL(blobGet)` revoke. Vault card shows `fileIcon` + `fileSizeStr`.
 4. **Organization:** Tag `tagSpan` + Type chips + Collection CRUD (`addVaultCollection/renameVaultCollection/deleteVaultCollection` moves items to `null` like `deleteKanbanList:843`) + `bindFilterInput` search. Use `createGridVirt` for 100+ items.
 5. **Dashboard widget:** `renderDashboard` add `vaultWidgetHTML()` top of `dash-grid`, pinnable via `state.settings.dashboardPins.vault` (like existing pins), memo `_dashMemo` includes `vaultItems.length+updatedAt` key, `updateNavBadges` shows `vault` count.
@@ -108,7 +108,7 @@ Add defaults in `normalizeState:545` (+ backfill `linked*Ids=[]` + `pinned=false
 
 ## 7) Validation
 
-* **Commands:** `node --check app.js` , `npx playwright test --reporter=list` (expect 44 green, offline 1 still 6s), `npx serve . -l 8092` manual vault drag-drop + reload.
+* **Commands:** `node --check client.js` , `npx playwright test --reporter=list` (expect 44 green, offline 1 still 6s), `npx serve . -l 8092` manual vault drag-drop + reload.
 * **Cases:** Link CRUD, PDF upload 9MB → success + preview, 11MB → toast + link-only, tag filter `work` → correct subset, type `PDF` → only pdfs, collection delete → items move to Unsorted, dashboard pin toggle persists, task vault link → vault card shows task chip and task pill shows vault, global search `>vault Design` → vault hit, reload persists (LS+IDB), `localStorage` clear + `stateDbGet` restore still shows vault (IDB blob retained).
 * **Quota:** Fill 95MB vault → soft cap warning `Vault near quota — remove files or increase cap in Settings`, 105MB → block upload with `Vault quota exceeded`.
 
@@ -117,7 +117,7 @@ Add defaults in `normalizeState:545` (+ backfill `linked*Ids=[]` + `pinned=false
 ## 8) Risks → Mitigations
 
 * **Quota blow-up (`flushSave:696` LS quota):** Blobs IDB-only, never `JSON.stringify(state)`; guard `blobPut` `QuotaExceededError` → toast + link-only fallback.
-* **God file 691KB:** Add `src/vault/*` delegation (`window.LumenLib.vault`) same as `LumenLib.crypto:420`; keep `app.js` shim until Vite `dist/` cutover per `v103 Stabilize`.
+* **God file 691KB:** Add `src/vault/*` delegation (`window.LumenLib.vault`) same as `LumenLib.crypto:420`; keep `client.js` shim until Vite `dist/` cutover per `v103 Stabilize`.
 * **Sync conflict (tombstones):** LWW per-id `vaultItemsMeta` like `tagColorsMeta:769`; delete writes tombstone + `saveSyncMeta()`, merge respects newer `updatedAt`.
 * **Search index churn (`_searchIndex:685`):** Include vault only when `vaultItems` length/sum updatedAt changes; same `_stateRev` invalidation.
 * **Offline shell:** No new `SHELL` entries; vault is IDB, offline reload still `200` via `caches.match` fallback.
@@ -139,5 +139,5 @@ Add defaults in `normalizeState:545` (+ backfill `linked*Ids=[]` + `pinned=false
 
 ## 11) Next Step for Builder
 
-* Read `app.js:545` `normalizeState`, `app.js:771` `blobPut/Get`, `app.js:1286` `TITLES/NAV`, `styles.css:2858` vault styles seam, `playwright.config.js:8`, `vercel.json`, `sw.js:7` before edit.
-* Execute tasks 1→10 in order, keep `app.js` shim until green, then open PR `v104-vault` with `tests/vault.spec.js`.
+* Read `client.js:545` `normalizeState`, `client.js:771` `blobPut/Get`, `client.js:1286` `TITLES/NAV`, `styles.css:2858` vault styles seam, `playwright.config.js:8`, `vercel.json`, `sw.js:7` before edit.
+* Execute tasks 1→10 in order, keep `client.js` shim until green, then open PR `v104-vault` with `tests/vault.spec.js`.

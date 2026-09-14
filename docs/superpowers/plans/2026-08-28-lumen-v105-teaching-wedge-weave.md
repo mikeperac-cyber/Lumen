@@ -12,21 +12,21 @@
 
 ## Global Constraints
 
-- **Assumes v104 shipped** (`src/lib/` + Vitest seam, `window.LumenLib`). If executing before v104, replace the `src/lib/students.js` unit tests with Playwright coverage and keep the helper inline in `app.js`.
+- **Assumes v104 shipped** (`src/lib/` + Vitest seam, `window.LumenLib`). If executing before v104, replace the `src/lib/students.js` unit tests with Playwright coverage and keep the helper inline in `client.js`.
 - **No new top-level nav.** Reuse `students`, `finance`, `goals`, `schedule` views.
 - **Additive state only.** `studentId`, `linkedStudentIds` are new fields; the legacy `student` name string is never deleted.
-- **`normalizeState` (`app.js:756`) is the only migration point.** `getStudentsList()` (`app.js:822`) runs its own roster migration first — the FK backfill must run *after* it.
+- **`normalizeState` (`client.js:756`) is the only migration point.** `getStudentsList()` (`client.js:822`) runs its own roster migration first — the FK backfill must run *after* it.
 - **Release ritual.** `sw.js` `VERSION = 'lumen-cache-v105'`; `index.html` `?v=105` (styles, themes, app, and the v104 module bootstrap tag); git tag `v105`.
 - **All prior Playwright specs stay green.** `behavioral.spec.js:447` (TRY currency + student name) must pass unchanged.
-- **`save()` already nulls `_teachingMemo` on every mutation** (`app.js:888`) — no extra memo-invalidation wiring needed.
+- **`save()` already nulls `_teachingMemo` on every mutation** (`client.js:888`) — no extra memo-invalidation wiring needed.
 
 ## Data shapes (as-built, verified)
 
 ```
-student  : { id, name, level, rate, currency: 'USD'|'TRY', status: 'active'|..., email, ... }   // app.js:822
-income   : { id, amount, currency, type?, category?, student?: <name>, date, description, createdAt, updatedAt }  // app.js:9101
-           also written at app.js:9871 (attendance auto-bill) and app.js:10334 (lesson plan)
-goal     : { id, title, desc, color, keyResults[], due, tags[], createdAt, updatedAt }          // app.js:5786
+student  : { id, name, level, rate, currency: 'USD'|'TRY', status: 'active'|..., email, ... }   // client.js:822
+income   : { id, amount, currency, type?, category?, student?: <name>, date, description, createdAt, updatedAt }  // client.js:9101
+           also written at client.js:9871 (attendance auto-bill) and client.js:10334 (lesson plan)
+goal     : { id, title, desc, color, keyResults[], due, tags[], createdAt, updatedAt }          // client.js:5786
 ```
 
 ---
@@ -39,7 +39,7 @@ goal     : { id, title, desc, color, keyResults[], due, tags[], createdAt, updat
 - Modify: `src/lib/globals.js` (add `students` namespace)
 - Modify: `sw.js` (`SHELL` += `./src/lib/students.js`, `VERSION` = v105)
 - Modify: `index.html` (`?v=105`)
-- Modify: `app.js` (`normalizeState` at `app.js:756`; income writers at `app.js:9101`, `app.js:9871`, `app.js:10334`)
+- Modify: `client.js` (`normalizeState` at `client.js:756`; income writers at `client.js:9101`, `client.js:9871`, `client.js:10334`)
 
 **Interfaces:**
 - Produces: `backfillStudentIds(state) → { linked: number, orphans: string[] }` — mutates each entry in `state.income`, `state.expectedIncome`, `state.assignments`, `state.attendance` that has a `student` name (or `studentName`) but no `studentId`, setting `studentId` from a first-match `name → id` map. Idempotent.
@@ -137,7 +137,7 @@ Expected: PASS.
 
 - [ ] **Step 6: Call the backfill from `normalizeState`**
 
-In `normalizeState` (`app.js:756`), after `getStudentsList()` has been called at least once (add `getStudentsList();` at the top of the relevant block if not already guaranteed), add:
+In `normalizeState` (`client.js:756`), after `getStudentsList()` has been called at least once (add `getStudentsList();` at the top of the relevant block if not already guaranteed), add:
 
 ```js
 try {
@@ -153,7 +153,7 @@ try {
 
 - [ ] **Step 7: Write `studentId` on new income writes**
 
-At `app.js:9101` (the finance entry writer), the `entry` object literal already has `student: student || undefined`. Add `studentId` — resolve it from the roster by the chosen name:
+At `client.js:9101` (the finance entry writer), the `entry` object literal already has `student: student || undefined`. Add `studentId` — resolve it from the roster by the chosen name:
 
 ```js
 const _sid = (getStudentsList().find(s => s.name === student) || {}).id;
@@ -163,7 +163,7 @@ const entry = { id: uid(), amount: Math.round(amount * 100) / 100, currency,
   date, description, createdAt: Date.now(), updatedAt: Date.now() };
 ```
 
-At `app.js:9871` (attendance auto-bill) and `app.js:10334` (lesson plan), the pushed income object has `student: studentName` / `student: ...`. Add `studentId:` resolved the same way, or — better — these two sites already know the student object; pass its `.id` directly. Add `studentId: student.id` (attendance modal has the student in scope) / the lesson-plan equivalent.
+At `client.js:9871` (attendance auto-bill) and `client.js:10334` (lesson plan), the pushed income object has `student: studentName` / `student: ...`. Add `studentId:` resolved the same way, or — better — these two sites already know the student object; pass its `.id` directly. Add `studentId: student.id` (attendance modal has the student in scope) / the lesson-plan equivalent.
 
 - [ ] **Step 8: Write the E2E backfill assertion**
 
@@ -194,7 +194,7 @@ Expected: PASS.
 - [ ] **Step 10: Commit**
 
 ```bash
-git add src/lib/students.js src/lib/globals.js tests/unit/students.test.js tests/wedge.spec.js sw.js index.html app.js
+git add src/lib/students.js src/lib/globals.js tests/unit/students.test.js tests/wedge.spec.js sw.js index.html client.js
 git commit -m "feat: backfill income/attendance studentId FK from legacy student names (v105)"
 ```
 
@@ -203,7 +203,7 @@ git commit -m "feat: backfill income/attendance studentId FK from legacy student
 ### Task 2: `goal.linkedStudentIds` + goal modal multi-select + card chips
 
 **Files:**
-- Modify: `app.js` (`openGoalModal` at `app.js:5738`, the save handler at `app.js:5782-5790`, `normalizeState` at `app.js:756`, the goal card renderer)
+- Modify: `client.js` (`openGoalModal` at `client.js:5738`, the save handler at `client.js:5782-5790`, `normalizeState` at `client.js:756`, the goal card renderer)
 - Modify: `styles.css` (chip-toggle row, goal card student chips)
 
 **Interfaces:**
@@ -244,7 +244,7 @@ Expected: FAIL — no `.g-student-toggle` element.
 
 - [ ] **Step 3: Default the field in `normalizeState`**
 
-In `normalizeState` (`app.js:756`), in the goals-normalizing loop:
+In `normalizeState` (`client.js:756`), in the goals-normalizing loop:
 
 ```js
 (state.goals || []).forEach(g => { if (!Array.isArray(g.linkedStudentIds)) g.linkedStudentIds = []; });
@@ -252,7 +252,7 @@ In `normalizeState` (`app.js:756`), in the goals-normalizing loop:
 
 - [ ] **Step 4: Add the multi-select to `openGoalModal`**
 
-In `openGoalModal` (`app.js:5738`), after the `g` default object add `linkedStudentIds: []` to the fallback. Build the toggle row and insert it into the modal body after the Key results field:
+In `openGoalModal` (`client.js:5738`), after the `g` default object add `linkedStudentIds: []` to the fallback. Build the toggle row and insert it into the modal body after the Key results field:
 
 ```js
 const _students = getStudentsList();
@@ -273,7 +273,7 @@ $$('.g-student-toggle').forEach(b => b.addEventListener('click', () => b.classLi
 
 - [ ] **Step 5: Persist in the save handler**
 
-At `app.js:5786` where `const data = { title, desc, color, keyResults, due, tags }` is built, add:
+At `client.js:5786` where `const data = { title, desc, color, keyResults, due, tags }` is built, add:
 
 ```js
 linkedStudentIds: $$('.g-student-toggle.active').map(b => b.dataset.sid),
@@ -309,7 +309,7 @@ Expected: PASS, zero console errors.
 - [ ] **Step 9: Commit**
 
 ```bash
-git add app.js styles.css tests/wedge.spec.js
+git add client.js styles.css tests/wedge.spec.js
 git commit -m "feat: link goals to students (goal.linkedStudentIds) with modal toggles and card chips"
 ```
 
@@ -318,7 +318,7 @@ git commit -m "feat: link goals to students (goal.linkedStudentIds) with modal t
 ### Task 3: Teaching dashboard weave — explicit link first
 
 **Files:**
-- Modify: `app.js` (`teachingDashboardHTML` at `app.js:2697-2715`)
+- Modify: `client.js` (`teachingDashboardHTML` at `client.js:2697-2715`)
 
 **Interfaces:**
 - Consumes: `goal.linkedStudentIds` (Task 2), `entry.studentId` (Task 1).
@@ -353,7 +353,7 @@ Expected: likely FAIL — the heuristic `w.length > 3 && gt.includes(w)` won't m
 
 - [ ] **Step 3: Rewrite the weave in `teachingDashboardHTML`**
 
-Replace the `linkedGoals` computation (`app.js:2703-2707`):
+Replace the `linkedGoals` computation (`client.js:2703-2707`):
 
 ```js
 const explicit = state.goals.filter(g => (g.linkedStudentIds || []).includes(s.id)).slice(0, 2);
@@ -364,7 +364,7 @@ const linkedGoals = explicit.length ? explicit : state.goals.filter(g => {
 }).slice(0, 2);
 ```
 
-Replace the income match (`app.js:2708`):
+Replace the income match (`client.js:2708`):
 
 ```js
 const incFor = (state.income || []).filter(e => e.studentId ? e.studentId === s.id : (e.student === s.name));
@@ -377,7 +377,7 @@ const paidByCur = incFor.reduce((m, e) => { const c = e.currency || 'USD'; m[c] 
 const paidStr = Object.entries(paidByCur).map(([c, v]) => fmtM(v, c)).join(' · ');
 ```
 
-Use `paidStr` instead of `$${totalPaid}` at `app.js:2713`.
+Use `paidStr` instead of `$${totalPaid}` at `client.js:2713`.
 
 - [ ] **Step 4: Run E2E**
 
@@ -387,7 +387,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add app.js tests/wedge.spec.js
+git add client.js tests/wedge.spec.js
 git commit -m "feat: teaching hub weave prefers explicit goal-student links; per-currency paid totals"
 ```
 
@@ -396,7 +396,7 @@ git commit -m "feat: teaching hub weave prefers explicit goal-student links; per
 ### Task 4: Per-student finance rollup card
 
 **Files:**
-- Modify: `app.js` (`renderFinance` at `app.js:8563`; the student filter dropdown at `app.js:8757-8759`; the filter fn at `app.js:8575-8580`)
+- Modify: `client.js` (`renderFinance` at `client.js:8563`; the student filter dropdown at `client.js:8757-8759`; the filter fn at `client.js:8575-8580`)
 - Modify: `styles.css` (rollup bars)
 
 **Interfaces:**
@@ -468,13 +468,13 @@ Insert `${perStudentCard}` into the finance view HTML near the other cards.
 
 - [ ] **Step 4: Make the student filter FK-aware**
 
-Change the dropdown options (`app.js:8757-8759`) to use `s.id` as the value:
+Change the dropdown options (`client.js:8757-8759`) to use `s.id` as the value:
 
 ```js
 ...studentList.map(s => `<option value="${s.id}" ${_finStudentFilter === s.id ? 'selected' : ''}>🎓 ${esc(s.name)}</option>`)
 ```
 
-Change the filter fn (`app.js:8575-8580`):
+Change the filter fn (`client.js:8575-8580`):
 
 ```js
 if (_finStudentFilter !== 'ALL') {
@@ -504,7 +504,7 @@ Expected: PASS (the TRY behavioral test must still pass — verify its student-f
 - [ ] **Step 7: Commit**
 
 ```bash
-git add app.js styles.css tests/wedge.spec.js
+git add client.js styles.css tests/wedge.spec.js
 git commit -m "feat: per-student Paid/Expected/Outstanding finance rollup; FK-aware student filter"
 ```
 
@@ -513,10 +513,10 @@ git commit -m "feat: per-student Paid/Expected/Outstanding finance rollup; FK-aw
 ### Task 5: Dossier — linked goals strip + prefilled Log income
 
 **Files:**
-- Modify: `app.js` (`openStudentDossier` at `app.js:10372`)
+- Modify: `client.js` (`openStudentDossier` at `client.js:10372`)
 
 **Interfaces:**
-- Consumes: `goal.linkedStudentIds`, `goalProgress(g)`, the finance entry modal opener (identify its function name near `app.js:9101`).
+- Consumes: `goal.linkedStudentIds`, `goalProgress(g)`, the finance entry modal opener (identify its function name near `client.js:9101`).
 
 - [ ] **Step 1: Write the failing E2E test**
 
@@ -565,7 +565,7 @@ Insert `${goalStrip}` into the dossier modal body.
 Find the dossier's finance tab / "Log Income" control. Change its handler to open the finance entry modal with prefill. If the finance modal opener does not accept a prefill argument, add an optional `prefill` param:
 
 ```js
-// where the finance entry modal opens (near app.js:9101):
+// where the finance entry modal opens (near client.js:9101):
 function openFinanceEntryModal(kind, prefill) {
   // ... existing setup ...
   // if (prefill) { set the student <select> to prefill.studentId's name, currency to prefill.currency, rate hint to prefill.rate }
@@ -586,7 +586,7 @@ Expected: PASS.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add app.js tests/wedge.spec.js
+git add client.js tests/wedge.spec.js
 git commit -m "feat: student dossier linked-goal chips + prefilled Log Income"
 ```
 
@@ -595,7 +595,7 @@ git commit -m "feat: student dossier linked-goal chips + prefilled Log Income"
 ### Task 6: Lesson-plan → task studentId propagation
 
 **Files:**
-- Modify: `app.js` (Lesson Planning Workstation "Create tasks" action, `app.js:10086`+)
+- Modify: `client.js` (Lesson Planning Workstation "Create tasks" action, `client.js:10086`+)
 
 **Interfaces:**
 - Consumes: the lesson plan's `studentId` (or `studentName` → resolve).
@@ -634,7 +634,7 @@ Expected: FAIL (task has no `studentId`).
 
 - [ ] **Step 3: Identify and patch the create-tasks action**
 
-Grep: `grep -n "lessonPlan" app.js | grep -i "task"`. In the handler that maps plan activities → `state.tasks.push({...})`, add `studentId: plan.studentId || (getStudentsList().find(s => s.name === plan.studentName) || {}).id` and `student:` the resolved name, plus `category: 'work'`.
+Grep: `grep -n "lessonPlan" client.js | grep -i "task"`. In the handler that maps plan activities → `state.tasks.push({...})`, add `studentId: plan.studentId || (getStudentsList().find(s => s.name === plan.studentName) || {}).id` and `student:` the resolved name, plus `category: 'work'`.
 
 - [ ] **Step 4: Run E2E**
 
@@ -644,7 +644,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add app.js tests/wedge.spec.js
+git add client.js tests/wedge.spec.js
 git commit -m "feat: propagate studentId onto tasks created from lesson plans"
 ```
 

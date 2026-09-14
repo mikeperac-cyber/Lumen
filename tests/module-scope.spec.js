@@ -1,5 +1,5 @@
 // @ts-check
-// Contract tests for the ESM cutover. app.js is loaded as <script type="module">, so
+// Contract tests for the ESM cutover. client.js is loaded as <script type="module">, so
 // nothing in it is global by accident: inline handlers cannot resolve its functions,
 // and a `window.x = x` shim snapshots the VALUE, going stale the moment the module
 // rebinds `x`. Both failure modes are silent, so they are pinned here.
@@ -15,8 +15,8 @@ async function boot(page) {
   return errors;
 }
 
-test('no inline handler in app.js depends on a module-scoped function', () => {
-  const src = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
+test('no inline handler in client.js depends on a module-scoped function', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'client.js'), 'utf8');
   // `event` is supplied by the inline-handler scope chain, so it is allowed.
   // Anything else named here must resolve on `window`, which module scope breaks.
   const offenders = (src.match(/onclick="(?:(?!event\.)[^"])*?[A-Za-z_$][\w$]*\s*\(/g) || []);

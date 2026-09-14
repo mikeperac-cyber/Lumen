@@ -2,7 +2,7 @@
 // builders for a vault item.
 //
 // These are pure: everything they need that lives in app state is injected, following
-// the same deps-object pattern as src/lib/parser.js. Event wiring stays in app.js —
+// the same deps-object pattern as src/lib/parser.js. Event wiring stays in client.js —
 // renderVault resolves state into a ctx, writes the markup this module returns, then
 // binds it; openVaultModal is untouched. "Produce markup" and "wire up a view" are
 // different ownership boundaries.
@@ -136,7 +136,7 @@ export function vaultRowHTML(v, deps){
 
 /**
  * The whole vault view as markup. Pure: the caller resolves state and hands it over,
- * then owns setting innerHTML and binding the result. Event wiring stays in app.js —
+ * then owns setting innerHTML and binding the result. Event wiring stays in client.js —
  * it reaches into a dozen app closures, which is a different ownership boundary.
  * @param {VaultViewCtx} ctx
  * @returns {string}
@@ -212,7 +212,7 @@ export function vaultWidgetHTML(allItems, isPinned = true) {
 /**
  * The add/edit vault item form. Pure: every list it renders is handed in, and the
  * caller opens the modal and binds it. The pickers are capped at the same limits
- * app.js used, so a large workspace cannot render thousands of checkboxes.
+ * client.js used, so a large workspace cannot render thousands of checkboxes.
  * @param {object} v the item being edited, or a blank one
  * @param {object} [ctx] { isEdit, pendingFile, collections, tasks, goals, notes, students, ic }
  * @returns {string}

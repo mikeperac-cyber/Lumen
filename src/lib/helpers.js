@@ -3,7 +3,7 @@
 
 /**
  * Escape a value for safe interpolation into HTML text or double-quoted attributes.
- * Mirrors app.js#esc but renamed to htmlEscape.
+ * Mirrors client.js#esc but renamed to htmlEscape.
  * @param {unknown} s
  * @returns {string}
  */
@@ -16,7 +16,7 @@ export function htmlEscape(s) {
     .replace(/'/g, '&#39;');
 }
 
-// Back-compat alias — app.js shim still calls `esc`
+// Back-compat alias — client.js shim still calls `esc`
 export const esc = htmlEscape;
 
 /**
@@ -64,7 +64,7 @@ export function fileSizeStr(bytes) {
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
-/* Date and duration formatting. Pure — no state, no DOM. Moved out of app.js, which
+/* Date and duration formatting. Pure — no state, no DOM. Moved out of client.js, which
    held byte-identical copies of the helpers above it and sole copies of these. */
 
 /**

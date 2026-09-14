@@ -1,7 +1,7 @@
 // @ts-check
 // The roster card and the student dossier compute the same "amount paid" figure two
 // different ways. The dossier matches income by studentId first, falling back to the
-// name string (app.js:10686, the FK-first pattern the v105 wedge established). The
+// name string (client.js:10686, the FK-first pattern the v105 wedge established). The
 // roster card's getStudentStats only ever compared `.student` against the name —
 // never checked `.studentId` at all. Rename a student (or log income through a path
 // that only sets the FK, e.g. attendance auto-bill after a rename) and the roster

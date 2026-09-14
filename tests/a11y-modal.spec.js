@@ -1,5 +1,5 @@
 // @ts-check
-// Every modal in Lumen goes through openModal() (app.js), so dialog semantics belong
+// Every modal in Lumen goes through openModal() (client.js), so dialog semantics belong
 // there rather than in the 90-odd HTML strings that call it. These pin the four things
 // a keyboard or screen-reader user needs and the app shipped none of: the dialog role,
 // an accessible name, a focus trap, and focus returning where it came from.

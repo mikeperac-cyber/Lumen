@@ -10,7 +10,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fmiketeacher-ai%2Fto-do-list-1)
 [![PWA Ready](https://img.shields.io/badge/PWA-Ready-success.svg)](manifest.webmanifest)
-[![No Framework](https://img.shields.io/badge/Framework-None-orange.svg)](app.js)
+[![No Framework](https://img.shields.io/badge/Framework-None-orange.svg)](client.js)
 
 </div>
 

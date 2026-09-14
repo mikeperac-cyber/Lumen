@@ -13,8 +13,8 @@
 ## Global Constraints
 
 - **Assumes v104 shipped** (`src/lib/crypto.js`, `window.LumenLib`, Vitest). Task 5 modifies `src/lib/crypto.js`.
-- **Review data model unchanged.** `reviewCtx(off)` keeps its signature and `reviewWeekCache` (`app.js:3465`); Markdown export (`app.js:3622`) keeps working.
-- **Ritual is never blocking.** Collapsed by default with a single "Start weekly review" button; no overlay, no gate. Mirrors the Brief soft-nudge (`app.js:2217`).
+- **Review data model unchanged.** `reviewCtx(off)` keeps its signature and `reviewWeekCache` (`client.js:3465`); Markdown export (`client.js:3622`) keeps working.
+- **Ritual is never blocking.** Collapsed by default with a single "Start weekly review" button; no overlay, no gate. Mirrors the Brief soft-nudge (`client.js:2217`).
 - **Additive state only.** `state.settings.reviewCommit` is new, defaulted in `normalizeState`.
 - **Offline shell green.** `./src/lib/vault-worker.js` is added to `sw.js` `SHELL`. The offline spec must still pass and encryption must still work offline.
 - **Release ritual.** `sw.js` `VERSION = 'lumen-cache-v106'`; `index.html` `?v=106` (styles, themes, app, module bootstrap); git tag `v106`.
@@ -26,7 +26,7 @@
 ### Task 1: `reviewCtx` — compute Slipped rows + Protect candidates
 
 **Files:**
-- Modify: `app.js` (`reviewCtx` at `app.js:3463-3561`; reuse the decay computation pattern from `app.js:8372`)
+- Modify: `client.js` (`reviewCtx` at `client.js:3463-3561`; reuse the decay computation pattern from `client.js:8372`)
 
 **Interfaces:**
 - Produces on the `ctx` object:
@@ -71,7 +71,7 @@ Expected: FAIL — `c.slipped` is undefined.
 
 - [ ] **Step 3: Compute slipped + candidates in `reviewCtx`**
 
-Before the `ctx = { ... }` assembly (`app.js:3548`), add:
+Before the `ctx = { ... }` assembly (`client.js:3548`), add:
 
 ```js
 // ---- Slipped: work that fell behind in this window ----
@@ -111,7 +111,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add app.js tests/review-ritual.spec.js
+git add client.js tests/review-ritual.spec.js
 git commit -m "feat: reviewCtx computes slipped tasks/habits/KRs and protect candidates"
 ```
 
@@ -120,7 +120,7 @@ git commit -m "feat: reviewCtx computes slipped tasks/habits/KRs and protect can
 ### Task 2: Ritual strip — markup, step advance, `reviewCommit` persistence
 
 **Files:**
-- Modify: `app.js` (`reviewSkeletonHTML` at `app.js:3562`, `renderReview` at `app.js:3610`, `normalizeState` at `app.js:756`)
+- Modify: `client.js` (`reviewSkeletonHTML` at `client.js:3562`, `renderReview` at `client.js:3610`, `normalizeState` at `client.js:756`)
 - Modify: `styles.css` (ritual strip)
 
 **Interfaces:**
@@ -187,7 +187,7 @@ Insert at the top of the returned string, before `<div class="stats">`:
 
 - [ ] **Step 5: Render the ritual in `renderReview`**
 
-Add a module-level `let ritualStep = 0;`. After the toolbar/cards are updated (end of `renderReview`, `app.js:3697`), call a new `renderRitual(ctx)`:
+Add a module-level `let ritualStep = 0;`. After the toolbar/cards are updated (end of `renderReview`, `client.js:3697`), call a new `renderRitual(ctx)`:
 
 ```js
 function currentWeekStartISO() { return weekRange(0).startISO; }
@@ -254,7 +254,7 @@ function renderRitual(ctx) {
 }
 ```
 
-Wire the `.slip-row[data-goto]` click in `renderReview`'s one-time binding block (`app.js:3613`):
+Wire the `.slip-row[data-goto]` click in `renderReview`'s one-time binding block (`client.js:3613`):
 
 ```js
 $('#ritual-body') && document.addEventListener('click', e => {
@@ -286,7 +286,7 @@ Expected: PASS, zero console errors.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add app.js styles.css tests/review-ritual.spec.js
+git add client.js styles.css tests/review-ritual.spec.js
 git commit -m "feat: weekly review ritual strip (Shipped/Slipped/Protect) persisting reviewCommit"
 ```
 
@@ -295,7 +295,7 @@ git commit -m "feat: weekly review ritual strip (Shipped/Slipped/Protect) persis
 ### Task 3: Brief candidates surface `reviewCommit` items first
 
 **Files:**
-- Modify: `app.js` (`getBriefCandidates` — grep for its definition)
+- Modify: `client.js` (`getBriefCandidates` — grep for its definition)
 
 **Interfaces:**
 - Consumes: `state.settings.reviewCommit.taskIds`.
@@ -331,7 +331,7 @@ Expected: FAIL.
 
 - [ ] **Step 3: Reorder in `getBriefCandidates`**
 
-Grep: `grep -n "function getBriefCandidates" app.js`. At the end of the function, before returning the sliced list, apply a stable priority bump:
+Grep: `grep -n "function getBriefCandidates" client.js`. At the end of the function, before returning the sliced list, apply a stable priority bump:
 
 ```js
 const rc = (state.settings && state.settings.reviewCommit) || null;
@@ -349,7 +349,7 @@ Expected: PASS (the commit-timebox flow must be unaffected).
 - [ ] **Step 5: Commit**
 
 ```bash
-git add app.js tests/review-ritual.spec.js
+git add client.js tests/review-ritual.spec.js
 git commit -m "feat: Brief candidates surface weekly-review protected tasks first"
 ```
 
@@ -358,7 +358,7 @@ git commit -m "feat: Brief candidates surface weekly-review protected tasks firs
 ### Task 4: Markdown export — "Protecting next week" section
 
 **Files:**
-- Modify: `app.js` (MD export builder at `app.js:3622-3666`)
+- Modify: `client.js` (MD export builder at `client.js:3622-3666`)
 
 - [ ] **Step 1: Write the failing E2E test**
 
@@ -394,7 +394,7 @@ Expected: FAIL.
 
 - [ ] **Step 3: Append the section in the MD builder**
 
-After the Teaching block (`app.js:3665`), before `const blob = new Blob(...)`:
+After the Teaching block (`client.js:3665`), before `const blob = new Blob(...)`:
 
 ```js
 const rc = (state.settings && state.settings.reviewCommit) || null;
@@ -414,7 +414,7 @@ Expected: PASS (the existing export test must still pass).
 - [ ] **Step 5: Commit**
 
 ```bash
-git add app.js tests/review-ritual.spec.js
+git add client.js tests/review-ritual.spec.js
 git commit -m "feat: weekly review markdown adds a Protecting Next Week section"
 ```
 
@@ -430,7 +430,7 @@ git commit -m "feat: weekly review markdown adds a Protecting Next Week section"
 - Modify: `index.html` (`?v=106`)
 
 **Interfaces:**
-- `encryptVaultBackup(plainText, password, opts?)` / `decryptVaultBackup(envelopeObj, password, opts?)` — `opts.workerFactory?: () => Worker`. When `Worker` is undefined or the factory/worker throws, fall back to the current inline path. Public 2-arg calls in `app.js` keep working.
+- `encryptVaultBackup(plainText, password, opts?)` / `decryptVaultBackup(envelopeObj, password, opts?)` — `opts.workerFactory?: () => Worker`. When `Worker` is undefined or the factory/worker throws, fall back to the current inline path. Public 2-arg calls in `client.js` keep working.
 
 - [ ] **Step 1: Write the failing unit test**
 

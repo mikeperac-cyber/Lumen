@@ -293,7 +293,7 @@ test.describe("Personal Vault  dashboard + full view", () => {
   });
 });
 
-// app.js delegates vaultGuessType to LumenLib.vault, and app.js also assigned its own
+// client.js delegates vaultGuessType to LumenLib.vault, and client.js also assigned its own
 // delegator onto LumenLib.vault — so the function called itself. Every file-selection
 // path through it died with RangeError, silently, mid-event-handler.
 test("vaultGuessType classifies by mime and extension without recursing", async ({ page }) => {
@@ -304,7 +304,7 @@ test("vaultGuessType classifies by mime and extension without recursing", async 
     const call = (f, m) => { try { return window.vaultGuessType(f, m); } catch (e) { return "THREW " + e.constructor.name; } };
     return {
       pdf: call("notes.pdf", "application/pdf"),
-      // csv and docx resolve only in the full classifier, not app.js's minimal fallback
+      // csv and docx resolve only in the full classifier, not client.js's minimal fallback
       csv: call("data.csv", "text/csv"),
       docx: call("report.docx", ""),
       png: call("shot.png", ""),

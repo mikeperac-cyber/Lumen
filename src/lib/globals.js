@@ -1,7 +1,7 @@
 // src/lib/globals.js
-// Bridges the src/lib ES modules into the classic-script world of app.js.
-// Loaded as <script type="module"> immediately before app.js, so window.LumenLib
-// is populated before any app.js code runs (a module script and a deferred classic
+// Bridges the src/lib ES modules into the classic-script world of client.js.
+// Loaded as <script type="module"> immediately before client.js, so window.LumenLib
+// is populated before any client.js code runs (a module script and a deferred classic
 // script execute in document order after parsing completes).
 import * as cryptoLib from './crypto.js';
 import * as scheduleLib from './schedule.js';
