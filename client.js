@@ -694,7 +694,7 @@ function openScheduleIntervalsModal() {
   let interval = '60';
   let start = currentPeriods[0]?.start || '08:00';
   let end = currentPeriods[currentPeriods.length - 1]?.end || '20:00';
-  
+
   function calcPreview(st, en, inv) {
     const [sH, sM] = st.split(':').map(Number);
     const [eH, eM] = en.split(':').map(Number);
@@ -807,7 +807,7 @@ function openScheduleIntervalsModal() {
     const [eH, eM] = en.split(':').map(Number);
     const startMins = (sH || 8) * 60 + (sM || 0);
     const endMins = (eH || 20) * 60 + (eM || 0);
-    
+
     const newPeriods = [];
     let cur = startMins;
     let idx = 1;
@@ -817,7 +817,7 @@ function openScheduleIntervalsModal() {
       const pEndMins = cur + invMins;
       const pEndH = String(Math.floor(pEndMins / 60)).padStart(2, '0');
       const pEndM = String(pEndMins % 60).padStart(2, '0');
-      
+
       const startTime = `${pStartH}:${pStartM}`;
       const endTime = `${pEndH}:${pEndM}`;
       newPeriods.push({
@@ -3444,7 +3444,7 @@ let _ritualSelections = { taskIds: [], habitIds: [], goalIds: [] };
 function reviewRitualCardHTML(ctx) {
   const rc = state.settings && state.settings.reviewCommit;
   const isDone = !!rc;
-  
+
   if (isDone && _ritualStep === 0) {
     return '<div class="card ritual-card" id="ritual-container" style="margin-bottom:16px;background:var(--surface2)"><div style="display:flex;align-items:center;justify-content:space-between"><div><h3 style="margin:0;font-size:15px">✨ Weekly Review Completed</h3><div class="muted" style="font-size:12.5px;margin-top:2px" id="ritual-status">Status: done · Protected ' + ((rc.taskIds||[]).length + (rc.habitIds||[]).length + (rc.goalIds||[]).length) + ' focus priorities for next week.</div></div><button class="btn btn-sm btn-ghost" id="ritual-restart">Redo ritual</button></div></div>';
   }
@@ -3544,7 +3544,7 @@ function renderReview() {
       md += `- **Habit Consistency**: ${curCtx.statHabits} (${curCtx.statHabitsLabel})\n`;
       md += `- **Average Goal Progress**: ${curCtx.statGoals}%\n`;
       md += `- **Notes Captured**: ${curCtx.statNotes}\n\n`;
-      
+
       md += `## ✅ Completed Tasks (${completedTasks.length})\n`;
       if (completedTasks.length) {
         completedTasks.forEach(t => {
@@ -3562,7 +3562,7 @@ function renderReview() {
         }
         md += `- ${h.emoji} **${h.name}**: ${checks}/7 days (${Math.round((checks/7)*100)}%)\n`;
       });
-      
+
       md += `\n## 🎯 Goals Overview\n`;
       state.goals.forEach(g => {
         md += `- **${g.title}**: ${goalProgress(g)}% complete\n`;
@@ -3590,7 +3590,7 @@ function renderReview() {
           pGoals.forEach(g => { md += '- 🎯 **' + g.title + '**\n'; });
         }
       }
-      
+
       const blob = new Blob([md], { type: 'text/markdown' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
@@ -4218,7 +4218,7 @@ function shareText(title, text) {
 setupTasksController({
   get state() { return state; },
   $, $$, toast, captureUndo, logActivity, save, parseNaturalLanguageTask, uid, todayISO,
-  goalProgressToast, trackProgressTime, applyTaskGoalProgress, 
+  goalProgressToast, trackProgressTime, applyTaskGoalProgress,
   currentView, closeModal,
   bindFilterInput, esc, openModal, renderView,
   viewRoot, isMobile, updateOnlineStatus,
@@ -6454,24 +6454,24 @@ function updateFloatingPomoPill() {
   if (!pill) return;
   const isTaskActive = !!taskPomo.taskId;
   const isGlobalActive = pomo.running || (pomo.remain < pomo.dur && pomo.remain > 0);
-  
+
   if (!isTaskActive && !isGlobalActive) {
     pill.classList.add('hidden');
     pill.classList.remove('running');
     return;
   }
-  
+
   pill.classList.remove('hidden');
   const running = isTaskActive ? taskPomo.running : pomo.running;
   const remain = isTaskActive ? taskPomo.remain : pomo.remain;
   const mins = Math.floor(remain / 60), secs = remain % 60;
   const timeStr = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-  
+
   pill.classList.toggle('running', running);
   const timeEl = $('#fp-time');
   const labelEl = $('#fp-label');
   const toggleBtn = $('#fp-toggle');
-  
+
   if (timeEl) timeEl.textContent = timeStr;
   if (labelEl) {
     if (isTaskActive) {
@@ -9657,7 +9657,7 @@ function renderSchedule() {
   const totalDays = lastDay.getDate();
 
   const scheduledTasks = state.tasks.filter(t => (t.scheduleDay || t.schedulePeriod) && t.status !== 'done');
-  
+
   // Grid construction and overlap detection are owned by src/lib/schedule.js.
   const { grid, overlapIds } = Sched.buildScheduleGrid(scheduledTasks, PERIODS, DAYS);
 
@@ -10222,12 +10222,12 @@ function renderSettings() {
       const keyVal = aiKeyInp.value.trim();
       sessionSecrets.geminiApiKey = keyVal;
       if (aiModelSel) state.settings.geminiModel = aiModelSel.value;
-      
+
       const doRemember = aiRememberCb && aiRememberCb.checked;
       const persist = window.LumenLib.persist;
       const crypto = window.LumenLib.crypto;
       const localKey = getLocalSecretKey();
-      
+
       if (doRemember && keyVal) {
         state.settings.secretsRef = true;
         const sealed = await crypto.sealSecret(keyVal, localKey);
@@ -10236,7 +10236,7 @@ function renderSettings() {
         await persist.secretsDbDelete('gemini:apiKey');
         // If they also don't have vault auto-backup, we could clear secretsRef, but simpler to just leave it or let next load sort it out.
       }
-      
+
       save();
       const statusEl = $('#set-ai-status');
       if (statusEl) statusEl.textContent = sessionSecrets.geminiApiKey ? 'Key saved 🟢' : 'No API key set ⚪';
@@ -11356,7 +11356,7 @@ function init() {
           moreMenu.style.left = btnRect.left + 'px';
           moreMenu.style.top = (btnRect.bottom + 4) + 'px';
         }
-        
+
         // Handle bottom overflow
         const menuRect = moreMenu.getBoundingClientRect();
         if (menuRect.bottom > window.innerHeight) {
