@@ -1,5 +1,5 @@
 // src/finance/view.js — finance chart SVG. Pure geometry builders, no rendering
-// decisions beyond what shape each chart needs; app.js resolves state and injects
+// decisions beyond what shape each chart needs; client.js resolves state and injects
 // the palette. Data prep (sixMonthTrend, groupByField) lives in src/finance/store.js.
 import { esc, fmtM } from '../lib/helpers.js';
 

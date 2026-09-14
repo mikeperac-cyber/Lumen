@@ -1,4 +1,4 @@
-// src/vault/store.js — Vite seam for Personal Vault (future: app.js shim delegates here)
+// src/vault/store.js — Vite seam for Personal Vault (future: client.js shim delegates here)
 // Pure IDB + type helpers; state is passed in to keep module side-effect free.
 export const VAULT_DB = 'lumen-vault';
 export const VAULT_STORE = 'blobs';

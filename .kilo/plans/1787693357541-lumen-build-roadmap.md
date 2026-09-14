@@ -1,7 +1,7 @@
 # Lumen Current Build & Next Best Builds — Roadmap Plan
 
 **Date:** 2026-08-28 (updated with code review findings)
-**Base:** `app.js:13581` 691KB, `styles.css:2890` 137KB, `sw.js:v103`, `index.html?v=111`, 43 Playwright E2E green (`smoke 18, behavioral 14, regression 8, offline 1, commit-timebox 1, personal-schedule 1`)
+**Base:** `client.js:13581` 691KB, `styles.css:2890` 137KB, `sw.js:v103`, `index.html?v=111`, 43 Playwright E2E green (`smoke 18, behavioral 14, regression 8, offline 1, commit-timebox 1, personal-schedule 1`)
 **Deploy:** Vercel `cleanUrls:true`, `sw.js max-age=0`, PWA `manifest.webmanifest`, `peerjs.min.js` lazy
 **Prior plan:** `.kilo/plans/1787530813042-lumen-optimization-plan.md` (10 optimizations) — shipped as v99→v102
 
@@ -24,9 +24,9 @@
 
 ### What shipped and works (verified)
 
-* **Pillar A Loop:** Brief Commit Day `app.js:1849` 3 buckets + `getFirstCommittedTask:1869` seeds Focus; Link Graph `app.js:1882/1901` + Backlinks `app.js:1924` `[[Title]]` pill; Command Palette `app.js:12259` fuzzy `fuzzyScore:12268` + recents + `>habit/>note/>focus` quick-add parity; Focus→Habit `app.js:7322` `offerFocusHabitProtect()` on pomo complete
-* **Pillar B Perf:** `_stateRev:697` invalidates `_dashMemo/_timeTrackMemo/_teachingMemo/_deadlinesMemo/_searchIndex` (`app.js:698`) + midnight `setInterval:715`; teaching `weaveRows:2692`; `MATRIX_PAGE=60:4229` + `IntersectionObserver:4945` auto-expand; `createListVirt:1975` for dash/notes/search; idle warm `app.js:12816`
-* **Pillar C Ritual:** Daily Commit soft-nudge collapsed `app.js:2215`, Habit decay banner `app.js:8351` + day-of-week win-rate `app.js:8307`, Brief→Schedule→Focus wired via `focusTaskId`/`scheduleDay`/`schedulePeriod`
+* **Pillar A Loop:** Brief Commit Day `client.js:1849` 3 buckets + `getFirstCommittedTask:1869` seeds Focus; Link Graph `client.js:1882/1901` + Backlinks `client.js:1924` `[[Title]]` pill; Command Palette `client.js:12259` fuzzy `fuzzyScore:12268` + recents + `>habit/>note/>focus` quick-add parity; Focus→Habit `client.js:7322` `offerFocusHabitProtect()` on pomo complete
+* **Pillar B Perf:** `_stateRev:697` invalidates `_dashMemo/_timeTrackMemo/_teachingMemo/_deadlinesMemo/_searchIndex` (`client.js:698`) + midnight `setInterval:715`; teaching `weaveRows:2692`; `MATRIX_PAGE=60:4229` + `IntersectionObserver:4945` auto-expand; `createListVirt:1975` for dash/notes/search; idle warm `client.js:12816`
+* **Pillar C Ritual:** Daily Commit soft-nudge collapsed `client.js:2215`, Habit decay banner `client.js:8351` + day-of-week win-rate `client.js:8307`, Brief→Schedule→Focus wired via `focusTaskId`/`scheduleDay`/`schedulePeriod`
 * **Pillar D Sovereignty:** Per-field `_tagColorMeta/_incomeTypesMeta/_expenseCategoriesMeta` + `syncMeta.tombstones` LWW `applyMerge` (merge.js:11); auto-vault `AUTO_VAULT_DB='lumen-vault-auto'` 3-slot rotating `autoVaultBackup:516` on `flushSave:719` if `settings.autoBackup`
 * **Personal Vault (v107-v111):** `state.vaultItems[]`, `state.vaultCollections[]`, `lumen-vault` IDB store, dashboard widget + full `vault` view, `openVaultModal` CRUD, vault link picker in task/goal/note modals, search palette `>vault` prefix, drag-drop upload + preview, peer sync merge (`merge.js:161-224`).
 
@@ -35,12 +35,12 @@
 **Critical:**
 - God file 691KB must be split (addressed by v103 task 2)
 - XSS via `esc()` + `innerHTML` — 50+ `innerHTML` assignments, some with attribute-context interpolation
-- `vaultGuessType` duplicated 3× (app.js:815, store.js:32, vault.test.js:5) — diverged
+- `vaultGuessType` duplicated 3× (client.js:815, store.js:32, vault.test.js:5) — diverged
 - Weak KDF: PBKDF2 100k iterations (crypto.js:45, crypto.js:163) — OWASP recommends 600k+
 
 **High:**
-- API key stored plaintext in `state.settings.geminiApiKey`, reused as auto-backup encryption fallback (app.js:737)
-- `startAmbient` (app.js:250) leaks AudioContext nodes; binaural path merger never disconnected
+- API key stored plaintext in `state.settings.geminiApiKey`, reused as auto-backup encryption fallback (client.js:737)
+- `startAmbient` (client.js:250) leaks AudioContext nodes; binaural path merger never disconnected
 - `b642buf(envelope.data).buffer` (vault-worker.js:21) fragile — `.buffer` can return wrong slice
 
 **Medium:**
@@ -53,8 +53,8 @@
 **Low:**
 - Magic numbers inline (5 toasts, 24ms debounce, 5000ms achievement interval, etc.)
 - `void allKeys` dead code (merge.js:60)
-- `openScheduleIntervalsModal` (app.js:1105-1197) — 90+ line HTML-in-JS template
-- `startViewTransition` fallback uses magic 350ms timeout (app.js:1786)
+- `openScheduleIntervalsModal` (client.js:1105-1197) — 90+ line HTML-in-JS template
+- `startViewTransition` fallback uses magic 350ms timeout (client.js:1786)
 - Test coverage gaps: no unit tests for `normalizeState`, `getBriefCandidates`, `goalProgress`, `habitStreak`, `commitBriefDay`
 
 ---
@@ -65,7 +65,7 @@
 
 **Boundaries:** No new views, no UI redesign. Keep PWA offline contract `sw.js:21 usable()` and `vercel.json` headers. Keep `state` shape backwards-compatible (normalize via `normalizeState:545`). All fixes additive or internal — no user-facing behavior change except security hardening (stronger KDF, no API-key-as-encryption).
 
-**Data flow:** `app.js` → split to `src/` modules bundled by Vite to `dist/`. Same dual-write LS+IDB, same `KEY='lumen.state.v1'`.
+**Data flow:** `client.js` → split to `src/` modules bundled by Vite to `dist/`. Same dual-write LS+IDB, same `KEY='lumen.state.v1'`.
 
 ---
 
@@ -75,7 +75,7 @@
 
 1. **Scaffold Vite** (`vite.config.js` `build.outDir=dist`, `base:./`, `manifest: true`), preserve `cleanUrls` via `vercel.json` rewrite. Vitest `include: ['src/**/*.{test,spec}.{js,ts}','tests/unit/**']`.
 
-2. **Split `app.js` by seam** (copy-paste, no logic change): `src/state/{store,persist,undo}.js`, `src/views/{brief,dashboard,schedule,habits,notes,finance,students,vault}.js`, `src/lib/{icons,helpers,crypto,parser,naturalLanguage}.js`, `src/sync/{peer,merge}.js`, `src/vault/{crypto,autoVault,store}.js`, `src/perf/memo.js`. Keep `app.js` as re-export shim until cutover. Move `vaultGuessType` import from `src/vault/store.js` into any module that needs it (removes duplication — see task 10).
+2. **Split `client.js` by seam** (copy-paste, no logic change): `src/state/{store,persist,undo}.js`, `src/views/{brief,dashboard,schedule,habits,notes,finance,students,vault}.js`, `src/lib/{icons,helpers,crypto,parser,naturalLanguage}.js`, `src/sync/{peer,merge}.js`, `src/vault/{crypto,autoVault,store}.js`, `src/perf/memo.js`. Keep `client.js` as re-export shim until cutover. Move `vaultGuessType` import from `src/vault/store.js` into any module that needs it (removes duplication — see task 10).
 
 3. **Persist `_autoVaultIdx`** — store `autoVaultNextSlot` in `localStorage` or IDB `AUTO_VAULT_STORE` meta key, read on `autoVaultDb()` init, write on `autoVaultBackup`.
 
@@ -87,24 +87,24 @@
 
 7. **Add auto-vault round-trip test:** enable `settings.autoBackup`, mutate, assert IDB `AUTO_VAULT_DB` has encrypted blob, clear `localStorage`, restore via `autoVaultList`+decrypt.
 
-8. **Salt sync passphrase:** `app.js:8248` `hashPass(p)` currently calls `hashPassLegacy(p)` (unsalted). Wire it to `window.LumenLib.crypto.hashPass(p, syncMeta.passSalt)`. Migration: `syncMeta.passHashV === 2` detects v2; on first v2 set, generate `syncMeta.passSalt = randomSaltB64()` and re-hash. Peers with `passV: 1` still validated via `hashPassLegacy` (backward compat — crypto.js:145).
+8. **Salt sync passphrase:** `client.js:8248` `hashPass(p)` currently calls `hashPassLegacy(p)` (unsalted). Wire it to `window.LumenLib.crypto.hashPass(p, syncMeta.passSalt)`. Migration: `syncMeta.passHashV === 2` detects v2; on first v2 set, generate `syncMeta.passSalt = randomSaltB64()` and re-hash. Peers with `passV: 1` still validated via `hashPassLegacy` (backward compat — crypto.js:145).
 
 9. **Bump `sw.js`** `VERSION='lumen-cache-v103'` + `index.html` `?v=103`, add Vite `?v=` hash for cache bust, keep `ignoreSearch` handling.
 
 **=== Code Review Findings (critical → low) ===**
 
-10. **Deduplicate `vaultGuessType`** (critical, correctness): Delete the copy at `app.js:815-835` and the one in `vault.test.js:5-22`. Import from `src/vault/store.js` (single source of truth). After Vite split (task 2), modules `import { vaultGuessType } from '../vault/store.js'`. Update all 3 call sites. Run `node --check` + unit tests to confirm identical behavior.
+10. **Deduplicate `vaultGuessType`** (critical, correctness): Delete the copy at `client.js:815-835` and the one in `vault.test.js:5-22`. Import from `src/vault/store.js` (single source of truth). After Vite split (task 2), modules `import { vaultGuessType } from '../vault/store.js'`. Update all 3 call sites. Run `node --check` + unit tests to confirm identical behavior.
 
 11. **XSS audit + harden `esc()`/`innerHTML`** (critical, security): Audit all 50+ `innerHTML` assignments (see review list). For each, confirm `esc()` wraps all dynamic content. Special attention to:
-    - `app.js:2253` `state.settings.aiDailyFocus` — already `esc()`-wrapped but verify
-    - `app.js:1924` `renderBacklinks` — re-escapes already-safe string, build HTML from user note content
-    - `app.js:5378` cover image — `reader.result` interpolated into `src="${pendingCoverImage}"` (data URL, safe)
-    - `app.js:5451` subtask row — `esc(text)` in attribute context (OK)
+    - `client.js:2253` `state.settings.aiDailyFocus` — already `esc()`-wrapped but verify
+    - `client.js:1924` `renderBacklinks` — re-escapes already-safe string, build HTML from user note content
+    - `client.js:5378` cover image — `reader.result` interpolated into `src="${pendingCoverImage}"` (data URL, safe)
+    - `client.js:5451` subtask row — `esc(text)` in attribute context (OK)
     Create `src/lib/helpers.js#htmlEscape()` (rename `esc` for clarity) and a `safeAttr()` helper for attribute contexts. Replace `esc()` calls incrementally. Add XSS regression test: inject `<img src=x onerror=alert(1)>` into a task title, assert it renders as text not DOM.
 
 12. **Strengthen PBKDF2 iterations** (critical, security): Bump `deriveVaultKey` (crypto.js:45) from 100,000 to 310,000 iterations (OWASP 2023 minimum for PBKDF2-SHA256). Bump `hashPass` (crypto.js:163) to match. Version the envelope (`version: 1` → `version: 2` in `encryptVaultBackup`). On decrypt, read `version` and select iteration count (keep `version: 1` → 100k for backward compat with existing backups). Update `encryptInline`/`decryptInline` and worker to accept iteration count param. Add unit test: v1 envelope decrypts with 100k, v2 decrypts with 310k.
 
-13. **Remove API-key-as-encryption-secret** (high, security): At `app.js:737`, change:
+13. **Remove API-key-as-encryption-secret** (high, security): At `client.js:737`, change:
     ```js
     const pwd = state.settings.autoBackupPassword || state.settings.geminiApiKey || '';
     ```
@@ -114,7 +114,7 @@
     ```
     If `autoBackup` is enabled but `autoBackupPassword` is empty, skip auto-backup and show a toast nudging the user to set a dedicated backup password in Settings. Never derive encryption material from the Gemini API key.
 
-14. **Fix `startAmbient` AudioContext node leaks** (high, correctness): Refactor `startAmbient` (app.js:250-328) to:
+14. **Fix `startAmbient` AudioContext node leaks** (high, correctness): Refactor `startAmbient` (client.js:250-328) to:
     - Keep one persistent `ambientGain` node (already does)
     - Fully disconnect + stop the previous source before creating a new one (track `ambientOscillators[]` for multi-note types)
     - Fix binaural path: disconnect the `merger` node too (currently `ambientSource.disconnect` only disconnects merger, but `oscL`/`oscR` never stopped)
@@ -130,7 +130,7 @@
     ```
     `crypto.subtle.decrypt` accepts `BufferSource` (Uint8Array directly). Remove the intermediate `.buffer` access that risks wrong-slice returns. Add unit test: decrypt envelope with non-byte-aligned base64 length.
 
-16. **Encapsulate global namespace** (medium, maintainability): After Vite split (task 2), wrap remaining `app.js` shim in IIFE or convert to ES module. Rename collision-prone globals: `esc` → `htmlEscape`, `ic` → `icon`, `state` → kept as internal store export. Remove top-level `let` bindings that leak to `window`. Add ESLint rule `no-unused-vars` + explicit `window.*` assignments only for the debug API (`window.__LUMEN_DEBUG`).
+16. **Encapsulate global namespace** (medium, maintainability): After Vite split (task 2), wrap remaining `client.js` shim in IIFE or convert to ES module. Rename collision-prone globals: `esc` → `htmlEscape`, `ic` → `icon`, `state` → kept as internal store export. Remove top-level `let` bindings that leak to `window`. Add ESLint rule `no-unused-vars` + explicit `window.*` assignments only for the debug API (`window.__LUMEN_DEBUG`).
 
 17. **Centralize persistence error handling** (medium, robustness): Create `src/state/persist.js#PersistError` typed error. Replace silent `.catch(() => {})` at `load:692` with a visible banner: "IndexedDB unavailable — running in localStorage-only mode (5MB limit)". Replace `flushSave:729` bare try/catch with a `notifyPersistFailure()` that toasts once per session. Add unit test: mock `indexedDB.open` to throw, assert banner shown + localStorage-only path active.
 
@@ -144,8 +144,8 @@
 
 22. **Clean dead code + fix `startViewTransition` timeout** (low, maintainability):
     - Remove `void allKeys` dead code at `merge.js:60` (and the `allKeys` Set declaration at line 59)
-    - Refactor `openScheduleIntervalsModal` (app.js:1105-1197) 90+ line template into a `ScheduleIntervalsModal` component function returning a DOM node or template parts
-    - Fix `app.js:1786`: replace magic 350ms timeout with `document.documentElement.addEventListener('transitionend', ...)` or read `--theme-transition-duration` CSS variable
+    - Refactor `openScheduleIntervalsModal` (client.js:1105-1197) 90+ line template into a `ScheduleIntervalsModal` component function returning a DOM node or template parts
+    - Fix `client.js:1786`: replace magic 350ms timeout with `document.documentElement.addEventListener('transitionend', ...)` or read `--theme-transition-duration` CSS variable
 
 **=== Test Coverage Gaps (low) ===**
 
@@ -164,7 +164,7 @@
 * **Security:** XSS regression test green (task 11), PBKDF2 310k confirmed in envelope v2 (task 12), API key no longer used for encryption (task 13).
 * **Perf:** `slow boot >800ms` warning not triggered at 2k tasks on CI (task 20), dashboard render <50ms (task 6).
 * **Backward compat:** v1 encrypted envelopes still decrypt (task 12), legacy `passV:1` peers still connect (task 8), `normalizeState` preserves all existing state shapes.
-* **Rollback:** Keep `app.js` shim 1 release; `Vite` output `dist/app.legacy.js` fallback via `<script nomodule>`.
+* **Rollback:** Keep `client.js` shim 1 release; `Vite` output `dist/app.legacy.js` fallback via `<script nomodule>`.
 
 ### Risks → Mitigations
 
@@ -205,7 +205,7 @@
 
 **Boundaries:** No Electron/Capacitor. Keep BYO Gemini key (`callGemini` gemini-2.5-flash). Keep single Brief view, enhance not replace.
 
-**Data flow:** Brief reads `state.tasks/goals/habits` → `aiDailyFocus` cache `state.settings.aiDailyFocus` + `habitToProtect` → Gemini prompt `app.js:2312` → `Generate Focus` button. Store result in `state.settings.aiDailyFocusAt`.
+**Data flow:** Brief reads `state.tasks/goals/habits` → `aiDailyFocus` cache `state.settings.aiDailyFocus` + `habitToProtect` → Gemini prompt `client.js:2312` → `Generate Focus` button. Store result in `state.settings.aiDailyFocusAt`.
 
 **Tasks:**
 
@@ -237,7 +237,7 @@
 
 ## 6) Task List for Next Agent (execute in order)
 
-* [ ] Read this file + `app.js` `normalizeState:545` + `vercel.json` + `playwright.config.js` + `crypto.js` + `vault-worker.js` + `parser.js` + `merge.js` before any edit
+* [ ] Read this file + `client.js` `normalizeState:545` + `vercel.json` + `playwright.config.js` + `crypto.js` + `vault-worker.js` + `parser.js` + `merge.js` before any edit
 * [ ] Execute v103 foundation tasks 1→9 (Vite scaffold → sw.js bump)
 * [ ] Execute v103 review tasks 10→23 (dedup → unit tests)
 * [ ] Open PR `v103-stabilize-review` with `dist/` gitignored, `ci.yml` + Vitest + all review fixes

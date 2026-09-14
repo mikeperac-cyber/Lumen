@@ -15,8 +15,8 @@ Integrity mode: development
 
 ## Requirements
 
-### R1. Architecture — Decompress app.js
-- Extract remaining `tasks`, `vault`, and `finance` logic from `app.js` into their respective modules.
+### R1. Architecture — Decompress client.js
+- Extract remaining `tasks`, `vault`, and `finance` logic from `client.js` into their respective modules.
 - Ensure the app boots correctly without `ReferenceError`s (currently failing on `getSearchTasksHay` and `vaultBlobGet`).
 
 ### R2. Performance — Load & Parse

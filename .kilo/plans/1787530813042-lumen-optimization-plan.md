@@ -3,7 +3,7 @@
 > Scope answer: **Stay zero-build** — all recommendations keep vanilla HTML/CSS/ES2022, single-file static deploy, local-first with no mandatory cloud. No bundler, no backend.
 
 **Date:** 2026-08-26  
-**Codebase:** `app.js` ~11.6k LOC (603KB), `styles.css` ~131KB, single-file `index.html`, PWA `sw.js` v97, `peerjs.min.js` lazy-loaded.  
+**Codebase:** `client.js` ~11.6k LOC (603KB), `styles.css` ~131KB, single-file `index.html`, PWA `sw.js` v97, `peerjs.min.js` lazy-loaded.
 **Test suite:** 41 Playwright tests (smoke 18, behavioral 15, regression 8 inc. pins + quick-add, offline 1).  
 **Deploy:** Vercel Hobby, `cleanUrls: true`, `sw.js` `max-age=0`.
 
@@ -74,7 +74,7 @@ We benchmarked against products that win on the *same jobs* Lumen claims:
 | **Capture anywhere, zero friction** | 4 | Quick-add is excellent, but palette `>task` was broken; voice capture pill is floating but discoverability low; `show on hover when unpinned` dashboard helps but mobile still heavy |
 | **Tasks ↔ Goals ↔ Habits interconnection** | 3 | Link exists (task `goalId`/`krId` → KR auto-bumps 12→13), but **invisible**: no graph, no Brief "if you miss this habit, this goal slips" narrative |
 | **Focus that protects consistency** | 3 | Pomodoro runs, but not linked to habit streaks or deep-work blocking; no "focus → habit streak freeze" or "focus minutes → goal health" story |
-| **Local-first performance** | 3 | Cold boot double-render fixed, PeerJS lazy-loaded, but `app.js` 603KB parses on every load; no code-split; `content-visibility` just added; matrix still 83ms at 2k tasks without virtualization (cap at 60 fixes 80%) |
+| **Local-first performance** | 3 | Cold boot double-render fixed, PeerJS lazy-loaded, but `client.js` 603KB parses on every load; no code-split; `content-visibility` just added; matrix still 83ms at 2k tasks without virtualization (cap at 60 fixes 80%) |
 | **Offline reliability** | 4 | Shell now correct (redirected-response bug fixed, network-first versioned assets), but **conflict resolution** (`applyMerge`) is last-write-wins on `tagColors` etc., no per-field timestamps |
 | **Review & reflection** | 2 | Weekly review exports markdown, but no **in-app review ritual** (Sunsama-style: what shipped / what slipped / what to protect). Activity log exists (500 entries) but not surfaced as insights |
 | **Trust & sovereignty** | 4 | AES-GCM vault works, but **no auto-encrypted backup** and P2P sync queue visibility is thin ("23 queued" only in settings) |
@@ -136,7 +136,7 @@ Each item lists **purpose fit**, **zero-build approach**, **effort**, **validati
 - **Already:** `_stateRev` + `_deadlinesMemo`, matrix `MATRIX_PAGE=60`, `content-visibility: auto`, IDB `structuredClone`, `preload`+`fetchpriority`.
 - **To finish:**
   - Memoize `timeTrackDashboardHTML` and `teachingDashboardHTML` (currently recompute `catEntries`/`topTasks` over all tasks each dashboard visit). Cache per `_stateRev`.
-  - Matrix: replace `Show N more` with **IntersectionObserver** virtualization (reuse existing `createListVirt` / `createGridVirt` helpers already in `app.js:2420` range). Keeps drag-and-drop.
+  - Matrix: replace `Show N more` with **IntersectionObserver** virtualization (reuse existing `createListVirt` / `createGridVirt` helpers already in `client.js:2420` range). Keeps drag-and-drop.
   - `initDashWidgets` already uses detached `dw-body-in` — measure with `performance.now()` in `perf` view and assert <16ms dashboard render at 2k tasks.
 - **Validation:** Seed 2000 tasks, assert dashboard `perfRecord` < 50ms, matrix `Show more` expands without full re-render.
 
@@ -148,7 +148,7 @@ Each item lists **purpose fit**, **zero-build approach**, **effort**, **validati
 #### 7) Encrypted Auto-Backup (Pillar D)
 - **Problem:** Vault encryption exists but is manual (Settings → Export). Users lose data and blame local-first.
 - **Optimization:** If `settings.vaultPasswordHash` or `geminiApiKey` exists and `settings.autoBackup` (opt-in toggle, default off), on `flushSave` also write an **encrypted snapshot to IDB** (`lumen-vault-auto`, 3 rotating slots). Restore flow already exists.
-- **Zero-build:** Reuse `encryptVaultBackup` (PBKDF2+AES-GCM) already in `app.js:421`. No background worker.
+- **Zero-build:** Reuse `encryptVaultBackup` (PBKDF2+AES-GCM) already in `client.js:421`. No background worker.
 - **Validation:** Enable auto-backup, mutate state, assert IDB has 1 encrypted blob; simulate `localStorage` clear → restore from auto-vault.
 
 ### Phase 3 — Depth Without Bloat (Week 4, still zero-build)
@@ -215,10 +215,10 @@ If any Phase 2 item slips, Phase 3 can still ship — they are independent reads
 
 ## 10) What We Ship Next (if you approve)
 
-**If you say "go":** I will implement **Phase 1 (items 1–4)** in `app.js`/`styles.css` only, bump `sw.js` `lumen-cache-v98`, add `regression.spec.js` coverage, and keep `npm test` green — all within zero-build. Phase 2 follows after your review.
+**If you say "go":** I will implement **Phase 1 (items 1–4)** in `client.js`/`styles.css` only, bump `sw.js` `lumen-cache-v98`, add `regression.spec.js` coverage, and keep `npm test` green — all within zero-build. Phase 2 follows after your review.
 
 > One question deferred to build time: should the Daily Planning Ritual (`Commit Day`) be **blocking** (Brief shows an overlay until you commit) or **soft-nudge** (banner + toast, dismissible)? Recommended: soft-nudge to respect zero-friction capture.
 
 ---
 
-*This plan was generated from repository state at `app.js` 11,641 LOC / `styles.css` 131KB / `sw.js` v97 / `playwright.config.js` fresh context. Competitive analysis uses public feature sets of Todoist, TickTick, Linear, Sunsama/Akiflow, Notion, Obsidian, Habitica as of 2026.*
+*This plan was generated from repository state at `client.js` 11,641 LOC / `styles.css` 131KB / `sw.js` v97 / `playwright.config.js` fresh context. Competitive analysis uses public feature sets of Todoist, TickTick, Linear, Sunsama/Akiflow, Notion, Obsidian, Habitica as of 2026.*

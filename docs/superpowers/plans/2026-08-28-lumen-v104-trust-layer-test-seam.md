@@ -4,7 +4,7 @@
 
 **Goal:** Extract Lumen's pure logic into `src/lib/` ES modules behind a Vitest unit-test seam, and harden the sync passphrase hash and the Gemini API call — with zero UX change.
 
-**Architecture:** Four new pure-function ES modules (`crypto`, `schedule`, `parser`, `merge`) live in `src/lib/`. A single bootstrap module `src/lib/globals.js` imports them and assigns `window.LumenLib`; `index.html` loads it as `type="module"` immediately before the classic `app.js` script, so it runs first. The functions in `app.js` become one-line delegators to `window.LumenLib.*`, keeping every call site and every inline `onclick` handler unchanged. `app.js` itself stays a classic script — no bundler.
+**Architecture:** Four new pure-function ES modules (`crypto`, `schedule`, `parser`, `merge`) live in `src/lib/`. A single bootstrap module `src/lib/globals.js` imports them and assigns `window.LumenLib`; `index.html` loads it as `type="module"` immediately before the classic `client.js` script, so it runs first. The functions in `client.js` become one-line delegators to `window.LumenLib.*`, keeping every call site and every inline `onclick` handler unchanged. `client.js` itself stays a classic script — no bundler.
 
 **Tech Stack:** Vitest (Node environment, Node 20 global Web Crypto), ES modules, JSDoc type annotations, Playwright (existing), GitHub Actions.
 
@@ -13,10 +13,10 @@
 ## Global Constraints
 
 - **Node 20** (matches `.github/workflows/ci.yml` `node-version: 20`).
-- **No bundler.** `app.js` stays `<script src="app.js?v=104" defer>` (classic). `src/lib/globals.js` is the ONLY `type="module"` script.
+- **No bundler.** `client.js` stays `<script src="client.js?v=104" defer>` (classic). `src/lib/globals.js` is the ONLY `type="module"` script.
 - **Offline shell green.** Every new boot-loaded file is added to `sw.js` `SHELL` (`sw.js:6`). `tests/offline.spec.js` must stay green.
-- **Release ritual.** `sw.js` `VERSION = 'lumen-cache-v104'`; `index.html` `?v=104` on `styles.css`, `themes.css`, `app.js`; git tag `v104`.
-- **State back-compat** via `normalizeState` (`app.js:756`), additive fields only.
+- **Release ritual.** `sw.js` `VERSION = 'lumen-cache-v104'`; `index.html` `?v=104` on `styles.css`, `themes.css`, `client.js`; git tag `v104`.
+- **State back-compat** via `normalizeState` (`client.js:756`), additive fields only.
 - **Vault envelope** `{ lumenEncrypted:true, version:1, salt, iv, data, exportedAt }` must still decrypt.
 - **All 43 existing Playwright specs stay green with assertions unchanged.**
 - **Existing `syncMeta.passHash` values keep verifying** (legacy peers still connect until the user re-enters the passphrase).
@@ -114,7 +114,7 @@ git commit -m "test: scaffold Vitest unit-test seam + CI job"
 - Modify: `tests/regression.spec.js` (boot-order assertion)
 
 **Interfaces:**
-- Produces: `window.LumenLib = { crypto, schedule, parser, merge }` — populated before `app.js` runs. Namespaces are empty objects until Tasks 3, 5, 6, 7 fill them.
+- Produces: `window.LumenLib = { crypto, schedule, parser, merge }` — populated before `client.js` runs. Namespaces are empty objects until Tasks 3, 5, 6, 7 fill them.
 
 - [ ] **Step 1: Write the failing E2E assertion**
 
@@ -146,9 +146,9 @@ Expected: FAIL — `window.LumenLib` is undefined.
 
 ```js
 // src/lib/globals.js
-// Bridges the src/lib ES modules into the classic-script world of app.js.
-// Loaded as <script type="module"> immediately before app.js, so window.LumenLib
-// is populated before any app.js code runs (module + defer classic execute in
+// Bridges the src/lib ES modules into the classic-script world of client.js.
+// Loaded as <script type="module"> immediately before client.js, so window.LumenLib
+// is populated before any client.js code runs (module + defer classic execute in
 // document order after parsing).
 import * as cryptoLib from './crypto.js';
 import * as scheduleLib from './schedule.js';
@@ -193,17 +193,17 @@ export {};
 
 - [ ] **Step 5: Wire the bootstrap into `index.html`**
 
-Find the app script tag (currently `app.js:166`):
+Find the app script tag (currently `client.js:166`):
 
 ```html
-<script src="app.js?v=103" fetchpriority="high" defer></script>
+<script src="client.js?v=103" fetchpriority="high" defer></script>
 ```
 
 Replace with:
 
 ```html
 <script type="module" src="src/lib/globals.js?v=104"></script>
-<script src="app.js?v=104" fetchpriority="high" defer></script>
+<script src="client.js?v=104" fetchpriority="high" defer></script>
 ```
 
 Also bump the two other `?v=103` occurrences (`styles.css`, `themes.css` prefetch) to `?v=104`.
@@ -216,7 +216,7 @@ Change `sw.js:5`:
 const VERSION = 'lumen-cache-v104';
 ```
 
-In the `SHELL` array (`sw.js:6-18`), add these entries after `'./app.js'`:
+In the `SHELL` array (`sw.js:6-18`), add these entries after `'./client.js'`:
 
 ```js
   './src/lib/globals.js',
@@ -250,7 +250,7 @@ git commit -m "feat: add src/lib module bootstrap (window.LumenLib), bump to v10
 **Files:**
 - Modify: `src/lib/crypto.js` (fill it)
 - Create: `tests/unit/crypto.test.js`
-- Modify: `app.js` (replace bodies at `app.js:421-484` and `app.js:7592-7596` with delegators)
+- Modify: `client.js` (replace bodies at `client.js:421-484` and `client.js:7592-7596` with delegators)
 
 **Interfaces:**
 - Produces (all in `window.LumenLib.crypto` and as ES exports):
@@ -329,7 +329,7 @@ Expected: FAIL — nothing exported from `src/lib/crypto.js`.
 
 - [ ] **Step 3: Fill `src/lib/crypto.js`**
 
-Move the implementations verbatim from `app.js` (`buf2b64`, `b642buf` at `app.js:421-432`; `deriveVaultKey`/`deriveVaultKey` at `app.js:433-445`; `encryptVaultBackup` at `app.js:446-464`; `decryptVaultBackup` at `app.js:465-484`; `hashPass` body at `app.js:7592-7596`). Add JSDoc. Rename the sync-hash function to `hashPassLegacy`. Add `randomSaltB64`.
+Move the implementations verbatim from `client.js` (`buf2b64`, `b642buf` at `client.js:421-432`; `deriveVaultKey`/`deriveVaultKey` at `client.js:433-445`; `encryptVaultBackup` at `client.js:446-464`; `decryptVaultBackup` at `client.js:465-484`; `hashPass` body at `client.js:7592-7596`). Add JSDoc. Rename the sync-hash function to `hashPassLegacy`. Add `randomSaltB64`.
 
 ```js
 // src/lib/crypto.js
@@ -418,9 +418,9 @@ export async function hashPassLegacy(passphrase) {
 }
 ```
 
-- [ ] **Step 4: Replace the `app.js` bodies with delegators**
+- [ ] **Step 4: Replace the `client.js` bodies with delegators**
 
-At `app.js:421-484`, replace `buf2b64`, `b642buf`, `deriveVaultKey`, `encryptVaultBackup`, `decryptVaultBackup` with:
+At `client.js:421-484`, replace `buf2b64`, `b642buf`, `deriveVaultKey`, `encryptVaultBackup`, `decryptVaultBackup` with:
 
 ```js
 /* ---------- Web Crypto Vault Encryption (delegated to src/lib/crypto.js) ---------- */
@@ -431,7 +431,7 @@ function encryptVaultBackup(plainText, password) { return window.LumenLib.crypto
 function decryptVaultBackup(envelopeObj, password) { return window.LumenLib.crypto.decryptVaultBackup(envelopeObj, password); }
 ```
 
-At `app.js:7592-7596`, replace `hashPass` with:
+At `client.js:7592-7596`, replace `hashPass` with:
 
 ```js
 async function hashPass(p) { return window.LumenLib.crypto.hashPassLegacy(p); }
@@ -450,7 +450,7 @@ Expected: PASS.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/lib/crypto.js tests/unit/crypto.test.js app.js
+git add src/lib/crypto.js tests/unit/crypto.test.js client.js
 git commit -m "refactor: extract vault crypto to src/lib/crypto.js with unit tests"
 ```
 
@@ -461,7 +461,7 @@ git commit -m "refactor: extract vault crypto to src/lib/crypto.js with unit tes
 **Files:**
 - Modify: `src/lib/crypto.js` (add `hashPass`)
 - Modify: `tests/unit/crypto.test.js`
-- Modify: `app.js` (`defaultSyncMeta`, set-passphrase handler `app.js:12220-12226`, `hello` handshake `app.js:7666` + `app.js:7703-7718`, first-load nudge)
+- Modify: `client.js` (`defaultSyncMeta`, set-passphrase handler `client.js:12220-12226`, `hello` handshake `client.js:7666` + `client.js:7703-7718`, first-load nudge)
 
 **Interfaces:**
 - Consumes: `randomSaltB64` from Task 3.
@@ -521,13 +521,13 @@ export async function hashPass(passphrase, saltB64) {
 Run: `npm run test:unit -- crypto`
 Expected: PASS.
 
-- [ ] **Step 5: Update `defaultSyncMeta` in `app.js`**
+- [ ] **Step 5: Update `defaultSyncMeta` in `client.js`**
 
-At `app.js:7582`, add `passSalt: '', passHashV: 1` to the returned object.
+At `client.js:7582`, add `passSalt: '', passHashV: 1` to the returned object.
 
 - [ ] **Step 6: Update the set-passphrase handler**
 
-At `app.js:12220-12226` (the `settings` passphrase input handler), replace the set branch:
+At `client.js:12220-12226` (the `settings` passphrase input handler), replace the set branch:
 
 ```js
 if (!v) { syncMeta.passHash = ''; syncMeta.passSalt = ''; syncMeta.passHashV = 1; saveSyncMeta(); toast('Passphrase removed'); return; }
@@ -542,13 +542,13 @@ try {
 
 - [ ] **Step 7: Update the `hello` handshake**
 
-At `app.js:7666`, the outbound hello — change `pass: syncMeta.passHash` to include version + salt:
+At `client.js:7666`, the outbound hello — change `pass: syncMeta.passHash` to include version + salt:
 
 ```js
 try { c.send({ type: 'hello', name: syncMeta.deviceName, pass: syncMeta.passHash, passV: syncMeta.passHashV || 1, salt: syncMeta.passSalt || '' }); } catch (_) {}
 ```
 
-At `app.js:7703-7718` (`handleData` `hello` branch), replace the match check:
+At `client.js:7703-7718` (`handleData` `hello` branch), replace the match check:
 
 ```js
 if (d.type === 'hello') {
@@ -580,7 +580,7 @@ if (d.type === 'hello') {
 
 - [ ] **Step 8: Add the first-load nudge**
 
-In `normalizeState` (`app.js:756`) or right after `syncMeta` loads (`app.js:7598`), add:
+In `normalizeState` (`client.js:756`) or right after `syncMeta` loads (`client.js:7598`), add:
 
 ```js
 if (syncMeta.passHash && !syncMeta.passSalt && !localStorage.getItem('lumen.passUpgradeNudged')) {
@@ -623,7 +623,7 @@ Expected: PASS.
 - [ ] **Step 11: Commit**
 
 ```bash
-git add src/lib/crypto.js tests/unit/crypto.test.js tests/regression.spec.js app.js
+git add src/lib/crypto.js tests/unit/crypto.test.js tests/regression.spec.js client.js
 git commit -m "feat: salt sync passphrase hash with PBKDF2 (v2), keep v1 verification for migration"
 ```
 
@@ -634,7 +634,7 @@ git commit -m "feat: salt sync passphrase hash with PBKDF2 (v2), keep v1 verific
 **Files:**
 - Modify: `src/lib/schedule.js` (fill it)
 - Create: `tests/unit/schedule.test.js`
-- Modify: `app.js` (`timeToMin`/`minToTime` at `app.js:1131-1132`, `generatePeriods` at `app.js:1133-1151` → delegators)
+- Modify: `client.js` (`timeToMin`/`minToTime` at `client.js:1131-1132`, `generatePeriods` at `client.js:1133-1151` → delegators)
 
 **Interfaces:**
 - Produces:
@@ -691,7 +691,7 @@ Expected: FAIL — nothing exported.
 
 - [ ] **Step 3: Fill `src/lib/schedule.js`**
 
-Move verbatim from `app.js:1131-1151`, add JSDoc + `export`.
+Move verbatim from `client.js:1131-1151`, add JSDoc + `export`.
 
 ```js
 // src/lib/schedule.js
@@ -739,9 +739,9 @@ export function generatePeriods(start, end, interval, breaks) {
 }
 ```
 
-- [ ] **Step 4: Replace the `app.js` bodies with delegators**
+- [ ] **Step 4: Replace the `client.js` bodies with delegators**
 
-At `app.js:1131-1151`:
+At `client.js:1131-1151`:
 
 ```js
 function timeToMin(t) { return window.LumenLib.schedule.timeToMin(t); }
@@ -760,7 +760,7 @@ Expected: PASS.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/lib/schedule.js tests/unit/schedule.test.js app.js
+git add src/lib/schedule.js tests/unit/schedule.test.js client.js
 git commit -m "refactor: extract generatePeriods to src/lib/schedule.js with edge-case unit tests"
 ```
 
@@ -771,15 +771,15 @@ git commit -m "refactor: extract generatePeriods to src/lib/schedule.js with edg
 **Files:**
 - Modify: `src/lib/parser.js` (fill it)
 - Create: `tests/unit/parser.test.js`
-- Modify: `app.js` (`parseNaturalLanguageTask` at `app.js:487-621` → delegator that injects deps)
+- Modify: `client.js` (`parseNaturalLanguageTask` at `client.js:487-621` → delegator that injects deps)
 
 **Interfaces:**
 - Produces: `parseNaturalLanguageTask(rawText: string, deps: { students: {id,name}[], projects: {id,name}[], goals: {id,title}[], now: Date }) → { title, due, startTime, priority, tags, category, goalId, projectId, student, status } | null`
-- The `app.js` delegator supplies `deps` from `getStudentsList()`, `state.projects`, `state.goals`, `new Date()`.
+- The `client.js` delegator supplies `deps` from `getStudentsList()`, `state.projects`, `state.goals`, `new Date()`.
 
 - [ ] **Step 1: Capture current behavior as golden fixtures (characterization)**
 
-Before touching `app.js`, add a temporary Playwright probe in `tests/regression.spec.js` to dump current parser output for the fixture inputs, run it, and paste the results into the unit test as expected values:
+Before touching `client.js`, add a temporary Playwright probe in `tests/regression.spec.js` to dump current parser output for the fixture inputs, run it, and paste the results into the unit test as expected values:
 
 ```js
 test.skip('DUMP parser fixtures', async ({ page }) => {
@@ -853,7 +853,7 @@ Expected: FAIL — nothing exported.
 
 - [ ] **Step 4: Fill `src/lib/parser.js`**
 
-Move `app.js:487-621` verbatim, then rewrite the three impure reads:
+Move `client.js:487-621` verbatim, then rewrite the three impure reads:
 - `const studentsList = getStudentsList();` → `const studentsList = deps.students || [];`
 - `(state.projects || [])` → `(deps.projects || [])`
 - `(state.goals || [])` → `(deps.goals || [])`
@@ -885,7 +885,7 @@ export function parseNaturalLanguageTask(rawText, deps) {
   const projects = d.projects || [];
   const goals = d.goals || [];
   const today = d.now || new Date();
-  // ... rest of the body from app.js:490-621, with:
+  // ... rest of the body from client.js:490-621, with:
   //   isoDate(x)      -> isoLocal(x)
   //   todayISO()      -> isoLocal(today)
   //   shiftDays(n)    -> shift(today, n)
@@ -897,9 +897,9 @@ export function parseNaturalLanguageTask(rawText, deps) {
 
 Verify `isoLocal` matches the app's `isoDate`/`todayISO` output format by comparing against the golden fixtures from Step 1. If the app's helpers use UTC, mirror that instead — the golden fixtures are the source of truth.
 
-- [ ] **Step 5: Replace the `app.js` body with a delegator**
+- [ ] **Step 5: Replace the `client.js` body with a delegator**
 
-At `app.js:487`:
+At `client.js:487`:
 
 ```js
 function parseNaturalLanguageTask(rawText) {
@@ -923,7 +923,7 @@ Expected: PASS.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/lib/parser.js tests/unit/parser.test.js app.js
+git add src/lib/parser.js tests/unit/parser.test.js client.js
 git commit -m "refactor: extract parseNaturalLanguageTask to src/lib/parser.js (deps-injected) with golden tests"
 ```
 
@@ -934,11 +934,11 @@ git commit -m "refactor: extract parseNaturalLanguageTask to src/lib/parser.js (
 **Files:**
 - Modify: `src/lib/merge.js` (fill it)
 - Create: `tests/unit/merge.test.js`
-- Modify: `app.js` (`applyMerge` at `app.js:7748-7895` → delegator that keeps side effects)
+- Modify: `client.js` (`applyMerge` at `client.js:7748-7895` → delegator that keeps side effects)
 
 **Interfaces:**
 - Produces: `applyMerge(ctx: { state: object, syncMeta: object, inc: object, incomingRev: number }) → boolean` — mutates `ctx.state` and `ctx.syncMeta` in place; returns `changed`; bumps `ctx.syncMeta.rev` when changed. Does NOT persist or render.
-- The `app.js` delegator calls `saveSyncMeta()` always, and `save()` + re-render when `changed`.
+- The `client.js` delegator calls `saveSyncMeta()` always, and `save()` + re-render when `changed`.
 
 - [ ] **Step 1: Write characterization unit tests**
 
@@ -1024,11 +1024,11 @@ Expected: FAIL — nothing exported.
 
 - [ ] **Step 3: List every identifier `applyMerge` uses**
 
-Run: `sed -n '7748,7895p' app.js` and note every free identifier. Expected set: `state`, `syncMeta`, `incomingRev`, plus locals (`key`, `keyAch`, `mergeOne`, `before`, `changed`). The tail (`app.js:7888-7893`) calls `saveSyncMeta`, `save`, `currentView`, `renderSettings`, `renderView` — these move OUT to the delegator.
+Run: `sed -n '7748,7895p' client.js` and note every free identifier. Expected set: `state`, `syncMeta`, `incomingRev`, plus locals (`key`, `keyAch`, `mergeOne`, `before`, `changed`). The tail (`client.js:7888-7893`) calls `saveSyncMeta`, `save`, `currentView`, `renderSettings`, `renderView` — these move OUT to the delegator.
 
 - [ ] **Step 4: Fill `src/lib/merge.js`**
 
-Move `app.js:7748-7887` (the merge logic, up to and including the `const changed = ...` computation). Wrap in `export function applyMerge({ state, syncMeta, inc, incomingRev })`. Keep the `changed`-guarded `syncMeta.rev` bump (`app.js:7890`). **Drop** `saveSyncMeta()`, `save()`, and the render call. Return `changed`.
+Move `client.js:7748-7887` (the merge logic, up to and including the `const changed = ...` computation). Wrap in `export function applyMerge({ state, syncMeta, inc, incomingRev })`. Keep the `changed`-guarded `syncMeta.rev` bump (`client.js:7890`). **Drop** `saveSyncMeta()`, `save()`, and the render call. Return `changed`.
 
 ```js
 // src/lib/merge.js
@@ -1041,8 +1041,8 @@ Move `app.js:7748-7887` (the merge logic, up to and including the `const changed
  * @returns {boolean} whether anything changed
  */
 export function applyMerge({ state, syncMeta, inc, incomingRev }) {
-  // ... body from app.js:7749-7887 verbatim ...
-  const changed = /* ... the before !== after comparison from app.js:7887 ... */;
+  // ... body from client.js:7749-7887 verbatim ...
+  const changed = /* ... the before !== after comparison from client.js:7887 ... */;
   if (changed) {
     syncMeta.rev = Math.max(syncMeta.rev || 0, incomingRev) + 1;
   }
@@ -1055,9 +1055,9 @@ export function applyMerge({ state, syncMeta, inc, incomingRev }) {
 Run: `npm run test:unit -- merge`
 Expected: PASS.
 
-- [ ] **Step 6: Replace the `app.js` body with a delegator**
+- [ ] **Step 6: Replace the `client.js` body with a delegator**
 
-At `app.js:7748`:
+At `client.js:7748`:
 
 ```js
 function applyMerge(inc, incomingRev) {
@@ -1079,8 +1079,8 @@ Expected: all green (44 + Task 2/4 additions). No sync spec exists today; confir
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src/lib/merge.js tests/unit/merge.test.js app.js
-git commit -m "refactor: extract applyMerge to src/lib/merge.js (pure merge, side effects stay in app.js)"
+git add src/lib/merge.js tests/unit/merge.test.js client.js
+git commit -m "refactor: extract applyMerge to src/lib/merge.js (pure merge, side effects stay in client.js)"
 ```
 
 ---
@@ -1092,7 +1092,7 @@ git commit -m "refactor: extract applyMerge to src/lib/merge.js (pure merge, sid
 - Create: `tests/unit/gemini.test.js`
 - Modify: `src/lib/globals.js` (add `gemini` namespace)
 - Modify: `sw.js` (`SHELL` += `./src/lib/gemini.js`)
-- Modify: `app.js` (`callGemini` at `app.js:626-656` → delegator; daily-focus cache at `app.js:2286`)
+- Modify: `client.js` (`callGemini` at `client.js:626-656` → delegator; daily-focus cache at `client.js:2286`)
 
 **Interfaces:**
 - Produces: `requestGemini({ apiKey, model, prompt, systemInstruction, fetchImpl?, timeoutMs? }) → Promise<string>` — throws `Error('NO_API_KEY')`, `Error('GEMINI_TIMEOUT')`, or an API error message. Retries once on 429/5xx.
@@ -1218,9 +1218,9 @@ export async function requestGemini(opts) {
 
 In `src/lib/globals.js`, add `import * as geminiLib from './gemini.js';` and `gemini: geminiLib` to `window.LumenLib`. Update the `regression.spec.js` bootstrap assertion's expected keys to `['crypto', 'gemini', 'merge', 'parser', 'schedule']`. Add `'./src/lib/gemini.js'` to `sw.js` `SHELL`.
 
-- [ ] **Step 5: Rewrite `callGemini` in `app.js` as a delegator**
+- [ ] **Step 5: Rewrite `callGemini` in `client.js` as a delegator**
 
-At `app.js:626-656`:
+At `client.js:626-656`:
 
 ```js
 async function callGemini(prompt, systemInstruction = '') {
@@ -1232,11 +1232,11 @@ async function callGemini(prompt, systemInstruction = '') {
 
 - [ ] **Step 6: Cache the Morning Brief daily focus**
 
-At `app.js:2286` (the `generateFocus` handler that calls `callGemini`), before calling: if `state.settings.aiDailyFocusAt === todayISO()` and `state.settings.aiDailyFocus`, render the cached value and return. After a successful call, set `state.settings.aiDailyFocus = res; state.settings.aiDailyFocusAt = todayISO(); save();`.
+At `client.js:2286` (the `generateFocus` handler that calls `callGemini`), before calling: if `state.settings.aiDailyFocusAt === todayISO()` and `state.settings.aiDailyFocus`, render the cached value and return. After a successful call, set `state.settings.aiDailyFocus = res; state.settings.aiDailyFocusAt = todayISO(); save();`.
 
 - [ ] **Step 7: Surface `NO_API_KEY` inline**
 
-At each `callGemini` call site with a `catch` (`app.js:2297, 5293, 6879, 7180, 11416`), change the `NO_API_KEY` branch from `toast(...)` to inserting an inline link: `` `<a href="#settings" onclick="closeModal&&closeModal()">Add your Gemini API key in Settings →</a>` `` into the result container. Add a shared helper `geminiKeyMissingHTML()` near `callGemini`.
+At each `callGemini` call site with a `catch` (`client.js:2297, 5293, 6879, 7180, 11416`), change the `NO_API_KEY` branch from `toast(...)` to inserting an inline link: `` `<a href="#settings" onclick="closeModal&&closeModal()">Add your Gemini API key in Settings →</a>` `` into the result container. Add a shared helper `geminiKeyMissingHTML()` near `callGemini`.
 
 - [ ] **Step 8: Run unit + E2E**
 
@@ -1246,7 +1246,7 @@ Expected: all green. (AI paths have no live E2E — the smoke suite confirms no 
 - [ ] **Step 9: Commit**
 
 ```bash
-git add src/lib/gemini.js src/lib/globals.js tests/unit/gemini.test.js tests/regression.spec.js sw.js app.js
+git add src/lib/gemini.js src/lib/globals.js tests/unit/gemini.test.js tests/regression.spec.js sw.js client.js
 git commit -m "feat: harden callGemini with 12s timeout, one retry, daily-focus cache, inline no-key CTA"
 ```
 
@@ -1260,7 +1260,7 @@ git commit -m "feat: harden callGemini with 12s timeout, one retry, daily-focus 
 - Modify: `package.json` (`test:all` convenience script)
 
 **Interfaces:**
-- Consumes: `window.Lumen.perfLog` (`app.js:1621`) — array of `{ view, ms, ts, slow }`.
+- Consumes: `window.Lumen.perfLog` (`client.js:1621`) — array of `{ view, ms, ts, slow }`.
 
 - [ ] **Step 1: Write the perf budget spec**
 
@@ -1377,7 +1377,7 @@ git tag v104
 - Perf budget test → Task 9. ✅
 - Release ritual (VERSION, ?v=, tag) → Task 2, Task 9. ✅
 
-**Placeholder scan:** Task 6 Step 4 and Task 7 Step 4 say "body from app.js:NNN verbatim" rather than reproducing 130/140 lines — this is deliberate (the source is in the repo at a cited range and must be moved unchanged); the transformations to apply are listed explicitly. Task 8 Step 7 lists exact call-site line numbers. No other placeholders.
+**Placeholder scan:** Task 6 Step 4 and Task 7 Step 4 say "body from client.js:NNN verbatim" rather than reproducing 130/140 lines — this is deliberate (the source is in the repo at a cited range and must be moved unchanged); the transformations to apply are listed explicitly. Task 8 Step 7 lists exact call-site line numbers. No other placeholders.
 
 **Type consistency:** `hashPassLegacy(passphrase)` (Task 3) vs `hashPass(passphrase, saltB64)` (Task 4) — distinct names, distinct arities, both used correctly in Task 4 Steps 6-7. `applyMerge(ctx)` object param (Task 7) matches the delegator call in Task 7 Step 6. `requestGemini(opts)` (Task 8) matches its test and the `callGemini` delegator.
 

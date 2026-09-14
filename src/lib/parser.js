@@ -3,7 +3,7 @@
 
 /**
  * @param {Date} d
- * @returns {string} YYYY-MM-DD (local), matching app.js isoDate()
+ * @returns {string} YYYY-MM-DD (local), matching client.js isoDate()
  */
 function isoLocal(d) {
   const y = d.getFullYear();

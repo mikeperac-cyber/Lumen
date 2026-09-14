@@ -5933,7 +5933,7 @@ function backfillVaultLinks(){
 }
 function vaultLinkPickerHTML(selectedIds){ return VaultStore.vaultLinkPickerHTML(selectedIds, getVaultItems()); }
 
-// expose for tests/debug — Vite seam: src/vault/store.js + view.js are the source of truth, app.js shims for now
+// expose for tests/debug — Vite seam: src/vault/store.js + view.js are the source of truth, client.js shims for now
 window.LumenLib = window.LumenLib || {};
 window.LumenLib.vault = window.LumenLib.vault || {};
 Object.assign(window.LumenLib.vault, { getVaultItems, getVaultCollections, getVaultFiltered, openVaultModal, renderVault });
@@ -11455,7 +11455,7 @@ if (typeof window !== 'undefined') { try {
   // handing out the pre-rebind object to src/state/store.js and to the specs.
   Object.defineProperty(window, 'state', { get: () => state, set: (v) => { state = v; }, configurable: true }); window.save = save; window.saveIdle = saveIdle; window.load = load; window.renderView = typeof renderView !== 'undefined' ? renderView : undefined; window.flushSave = typeof flushSave !== 'undefined' ? flushSave : undefined; window.autoVaultBackup = typeof autoVaultBackup !== 'undefined' ? autoVaultBackup : undefined; window.autoVaultList = typeof autoVaultList !== 'undefined' ? autoVaultList : undefined; window.autoVaultDb = typeof autoVaultDb !== 'undefined' ? autoVaultDb : undefined; window.decryptVaultBackup = typeof decryptVaultBackup !== 'undefined' ? decryptVaultBackup : undefined; window.encryptVaultBackup = typeof encryptVaultBackup !== 'undefined' ? encryptVaultBackup : undefined; window.vaultGuessType = typeof vaultGuessType !== 'undefined' ? vaultGuessType : undefined; } catch(_){} }
 
-/* Test seam. app.js is an ES module, so nothing here is global by accident —
+/* Test seam. client.js is an ES module, so nothing here is global by accident —
    anything a spec needs must be named below on purpose. Keep this list small:
    every entry is a coupling between the suite and app internals.
    Mutable bindings are exposed as getters so specs observe reassignment. */

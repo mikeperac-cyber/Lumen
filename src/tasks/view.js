@@ -1,6 +1,6 @@
 // src/tasks/view.js — task presentation. Pure builders: everything from app state is
 // injected, the same deps pattern as src/vault/view.js. renderTasks and openTaskModal
-// stay in app.js; they own filtering, drag-and-drop and the DOM wiring.
+// stay in client.js; they own filtering, drag-and-drop and the DOM wiring.
 import { esc, fmtShort, todayISO } from '../lib/helpers.js';
 import { PRIOS, CATEGORIES, RECURRENCE, COVER_COLORS, MATRIX_PAGE } from '../lib/constants.js';
 
@@ -131,7 +131,7 @@ export function taskCardHTML(t, ctx) {
 
 /**
  * The kanban board chrome — toolbar, quick-add, columns and the batch bar. Column
- * bodies are left empty on purpose: app.js fills them through renderTaskColumnBody,
+ * bodies are left empty on purpose: client.js fills them through renderTaskColumnBody,
  * which windows long lists as you scroll.
  * @param {TaskBoardCtx} ctx
  * @returns {string}

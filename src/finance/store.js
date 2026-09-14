@@ -1,6 +1,6 @@
 // src/finance/store.js — finance arithmetic: filtering, monthly rollups, per-student
 // balances and the overdue-payment matcher. Pure functions, no rendering — the SVG
-// charts and markup stay in app.js pending a follow-on extraction, the same order
+// charts and markup stay in client.js pending a follow-on extraction, the same order
 // store-before-view took for the vault, tasks and schedule modules.
 
 /**

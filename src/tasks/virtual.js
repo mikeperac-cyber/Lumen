@@ -2,7 +2,7 @@
 //
 // A column may hold hundreds of cards. Rendering them all is what made long boards
 // slow, so only the cards near the viewport go into the DOM and the rest become two
-// spacer divs. This module decides the slice; app.js owns the DOM: it measures each
+// spacer divs. This module decides the slice; client.js owns the DOM: it measures each
 // rendered card's height, feeds the measurements back in on the next pass, and binds
 // the result. Pure and framework-free, so the edge cases are testable.
 
@@ -40,7 +40,7 @@ export function visibleWindow({ items = [], heights = {}, scrollTop = 0, clientH
   const hOf = (t) => (t && heights[t.id]) || estHeight;
 
   // `first` starts past the end so "no card reaches the scroll position" is
-  // representable. app.js initialised it to 0, which the clamp below could never
+  // representable. client.js initialised it to 0, which the clamp below could never
   // catch: when a filter shortened a column that was scrolled down, `first` stayed 0
   // while `y` ran to the full content height, giving a full-height top spacer above
   // cards starting at index 0 — a blank column with the wrong slice under it.

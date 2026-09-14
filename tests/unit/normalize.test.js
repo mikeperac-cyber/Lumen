@@ -2,7 +2,7 @@ import { describe, it, beforeEach } from 'vitest';
 import assert from 'node:assert/strict';
 
 // Minimal harness for normalizeState-like behavior — we test the pure parts via direct state shape checks.
-// Full normalizeState lives in app.js (classic) and is tested via integration; here we verify the contract
+// Full normalizeState lives in client.js (classic) and is tested via integration; here we verify the contract
 // that new fields are backfilled and vaultGuessType single-source is used.
 
 import { vaultGuessType } from '../../src/vault/store.js';
