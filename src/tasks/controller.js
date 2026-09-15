@@ -32,12 +32,13 @@ export function getSearchTasksHay(tasks) {
     _searchTasksCacheUpdated = 0;
     return _searchTasksCache;
   }
-  const uFirst = list[0]?.updatedAt || 0;
-  const uLast = list[len - 1]?.updatedAt || 0;
-  const uMid = list[len >> 1]?.updatedAt || 0;
-  const sampleMax = Math.max(uFirst, uLast, uMid);
+  let maxUpdated = 0;
+  for (let i = 0; i < len; i++) {
+    const u = list[i]?.updatedAt || 0;
+    if (u > maxUpdated) maxUpdated = u;
+  }
 
-  if (_searchTasksCache && _searchTasksCacheLen === len && _searchTasksCacheUpdated === sampleMax && _searchTasksCache[0]?.t === list[0] && _searchTasksCache[len - 1]?.t === list[len - 1]) {
+  if (_searchTasksCache && _searchTasksCacheLen === len && _searchTasksCacheUpdated === maxUpdated && _searchTasksCache[0]?.t === list[0] && _searchTasksCache[len - 1]?.t === list[len - 1]) {
     return _searchTasksCache;
   }
 
@@ -63,7 +64,7 @@ export function getSearchTasksHay(tasks) {
     out[i] = { t, hay: hay.toLowerCase() };
   }
   _searchTasksCacheLen = len;
-  _searchTasksCacheUpdated = sampleMax;
+  _searchTasksCacheUpdated = maxUpdated;
   _searchTasksCache = out;
   return out;
 }
