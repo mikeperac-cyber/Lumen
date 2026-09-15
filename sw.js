@@ -2,7 +2,7 @@
    Versioning: bump VERSION alone to ship a new build; activate deletes older caches.
    Assets are content-hashed by the build, so their URLs change on their own — the
    ?v= handling below is kept only for the unhashed files (index.html, icons). */
-const VERSION = 'lumen-cache-v139';
+const VERSION = 'lumen-cache-v140';
 /* SHELL is GENERATED — scripts/postbuild.js rewrites it from the real contents of
    dist/ on every `npm run build`. Do not hand-edit; add files to the build instead. */
 const SHELL = [
