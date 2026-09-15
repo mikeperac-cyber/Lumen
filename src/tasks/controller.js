@@ -32,30 +32,28 @@ export function getSearchTasksHay(tasks) {
     _searchTasksCacheUpdated = 0;
     return _searchTasksCache;
   }
-  const uFirst = list[0]?.updatedAt || 0;
-  const uLast = list[len - 1]?.updatedAt || 0;
-  const uMid = list[len >> 1]?.updatedAt || 0;
-  let maxUpdated = Math.max(uFirst, uLast, uMid);
-
-  if (_searchTasksCache && _searchTasksCacheLen === len && _searchTasksCacheUpdated === maxUpdated) {
-    return _searchTasksCache;
-  }
-
+  let maxUpdated = 0;
   for (let i = 0; i < len; i++) {
     const u = list[i]?.updatedAt || 0;
     if (u > maxUpdated) maxUpdated = u;
   }
-  if (_searchTasksCache && _searchTasksCacheLen === len && _searchTasksCacheUpdated === maxUpdated) {
+
+  if (_searchTasksCache && _searchTasksCacheLen === len && _searchTasksCacheUpdated === maxUpdated && _searchTasksCache[0]?.t === list[0] && _searchTasksCache[len - 1]?.t === list[len - 1]) {
     return _searchTasksCache;
   }
 
-  _searchTasksCacheLen = len;
-  _searchTasksCacheUpdated = maxUpdated;
   const out = new Array(len);
   for (let i = 0; i < len; i++) {
     const t = list[i];
-    let hay = (t.title || '') + ' ' + (t.desc || '');
-    if (t.tags && t.tags.length) hay += ' ' + t.tags.join(' ');
+    if (!t) { out[i] = { t: {}, hay: '' }; continue; }
+
+    let hay = t.title || '';
+    if (t.desc) hay += ' ' + t.desc;
+    if (t.tags && t.tags.length) {
+      for (let j = 0; j < t.tags.length; j++) {
+        if (t.tags[j]) hay += ' ' + t.tags[j];
+      }
+    }
     if (t.comments && t.comments.length) {
       for (let j = 0; j < t.comments.length; j++) {
         const c = t.comments[j];
@@ -65,6 +63,8 @@ export function getSearchTasksHay(tasks) {
     if (t.student) hay += ' ' + t.student;
     out[i] = { t, hay: hay.toLowerCase() };
   }
+  _searchTasksCacheLen = len;
+  _searchTasksCacheUpdated = maxUpdated;
   _searchTasksCache = out;
   return out;
 }

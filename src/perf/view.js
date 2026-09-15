@@ -5,14 +5,16 @@ export function perfStats(perfLog = []) {
   const slowCountByView = {};
 
   // Single pass through perfLog to gather measurements and count slow entries
-  for (let i = 0; i < perfLog.length; i++) {
+  for (let i = 0; i < (perfLog || []).length; i++) {
     const entry = perfLog[i];
+    if (!entry || !entry.view) continue;
     const v = entry.view;
     if (!byView[v]) {
       byView[v] = [];
       slowCountByView[v] = 0;
     }
-    byView[v].push(entry.ms);
+    const msVal = typeof entry.ms === 'number' && !isNaN(entry.ms) ? entry.ms : 0;
+    byView[v].push(msVal);
     if (entry.slow) {
       slowCountByView[v]++;
     }
@@ -54,7 +56,10 @@ export function calculateVelocity(tasks = []) {
   for (let i = 13; i >= 0; i--) {
     const d = new Date();
     d.setDate(now.getDate() - i);
-    const iso = d.toLocaleDateString('en-CA');
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const iso = `${year}-${month}-${day}`;
     const label = d.toLocaleDateString(undefined, { weekday: 'narrow', month: 'numeric', day: 'numeric' });
     const dayObj = { iso, label, count: 0 };
     velocityDays.push(dayObj);
@@ -62,10 +67,12 @@ export function calculateVelocity(tasks = []) {
   }
 
   // Single pass through tasks to count completions
-  for (let i = 0; i < tasks.length; i++) {
-    const t = tasks[i];
-    if (t.completedAt && dayMap[t.completedAt]) {
-      dayMap[t.completedAt].count++;
+  if (Array.isArray(tasks)) {
+    for (let i = 0; i < tasks.length; i++) {
+      const t = tasks[i];
+      if (t && t.completedAt && dayMap[t.completedAt]) {
+        dayMap[t.completedAt].count++;
+      }
     }
   }
 

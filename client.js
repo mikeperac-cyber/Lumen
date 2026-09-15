@@ -9471,15 +9471,22 @@ function renderPerf() {
 
   // --- 24-Hour Peak Productivity Histogram ---
   const hourCounts = new Array(24).fill(0);
+  const addHourCount = (dateVal) => {
+    if (!dateVal) return;
+    const d = new Date(dateVal);
+    const h = d.getHours();
+    if (!isNaN(h) && h >= 0 && h < 24) hourCounts[h]++;
+  };
+
   (state.pomoHistory || []).forEach(p => {
-    if (p.at) hourCounts[new Date(p.at).getHours()]++;
+    if (p && p.at) addHourCount(p.at);
   });
-  state.tasks.filter(t => t.completedAt && t.updatedAt).forEach(t => {
-    hourCounts[new Date(t.updatedAt).getHours()]++;
+  (state.tasks || []).filter(t => t && t.completedAt && t.updatedAt).forEach(t => {
+    addHourCount(t.updatedAt);
   });
   const maxHourCount = Math.max(1, ...hourCounts);
   const peakHour = hourCounts.indexOf(maxHourCount);
-  const peakWindowStr = `${peakHour}:00 – ${peakHour + 1}:00`;
+  const peakWindowStr = maxHourCount > 0 && peakHour >= 0 ? `${peakHour}:00 – ${peakHour + 1}:00` : 'None';
 
   // --- Focus Time Allocation by Category ---
   const catFocusMap = {};
