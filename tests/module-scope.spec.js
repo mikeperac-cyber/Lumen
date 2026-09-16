@@ -15,8 +15,8 @@ async function boot(page) {
   return errors;
 }
 
-test('no inline handler in app.js depends on a module-scoped function', () => {
-  const src = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
+test('no inline handler in client.js depends on a module-scoped function', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'client.js'), 'utf8');
   // `event` is supplied by the inline-handler scope chain, so it is allowed.
   // Anything else named here must resolve on `window`, which module scope breaks.
   const offenders = (src.match(/onclick="(?:(?!event\.)[^"])*?[A-Za-z_$][\w$]*\s*\(/g) || []);

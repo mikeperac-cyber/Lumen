@@ -70,7 +70,12 @@ export function vaultTypeIcon(type) {
  */
 export function getVaultHay(v) {
   if (!v) return '';
-  return [v.title, v.url, v.description, v.fileName, (v.tags || []).join(' ')].filter(Boolean).join(' ').toLowerCase();
+  let hay = v.title || '';
+  if (v.url) hay += (hay ? ' ' : '') + v.url;
+  if (v.description) hay += (hay ? ' ' : '') + v.description;
+  if (v.fileName) hay += (hay ? ' ' : '') + v.fileName;
+  if (v.tags && v.tags.length) hay += (hay ? ' ' : '') + v.tags.join(' ');
+  return hay.toLowerCase();
 }
 
 /**
@@ -79,7 +84,14 @@ export function getVaultHay(v) {
  * @returns {Array<{v: object, hay: string}>}
  */
 export function getSearchVaultHay(items = (typeof state !== 'undefined' && state?.vaultItems) || (typeof window !== 'undefined' && window.state?.vaultItems) || []) {
-  return (items || []).map(v => ({ v, hay: getVaultHay(v) }));
+  const list = items || [];
+  const len = list.length;
+  const out = new Array(len);
+  for (let i = 0; i < len; i++) {
+    const v = list[i];
+    out[i] = { v, hay: getVaultHay(v) };
+  }
+  return out;
 }
 
 export function closeVaultDb() {

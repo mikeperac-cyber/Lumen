@@ -12,6 +12,7 @@ export default defineConfig({
       input: 'index.html',
       output: {
         manualChunks(id) {
+          if (id.includes('src/lib/crypto')) return 'crypto';
           if (id.includes('src/tasks')) return 'tasks';
           if (id.includes('src/vault')) return 'vault';
           if (id.includes('src/finance')) return 'finance';
@@ -19,6 +20,7 @@ export default defineConfig({
           if (id.includes('src/habits')) return 'habits';
           if (id.includes('src/schedule')) return 'schedule';
           if (id.includes('src/notes')) return 'notes';
+          if (id.includes('src/perf')) return 'perf';
           if (id.includes('src/lib') || id.includes('src/state') || id.includes('src/main.js')) return 'core';
         }
       }
