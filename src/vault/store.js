@@ -29,7 +29,7 @@ export function vaultBlobPut(key, blob) {
       tx.oncomplete = () => res();
       tx.onerror = () => rej(tx.error);
     })),
-    new Promise((_, rej) => setTimeout(() => rej(new Error('vaultBlobPut timeout')), 200))
+    new Promise((_, rej) => setTimeout(() => rej(new Error('vaultBlobPut timeout')), 5000))
   ]);
 }
 export function vaultBlobGet(key) { return vaultDb().then(db => new Promise((res, rej) => { const tx = db.transaction(VAULT_STORE, 'readonly'); const rq = tx.objectStore(VAULT_STORE).get(key); rq.onsuccess = () => res(rq.result || null); rq.onerror = () => rej(rq.error); })); }
