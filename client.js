@@ -64,11 +64,17 @@ function bindFilterInput(selector, debounceMs, callback) {
     const cursor = el.selectionStart;
     const val = e.target.value;
     timer = setTimeout(() => {
+      // Check if we *still* have focus before firing the callback.
+      // If we don't, the user clicked away during the debounce window,
+      // and we shouldn't steal focus back.
+      const stillHasFocus = document.activeElement === e.target;
       callback(val.toLowerCase());
-      const newEl = document.querySelector(selector);
-      if (newEl) {
-        newEl.focus();
-        try { newEl.setSelectionRange(cursor, cursor); } catch (_) {}
+      if (stillHasFocus) {
+        const newEl = document.querySelector(selector);
+        if (newEl) {
+          newEl.focus();
+          try { newEl.setSelectionRange(cursor, cursor); } catch (_) {}
+        }
       }
     }, debounceMs);
   });
