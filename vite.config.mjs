@@ -19,6 +19,7 @@ export default defineConfig({
           if (id.includes('src/habits')) return 'habits';
           if (id.includes('src/schedule')) return 'schedule';
           if (id.includes('src/notes')) return 'notes';
+          if (id.includes('src/perf')) return 'perf';
           if (id.includes('src/lib') || id.includes('src/state') || id.includes('src/main.js')) return 'core';
         }
       }
