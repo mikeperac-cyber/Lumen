@@ -46,14 +46,33 @@ const server = http.createServer((req, res) => {
       res.statusCode = 500;
       return res.end('Server Error');
     }
-    res.writeHead(200, {
+
+    const filename = path.basename(filePath);
+    const headers = {
       'Content-Type': contentType,
-      'Cache-Control': ext === '.html' ? 'no-cache' : 'public, max-age=31536000, immutable'
-    });
+      'X-Content-Type-Options': 'nosniff',
+      'X-Frame-Options': 'SAMEORIGIN',
+      'Referrer-Policy': 'strict-origin-when-cross-origin'
+    };
+
+    if (filename === 'sw.js') {
+      headers['Cache-Control'] = 'public, max-age=0, must-revalidate';
+      headers['Service-Worker-Allowed'] = '/';
+    } else if (ext === '.html' || ext === '.webmanifest' || filename === 'manifest.webmanifest') {
+      headers['Cache-Control'] = 'public, max-age=0, must-revalidate';
+    } else {
+      headers['Cache-Control'] = 'public, max-age=31536000, immutable';
+    }
+
+    res.writeHead(200, headers);
     res.end(content);
   });
 });
 
-server.listen(PORT, () => {
-  console.log(`Lumen static server running on port ${PORT}`);
-});
+if (require.main === module) {
+  server.listen(PORT, () => {
+    console.log(`Lumen static server running on port ${PORT}`);
+  });
+}
+
+module.exports = server;
