@@ -61,12 +61,13 @@ function bindFilterInput(selector, debounceMs, callback) {
   let timer;
   el.addEventListener('input', e => {
     clearTimeout(timer);
-    const cursor = el.selectionStart;
+    const cursor = e.target.selectionStart;
     const val = e.target.value;
     timer = setTimeout(() => {
+      const isFocused = document.activeElement === e.target;
       callback(val.toLowerCase());
       const newEl = document.querySelector(selector);
-      if (newEl) {
+      if (newEl && isFocused) {
         newEl.focus();
         try { newEl.setSelectionRange(cursor, cursor); } catch (_) {}
       }
