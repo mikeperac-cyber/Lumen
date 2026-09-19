@@ -1109,24 +1109,32 @@ function saveIdle() {
   save({ idle: true });
 }
 
-function flushSave() {
+function flushSave(isUnloading = false) {
   if (idleSaveHandle) {
     cancelIdle(idleSaveHandle);
     idleSaveHandle = null;
   }
   saveDirty = false;
   const json = JSON.stringify(state);
+  // Dual-write: IDB (async, quota-safe) + localStorage (sync fallback for pagehide)
+  // Only write to localStorage synchronously on page hide/unload to avoid blocking main thread.
+  if (isUnloading === true || document.visibilityState === 'hidden' || typeof window.indexedDB === 'undefined') {
+    try {
+      if (json !== localStorage.getItem(KEY)) localStorage.setItem(KEY, json);
+    } catch (e) {
+      console.warn('localStorage quota exceeded — IDB is primary', e);
+    }
+  }
+
   // Skip write if state hasn't changed (avoids IDB churn)
   if (json === lastSavedJson) return;
   lastSavedJson = json;
-  // Dual-write: IDB (async, quota-safe) + localStorage (sync fallback for pagehide)
-  try { localStorage.setItem(KEY, json); } catch (e) { console.warn('localStorage quota exceeded — IDB is primary', e); }
   stateDbPut(json).catch(() => {});
   maybeAutoSync();
   checkOverdueNotifications();
 }
-window.addEventListener('pagehide', flushSave);
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushSave(); });
+window.addEventListener('pagehide', () => flushSave(true));
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushSave(true); });
 
 /* ============ Undo / Redo ============ */
 const UNDO_MAX = 40;
